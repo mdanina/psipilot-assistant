@@ -6,9 +6,10 @@ import { Loader2 } from 'lucide-react';
 interface ProtectedRouteProps {
   children: React.ReactNode;
   requiredRole?: UserRole | UserRole[];
+  skipOnboardingCheck?: boolean;
 }
 
-export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
+export function ProtectedRoute({ children, requiredRole, skipOnboardingCheck }: ProtectedRouteProps) {
   const { isAuthenticated, isLoading, profile } = useAuth();
   const location = useLocation();
 
@@ -24,6 +25,11 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
   // Redirect to login if not authenticated
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  // Check if user needs onboarding (no clinic assigned)
+  if (!skipOnboardingCheck && profile && !profile.clinic_id) {
+    return <Navigate to="/onboarding" replace />;
   }
 
   // Check role if required

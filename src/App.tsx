@@ -11,6 +11,7 @@ import { MainLayout } from "@/components/layout/MainLayout";
 // Pages
 import Index from "./pages/Index";
 import LoginPage from "./pages/LoginPage";
+import OnboardingPage from "./pages/OnboardingPage";
 import UnauthorizedPage from "./pages/UnauthorizedPage";
 import PatientsPage from "./pages/PatientsPage";
 import SessionsPage from "./pages/SessionsPage";
@@ -32,6 +33,16 @@ const App = () => (
             {/* Public routes */}
             <Route path="/login" element={<LoginPage />} />
             <Route path="/unauthorized" element={<UnauthorizedPage />} />
+
+            {/* Onboarding route - for users without clinic */}
+            <Route
+              path="/onboarding"
+              element={
+                <ProtectedRoute skipOnboardingCheck>
+                  <OnboardingPage />
+                </ProtectedRoute>
+              }
+            />
 
             {/* Protected routes */}
             <Route
