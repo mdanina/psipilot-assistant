@@ -197,6 +197,15 @@ npm run preview
 
 # Lint code
 npm run lint
+
+# Check Supabase connection
+npm run check:connection
+
+# Diagnose application issues
+npm run check:app
+
+# Check for Git updates
+npm run check:updates
 ```
 
 ## Project Structure
@@ -231,6 +240,9 @@ supabase/
 
 ### Database
 - [supabase/README.md](./supabase/README.md) - Документация по миграциям БД
+
+### Troubleshooting
+- [TROUBLESHOOTING_LOADING.md](./TROUBLESHOOTING_LOADING.md) - Решение проблем с загрузкой приложения
 
 ### Index
 - [docs/INDEX.md](./docs/INDEX.md) - Полный индекс всей документации

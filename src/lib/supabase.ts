@@ -13,11 +13,19 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl) {
-  console.error('Missing VITE_SUPABASE_URL environment variable');
+  console.error('❌ Missing VITE_SUPABASE_URL environment variable');
+  console.error('   Please set VITE_SUPABASE_URL in .env.local');
 }
 
 if (!supabaseAnonKey) {
-  console.error('Missing VITE_SUPABASE_ANON_KEY environment variable');
+  console.error('❌ Missing VITE_SUPABASE_ANON_KEY environment variable');
+  console.error('   Please set VITE_SUPABASE_ANON_KEY in .env.local');
+}
+
+// Validate URL format
+if (supabaseUrl && !supabaseUrl.startsWith('http')) {
+  console.warn('⚠️  VITE_SUPABASE_URL should start with http:// or https://');
+  console.warn(`   Current value: ${supabaseUrl}`);
 }
 
 /**

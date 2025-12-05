@@ -100,10 +100,14 @@ src/
 - `npm run dev` - Запуск dev сервера
 - `npm run build` - Сборка для production
 - `npm run check:connection` - Проверка подключения к Supabase
+- `npm run check:app` - Диагностика проблем с приложением
+- `npm run check:updates` - Проверка обновлений из Git
 - `npm run lint` - Проверка кода
 
 ### Скрипты в проекте
 - `scripts/check-connection.js` - Проверка подключения к БД
+- `scripts/check-app-issues.js` - Диагностика проблем с приложением
+- `scripts/check-git-updates.js` - Проверка обновлений из Git
 - `scripts/generate-encryption-key.js` - Генерация ключа шифрования
 
 ## 📖 По темам
@@ -124,9 +128,11 @@ src/
 3. Типы в `src/types/database.types.ts`
 
 ### Troubleshooting
-1. [FIND_SUPABASE_URL.md](../FIND_SUPABASE_URL.md) - Поиск URL Supabase
-2. [REMOTE_SUPABASE_SETUP.md](../REMOTE_SUPABASE_SETUP.md) - Настройка удаленного Supabase
-3. [MIGRATION_GUIDE.md](../MIGRATION_GUIDE.md#решение-проблем) - Решение проблем
+1. [TROUBLESHOOTING_LOADING.md](../TROUBLESHOOTING_LOADING.md) - Решение проблем с загрузкой приложения
+2. [FIND_SUPABASE_URL.md](../FIND_SUPABASE_URL.md) - Поиск URL Supabase
+3. [REMOTE_SUPABASE_SETUP.md](../REMOTE_SUPABASE_SETUP.md) - Настройка удаленного Supabase
+4. [MIGRATION_GUIDE.md](../MIGRATION_GUIDE.md#решение-проблем) - Решение проблем с миграциями
+5. [docs/BUGFIXES.md](BUGFIXES.md) - История исправлений ошибок
 
 ## 🎯 Быстрые ссылки
 
@@ -171,7 +177,7 @@ src/
 
 ## 🔄 Версионирование
 
-- **Текущая версия:** 0.2.0
+- **Текущая версия:** 0.2.1
 - **Changelog безопасности:** [CHANGELOG_SECURITY.md](../CHANGELOG_SECURITY.md)
 - **Основной changelog:** См. git history
 

@@ -152,31 +152,24 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   // Initialize auth state
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (session?.user) {
-        const profile = await fetchProfile(session.user.id);
-        const now = Date.now();
-        setState({
-          user: session.user,
-          profile,
-          session,
-          isLoading: false,
-          isAuthenticated: true,
-          mfaEnabled: (profile as any)?.mfa_enabled || false,
-          mfaVerified: false,
-          lastActivity: now,
-          sessionExpiresAt: now + SESSION_TIMEOUT,
-        });
-      } else {
-        setState(prev => ({ ...prev, isLoading: false }));
-      }
-    });
-
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (event === 'SIGNED_IN' && session?.user) {
+    let isMounted = true;
+    
+    // Get initial session with timeout
+    const initAuth = async () => {
+      try {
+        console.log('🔐 Initializing auth...');
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('❌ Error getting session:', error.message);
+          if (isMounted) {
+            setState(prev => ({ ...prev, isLoading: false }));
+          }
+          return;
+        }
+        
+        if (session?.user && isMounted) {
+          console.log('✅ Session found, fetching profile...');
           const profile = await fetchProfile(session.user.id);
           const now = Date.now();
           setState({
@@ -190,6 +183,56 @@ export function AuthProvider({ children }: AuthProviderProps) {
             lastActivity: now,
             sessionExpiresAt: now + SESSION_TIMEOUT,
           });
+          console.log('✅ Auth initialized successfully');
+        } else if (isMounted) {
+          console.log('ℹ️  No session found, user not authenticated');
+          setState(prev => ({ ...prev, isLoading: false }));
+        }
+      } catch (error) {
+        console.error('❌ Error initializing auth:', error);
+        if (isMounted) {
+          setState(prev => ({ ...prev, isLoading: false }));
+        }
+      }
+    };
+    
+    // Set a timeout to prevent infinite loading
+    const timeoutId = setTimeout(() => {
+      if (isMounted) {
+        console.warn('Auth initialization timeout - setting isLoading to false');
+        setState(prev => ({ ...prev, isLoading: false }));
+      }
+    }, 10000); // 10 second timeout
+    
+    initAuth().finally(() => {
+      clearTimeout(timeoutId);
+    });
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (!isMounted) return;
+        
+        console.log(`🔄 Auth state change: ${event}`, session?.user?.email || 'no user');
+        
+        if (event === 'SIGNED_IN' && session?.user) {
+          // This may be called after signIn already updated state, but it's safe to update again
+          // It ensures state is consistent even if signIn didn't complete
+          console.log('🔄 SIGNED_IN event, updating state...');
+          const profile = await fetchProfile(session.user.id);
+          const now = Date.now();
+          setState({
+            user: session.user,
+            profile,
+            session,
+            isLoading: false,
+            isAuthenticated: true,
+            mfaEnabled: (profile as any)?.mfa_enabled || false,
+            mfaVerified: false,
+            lastActivity: now,
+            sessionExpiresAt: now + SESSION_TIMEOUT,
+          });
+          console.log('✅ State updated from SIGNED_IN event');
         } else if (event === 'SIGNED_OUT') {
           setState({
             user: null,
@@ -209,6 +252,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     );
 
     return () => {
+      isMounted = false;
+      clearTimeout(timeoutId);
       subscription.unsubscribe();
     };
   }, [fetchProfile]);
@@ -217,18 +262,47 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const signIn = useCallback(async (email: string, password: string) => {
     setState(prev => ({ ...prev, isLoading: true }));
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    if (error) {
+      if (error) {
+        console.error('❌ Sign in error:', error.message);
+        setState(prev => ({ ...prev, isLoading: false }));
+        return { error };
+      }
+
+      // Successfully signed in - update state immediately
+      if (data?.session?.user) {
+        console.log('✅ Sign in successful, fetching profile...');
+        const profile = await fetchProfile(data.session.user.id);
+        const now = Date.now();
+        setState({
+          user: data.session.user,
+          profile,
+          session: data.session,
+          isLoading: false,
+          isAuthenticated: true,
+          mfaEnabled: (profile as any)?.mfa_enabled || false,
+          mfaVerified: false,
+          lastActivity: now,
+          sessionExpiresAt: now + SESSION_TIMEOUT,
+        });
+        console.log('✅ User authenticated successfully');
+      } else {
+        console.warn('⚠️  Sign in succeeded but no session data');
+        setState(prev => ({ ...prev, isLoading: false }));
+      }
+
+      return { error: null };
+    } catch (err) {
+      console.error('❌ Unexpected sign in error:', err);
       setState(prev => ({ ...prev, isLoading: false }));
-      return { error };
+      return { error: err as Error };
     }
-
-    return { error: null };
-  }, []);
+  }, [fetchProfile]);
 
   // Sign up new user
   const signUp = useCallback(async (email: string, password: string, fullName: string) => {

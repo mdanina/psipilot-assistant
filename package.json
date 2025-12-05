@@ -9,7 +9,9 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
-    "check:connection": "node scripts/check-connection.js"
+    "check:connection": "node scripts/check-connection.js",
+    "check:updates": "node scripts/check-git-updates.js",
+    "check:app": "node scripts/check-app-issues.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
