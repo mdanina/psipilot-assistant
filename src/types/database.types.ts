@@ -751,3 +751,108 @@ export interface DataProcessingRegistry {
   created_at: string;
   updated_at: string;
 }
+
+// ============================================
+// MIGRATION 007 - ENHANCED SECURITY TYPES
+// ============================================
+
+// IP Blocklist
+export interface IPBlocklistEntry {
+  id: string;
+  ip_address: string;
+  ip_range: string | null;
+  reason: string;
+  blocked_by: string | null;
+  blocked_at: string;
+  expires_at: string | null;
+  is_active: boolean;
+  attempt_count: number;
+  last_attempt_at: string | null;
+  notes: string | null;
+}
+
+// Break-the-Glass Emergency Access
+export type EmergencyType = 'life_threatening' | 'court_order' | 'patient_request' | 'public_health' | 'other';
+
+export interface BreakTheGlassLog {
+  id: string;
+  user_id: string;
+  user_email: string | null;
+  user_role: string | null;
+  clinic_id: string | null;
+  patient_id: string;
+  patient_name: string | null;
+  reason: string;
+  emergency_type: EmergencyType;
+  reference_number: string | null;
+  access_granted_at: string;
+  access_expires_at: string;
+  access_revoked_at: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  review_notes: string | null;
+  is_approved: boolean | null;
+  actions_taken: string[] | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
+}
+
+// MFA Factors
+export type MFAFactorType = 'totp' | 'sms' | 'email';
+
+export interface MFAFactor {
+  id: string;
+  user_id: string;
+  factor_type: MFAFactorType;
+  friendly_name: string;
+  secret: string | null;
+  qr_code_url: string | null;
+  is_verified: boolean;
+  is_active: boolean;
+  last_used_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Patient with encrypted fields (from migration 007)
+export interface PatientWithEncryption extends Patient {
+  name_encrypted: string | null;
+  email_encrypted: string | null;
+  phone_encrypted: string | null;
+  address_encrypted: string | null;
+  notes_encrypted: string | null;
+  pii_encryption_version: number | null;
+}
+
+// Retention Status
+export interface RetentionStatus {
+  category: string;
+  total_count: number;
+  expired_count: number;
+  retention_period: string;
+}
+
+// Cleanup Result
+export interface CleanupResult {
+  table_name: string;
+  deleted_count: number;
+}
+
+// IP Block Check Result
+export interface IPBlockCheck {
+  blocked: boolean;
+  reason?: string;
+  action?: 'deny' | 'block' | 'account_locked';
+  expires_at?: string;
+  retry_after?: string;
+  attempts_remaining?: number;
+}
+
+// Extended Profile with MFA fields (from migrations 005, 007)
+export interface ProfileWithMFA extends Profile {
+  mfa_enabled: boolean;
+  mfa_enabled_at: string | null;
+  backup_codes: string[] | null;
+  backup_codes_hashed: string[] | null;
+}
