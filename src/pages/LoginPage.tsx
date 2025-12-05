@@ -31,7 +31,6 @@ export default function LoginPage() {
 
       if (error) {
         setError(error.message);
-        setIsSubmitting(false);
         return;
       }
 
@@ -39,6 +38,8 @@ export default function LoginPage() {
       navigate(from, { replace: true });
     } catch (err) {
       setError('An unexpected error occurred. Please try again.');
+    } finally {
+      // Always reset submitting state to prevent UI lock
       setIsSubmitting(false);
     }
   };
