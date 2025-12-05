@@ -4,9 +4,10 @@ import {
   useEffect,
   useState,
   useCallback,
+  useRef,
   type ReactNode,
 } from 'react';
-import { supabase } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import type { User, Session } from '@supabase/supabase-js';
 import type { Profile, ProfileWithClinic } from '@/types';
 
@@ -43,6 +44,7 @@ interface AuthProviderProps {
 // Session timeout constant (15 minutes)
 const SESSION_TIMEOUT = 15 * 60 * 1000; // 15 minutes in milliseconds
 const SESSION_WARNING_TIME = 2 * 60 * 1000; // 2 minutes before timeout
+const ACTIVITY_DEBOUNCE = 5000; // Only update activity every 5 seconds max
 
 export function AuthProvider({ children }: AuthProviderProps) {
   const [state, setState] = useState<AuthState>({
@@ -56,6 +58,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     lastActivity: Date.now(),
     sessionExpiresAt: null,
   });
+
+  // Ref to track last activity update time for debouncing
+  const lastActivityUpdateRef = useRef<number>(0);
 
   // Fetch user profile with clinic data
   const fetchProfile = useCallback(async (userId: string): Promise<ProfileWithClinic | null> => {
@@ -128,7 +133,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return () => clearInterval(interval);
   }, [state.isAuthenticated, state.session, state.lastActivity, signOut]);
 
-  // Track user activity
+  // Track user activity with debouncing to prevent excessive state updates
   useEffect(() => {
     if (!state.isAuthenticated) {
       return;
@@ -136,7 +141,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
     const handleActivity = () => {
-      updateActivity();
+      const now = Date.now();
+      // Only update if enough time has passed since last update (debounce)
+      if (now - lastActivityUpdateRef.current >= ACTIVITY_DEBOUNCE) {
+        lastActivityUpdateRef.current = now;
+        updateActivity();
+      }
     };
 
     events.forEach(event => {
@@ -156,6 +166,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
     
     // Get initial session with timeout
     const initAuth = async () => {
+      // Check if Supabase is properly configured
+      if (!isSupabaseConfigured) {
+        console.error('❌ Supabase not configured - check environment variables');
+        if (isMounted) {
+          setState(prev => ({ ...prev, isLoading: false }));
+        }
+        return;
+      }
+
       try {
         console.log('🔐 Initializing auth...');
         const { data: { session }, error } = await supabase.auth.getSession();
@@ -202,7 +221,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         console.warn('Auth initialization timeout - setting isLoading to false');
         setState(prev => ({ ...prev, isLoading: false }));
       }
-    }, 10000); // 10 second timeout
+    }, 5000); // 5 second timeout for faster feedback
     
     initAuth().finally(() => {
       clearTimeout(timeoutId);
@@ -263,7 +282,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setState(prev => ({ ...prev, isLoading: true }));
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
@@ -274,35 +293,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return { error };
       }
 
-      // Successfully signed in - update state immediately
-      if (data?.session?.user) {
-        console.log('✅ Sign in successful, fetching profile...');
-        const profile = await fetchProfile(data.session.user.id);
-        const now = Date.now();
-        setState({
-          user: data.session.user,
-          profile,
-          session: data.session,
-          isLoading: false,
-          isAuthenticated: true,
-          mfaEnabled: (profile as any)?.mfa_enabled || false,
-          mfaVerified: false,
-          lastActivity: now,
-          sessionExpiresAt: now + SESSION_TIMEOUT,
-        });
-        console.log('✅ User authenticated successfully');
-      } else {
-        console.warn('⚠️  Sign in succeeded but no session data');
-        setState(prev => ({ ...prev, isLoading: false }));
-      }
-
+      // Successfully signed in - onAuthStateChange will handle profile fetch and state update
+      // This prevents duplicate fetchProfile calls
+      console.log('✅ Sign in successful, waiting for auth state change...');
       return { error: null };
     } catch (err) {
       console.error('❌ Unexpected sign in error:', err);
       setState(prev => ({ ...prev, isLoading: false }));
       return { error: err as Error };
     }
-  }, [fetchProfile]);
+  }, []);
 
   // Sign up new user
   const signUp = useCallback(async (email: string, password: string, fullName: string) => {

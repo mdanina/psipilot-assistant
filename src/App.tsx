@@ -26,6 +26,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <AuthProvider>
+          {/* SessionTimeoutWarning is rendered globally but only activates when authenticated */}
           <SessionTimeoutWarning />
           <Routes>
             {/* Public routes */}

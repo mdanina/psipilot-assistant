@@ -12,14 +12,24 @@ import type { Database } from '@/types/database.types';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+// Check for missing environment variables early
+const missingEnvVars: string[] = [];
+
 if (!supabaseUrl) {
-  console.error('❌ Missing VITE_SUPABASE_URL environment variable');
-  console.error('   Please set VITE_SUPABASE_URL in .env.local');
+  missingEnvVars.push('VITE_SUPABASE_URL');
 }
 
 if (!supabaseAnonKey) {
-  console.error('❌ Missing VITE_SUPABASE_ANON_KEY environment variable');
-  console.error('   Please set VITE_SUPABASE_ANON_KEY in .env.local');
+  missingEnvVars.push('VITE_SUPABASE_ANON_KEY');
+}
+
+// Export flag for checking if Supabase is properly configured
+export const isSupabaseConfigured = missingEnvVars.length === 0;
+
+if (!isSupabaseConfigured) {
+  console.error('❌ Missing required environment variables:', missingEnvVars.join(', '));
+  console.error('   Please copy .env.example to .env.local and fill in the values');
+  console.error('   Example: cp .env.example .env.local');
 }
 
 // Validate URL format

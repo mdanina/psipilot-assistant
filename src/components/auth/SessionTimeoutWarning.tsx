@@ -20,8 +20,9 @@ export function SessionTimeoutWarning() {
   const [timeRemaining, setTimeRemaining] = useState(0);
 
   useEffect(() => {
+    // Early return if not authenticated - no need to set up any intervals
     if (!isAuthenticated) {
-      setShowWarning(false);
+      if (showWarning) setShowWarning(false);
       return;
     }
 
