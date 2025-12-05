@@ -630,3 +630,124 @@ export interface ClinicalNoteWithSections extends ClinicalNote {
 export interface ProfileWithClinic extends Profile {
   clinic: Clinic | null;
 }
+
+// ============================================
+// AUDIT & COMPLIANCE TYPES
+// ============================================
+
+export type AuditAction = 'create' | 'read' | 'update' | 'delete' | 'login' | 'logout' | 'export' | 'print' | 'permanent_delete';
+export type AuditCategory = 'authentication' | 'patient_data' | 'clinical_note' | 'recording' | 'admin';
+export type ConsentType = 'data_processing' | 'recording' | 'ai_analysis' | 'data_sharing' | 'marketing';
+export type ConsentStatus = 'active' | 'withdrawn' | 'expired';
+export type LegalBasis = 'consent' | 'contract' | 'legal_obligation' | 'vital_interests' | 'public_task' | 'legitimate_interests';
+export type ConsentMethod = 'written' | 'electronic' | 'verbal_recorded';
+
+export interface AuditLog {
+  id: string;
+  user_id: string | null;
+  user_email: string | null;
+  user_role: string | null;
+  clinic_id: string | null;
+  action: AuditAction;
+  action_category: AuditCategory;
+  resource_type: string | null;
+  resource_id: string | null;
+  resource_name: string | null;
+  old_values: Json | null;
+  new_values: Json | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  request_id: string | null;
+  phi_accessed: boolean;
+  phi_fields: string[] | null;
+  success: boolean;
+  error_message: string | null;
+  created_at: string;
+}
+
+export interface ConsentRecord {
+  id: string;
+  patient_id: string;
+  consent_type: ConsentType;
+  consent_purpose: string;
+  legal_basis: LegalBasis;
+  status: ConsentStatus;
+  given_at: string;
+  expires_at: string | null;
+  withdrawn_at: string | null;
+  consent_method: ConsentMethod;
+  consent_document_id: string | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  signature_data: string | null;
+  witness_name: string | null;
+  collected_by: string | null;
+  data_categories: string[];
+  third_party_sharing: boolean;
+  third_parties: string[] | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConsentRecordInsert {
+  id?: string;
+  patient_id: string;
+  consent_type: ConsentType;
+  consent_purpose: string;
+  legal_basis: LegalBasis;
+  status?: ConsentStatus;
+  given_at?: string;
+  expires_at?: string | null;
+  consent_method: ConsentMethod;
+  consent_document_id?: string | null;
+  ip_address?: string | null;
+  user_agent?: string | null;
+  signature_data?: string | null;
+  witness_name?: string | null;
+  collected_by?: string | null;
+  data_categories?: string[];
+  third_party_sharing?: boolean;
+  third_parties?: string[] | null;
+  notes?: string | null;
+}
+
+export interface UserSession {
+  id: string;
+  user_id: string;
+  session_token_hash: string;
+  ip_address: string | null;
+  user_agent: string | null;
+  device_type: string | null;
+  browser: string | null;
+  os: string | null;
+  location_country: string | null;
+  location_city: string | null;
+  created_at: string;
+  last_activity_at: string;
+  expires_at: string;
+  is_active: boolean;
+  terminated_at: string | null;
+  termination_reason: string | null;
+}
+
+export interface DataProcessingRegistry {
+  id: string;
+  clinic_id: string | null;
+  data_category: string;
+  data_description: string | null;
+  processing_purpose: string;
+  legal_basis: string;
+  storage_location: string;
+  storage_country: string | null;
+  retention_period: string | null;
+  retention_policy: string | null;
+  access_roles: string[];
+  cross_border_transfer: boolean;
+  transfer_countries: string[] | null;
+  transfer_safeguards: string | null;
+  security_measures: string[] | null;
+  encryption_type: string | null;
+  created_at: string;
+  updated_at: string;
+}
