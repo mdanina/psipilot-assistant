@@ -72,3 +72,4 @@ FROM pg_proc p
 JOIN pg_roles r ON p.proowner = r.oid
 WHERE p.proname = 'handle_new_user';
 
+

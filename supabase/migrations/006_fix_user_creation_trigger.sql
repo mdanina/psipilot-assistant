@@ -52,3 +52,4 @@ COMMENT ON FUNCTION handle_new_user() IS
 'Automatically creates a profile record when a new user is created in auth.users. 
 Handles mfa_enabled and backup_codes columns from migration 005.';
 
+

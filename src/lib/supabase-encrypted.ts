@@ -152,3 +152,4 @@ export function createEncryptedClient(): SupabaseClient<Database> {
  */
 export const encryptedSupabase = createEncryptedClient();
 
+

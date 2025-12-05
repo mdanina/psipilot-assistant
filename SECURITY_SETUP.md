@@ -213,3 +213,4 @@ const { data } = await secureSupabase
 - [GDPR Article 32](https://gdpr-info.eu/art-32-gdpr/)
 - [Supabase MFA Documentation](https://supabase.com/docs/guides/auth/mfa)
 
+

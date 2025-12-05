@@ -174,3 +174,4 @@ $$ language 'plpgsql' SECURITY DEFINER;
 
 Примените миграцию через Supabase Dashboard или CLI.
 
+
