@@ -31,38 +31,39 @@ export default function OnboardingPage() {
         return;
       }
 
-      // 1. Create the clinic
-      const { data: clinic, error: clinicError } = await supabase
-        .from('clinics')
-        .insert({
-          name: clinicName.trim(),
-          address: clinicAddress.trim() || null,
-          phone: clinicPhone.trim() || null,
-          email: user.email,
-        })
-        .select()
-        .single();
+      // Use the SECURITY DEFINER function to create clinic and update profile atomically
+      // This bypasses RLS issues and ensures data consistency
+      const { data: clinicId, error: clinicError } = await supabase.rpc(
+        'create_clinic_for_onboarding',
+        {
+          clinic_name: clinicName.trim(),
+          clinic_address: clinicAddress.trim() || null,
+          clinic_phone: clinicPhone.trim() || null,
+          clinic_email: user.email || null,
+        }
+      );
 
       if (clinicError) {
         console.error('Error creating clinic:', clinicError);
-        setError(`Failed to create clinic: ${clinicError.message}`);
+        // Provide more helpful error messages
+        let errorMessage = `Failed to create clinic: ${clinicError.message}`;
+        if (clinicError.code === '42501' || clinicError.code === 'PGRST301') {
+          errorMessage = 'Permission denied. Please check that you have the necessary permissions to create a clinic.';
+        } else if (clinicError.code === '23505') {
+          errorMessage = 'A clinic with this information already exists.';
+        } else if (clinicError.message.includes('already has a clinic')) {
+          errorMessage = 'You already have a clinic assigned. Please refresh the page.';
+        } else if (clinicError.message.includes('timeout') || clinicError.message.includes('network')) {
+          errorMessage = 'Network error. Please check your connection and try again.';
+        }
+        setError(errorMessage);
+        setIsSubmitting(false);
         return;
       }
 
-      // 2. Update user profile with clinic_id and set as admin
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update({
-          clinic_id: clinic.id,
-          role: 'admin', // First user becomes admin
-        })
-        .eq('id', user.id);
-
-      if (profileError) {
-        console.error('Error updating profile:', profileError);
-        // Try to clean up the created clinic
-        await supabase.from('clinics').delete().eq('id', clinic.id);
-        setError(`Failed to update profile: ${profileError.message}`);
+      if (!clinicId) {
+        setError('Failed to create clinic. Please try again.');
+        setIsSubmitting(false);
         return;
       }
 

@@ -28,8 +28,13 @@ export function ProtectedRoute({ children, requiredRole, skipOnboardingCheck }: 
   }
 
   // Check if user needs onboarding (no clinic assigned)
-  if (!skipOnboardingCheck && profile && !profile.clinic_id) {
-    return <Navigate to="/onboarding" replace />;
+  // Only check after loading is complete to avoid premature redirects
+  if (!skipOnboardingCheck && !isLoading) {
+    // If profile is null after loading, user likely needs onboarding
+    // If profile exists but has no clinic_id, user needs onboarding
+    if (profile === null || !profile.clinic_id) {
+      return <Navigate to="/onboarding" replace />;
+    }
   }
 
   // Check role if required
