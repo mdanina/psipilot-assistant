@@ -64,26 +64,116 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   // Fetch user profile with clinic data
   const fetchProfile = useCallback(async (userId: string): Promise<ProfileWithClinic | null> => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select(`
-        *,
-        clinic:clinics(*)
-      `)
-      .eq('id', userId)
-      .single();
+    console.log('🔍 Fetching profile for user:', userId);
+    
+    // Добавляем таймаут для запроса
+    const fetchWithTimeout = async (timeoutMs: number = 5000) => {
+      return Promise.race([
+        supabase
+          .from('profiles')
+          .select(`
+            *,
+            clinic:clinics(*)
+          `)
+          .eq('id', userId)
+          .single(),
+        new Promise<{ data: null; error: { message: string } }>((_, reject) =>
+          setTimeout(() => reject(new Error('Profile fetch timeout')), timeoutMs)
+        )
+      ]);
+    };
+    
+    try {
+      const { data, error } = await fetchWithTimeout(5000);
 
-    if (error) {
-      console.error('Error fetching profile:', error.message);
+      if (error) {
+        console.error('❌ Error fetching profile:', error);
+        if ('code' in error) {
+          console.error('   Error code:', error.code);
+        }
+        console.error('   Error message:', error.message);
+        if ('details' in error) {
+          console.error('   Error details:', error.details);
+        }
+        if ('hint' in error) {
+          console.error('   Error hint:', error.hint);
+        }
+        
+        // Если это ошибка RLS или таймаут, попробуем получить профиль без JOIN к clinics
+        const isRLSError = 'code' in error && (error.code === '42501' || error.code === 'PGRST301');
+        const isTimeout = error.message === 'Profile fetch timeout';
+        
+        if (isRLSError || isTimeout) {
+          console.warn('⚠️  RLS/timeout error, trying to fetch profile without clinic JOIN...');
+          try {
+            const { data: profileData, error: profileError } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', userId)
+              .single();
+            
+            if (profileError) {
+              console.error('❌ Error fetching profile without JOIN:', profileError);
+              return null;
+            }
+            
+            if (profileData) {
+              console.log('✅ Profile fetched without clinic data');
+              return profileData as ProfileWithClinic & { mfa_enabled?: boolean };
+            }
+          } catch (retryErr) {
+            console.error('❌ Error in retry fetch:', retryErr);
+          }
+        }
+        
+        return null;
+      }
+
+      if (!data) {
+        console.warn('⚠️  Profile query returned no data for user:', userId);
+        return null;
+      }
+
+      console.log('✅ Profile fetched successfully:', {
+        id: data.id,
+        email: data.email,
+        full_name: data.full_name,
+        role: data.role,
+        clinic_id: data.clinic_id,
+        has_clinic: !!data.clinic
+      });
+
+      const profile = data as ProfileWithClinic & { mfa_enabled?: boolean };
+      return profile;
+    } catch (err) {
+      console.error('❌ Unexpected error fetching profile:', err);
+      
+      // Если это таймаут, попробуем без JOIN
+      if (err instanceof Error && err.message === 'Profile fetch timeout') {
+        console.warn('⚠️  Fetch timeout, trying without clinic JOIN...');
+        try {
+          const { data: profileData, error: profileError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', userId)
+            .single();
+          
+          if (profileError) {
+            console.error('❌ Error fetching profile without JOIN:', profileError);
+            return null;
+          }
+          
+          if (profileData) {
+            console.log('✅ Profile fetched without clinic data (after timeout)');
+            return profileData as ProfileWithClinic & { mfa_enabled?: boolean };
+          }
+        } catch (retryErr) {
+          console.error('❌ Error in retry fetch:', retryErr);
+        }
+      }
+      
       return null;
     }
-
-    const profile = data as ProfileWithClinic & { mfa_enabled?: boolean };
-    
-    // Don't update state here - it will be updated in the calling useEffect
-    // This prevents infinite loops
-
-    return profile;
   }, []);
 
   // Sign out - defined early for use in useEffect
@@ -163,6 +253,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Initialize auth state
   useEffect(() => {
     let isMounted = true;
+    let timeoutId: NodeJS.Timeout | null = null;
+    let authCompletedViaEvent = false;
     
     // Get initial session with timeout
     const initAuth = async () => {
@@ -216,15 +308,25 @@ export function AuthProvider({ children }: AuthProviderProps) {
     };
     
     // Set a timeout to prevent infinite loading
-    const timeoutId = setTimeout(() => {
-      if (isMounted) {
-        console.warn('Auth initialization timeout - setting isLoading to false');
-        setState(prev => ({ ...prev, isLoading: false }));
+    // But only if we haven't already authenticated via onAuthStateChange
+    timeoutId = setTimeout(() => {
+      if (isMounted && !authCompletedViaEvent) {
+        console.warn('⚠️  Auth initialization timeout - setting isLoading to false');
+        setState(prev => {
+          // Only set loading to false if we're still loading and not authenticated
+          if (prev.isLoading && !prev.isAuthenticated) {
+            return { ...prev, isLoading: false };
+          }
+          return prev;
+        });
       }
-    }, 5000); // 5 second timeout for faster feedback
+    }, 10000); // 10 second timeout
     
     initAuth().finally(() => {
-      clearTimeout(timeoutId);
+      // Clear timeout if initAuth completes (even if it fails)
+      if (!authCompletedViaEvent && timeoutId) {
+        clearTimeout(timeoutId);
+      }
     });
 
     // Listen for auth changes
@@ -235,23 +337,51 @@ export function AuthProvider({ children }: AuthProviderProps) {
         console.log(`🔄 Auth state change: ${event}`, session?.user?.email || 'no user');
         
         if (event === 'SIGNED_IN' && session?.user) {
+          // Mark that auth was completed via event (so timeout won't interfere)
+          authCompletedViaEvent = true;
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+          }
+          
           // This may be called after signIn already updated state, but it's safe to update again
           // It ensures state is consistent even if signIn didn't complete
           console.log('🔄 SIGNED_IN event, updating state...');
-          const profile = await fetchProfile(session.user.id);
-          const now = Date.now();
-          setState({
-            user: session.user,
-            profile,
-            session,
-            isLoading: false,
-            isAuthenticated: true,
-            mfaEnabled: (profile as any)?.mfa_enabled || false,
-            mfaVerified: false,
-            lastActivity: now,
-            sessionExpiresAt: now + SESSION_TIMEOUT,
-          });
-          console.log('✅ State updated from SIGNED_IN event');
+          try {
+            const profile = await fetchProfile(session.user.id);
+            const now = Date.now();
+            if (isMounted) {
+              setState({
+                user: session.user,
+                profile,
+                session,
+                isLoading: false,
+                isAuthenticated: true,
+                mfaEnabled: (profile as any)?.mfa_enabled || false,
+                mfaVerified: false,
+                lastActivity: now,
+                sessionExpiresAt: now + SESSION_TIMEOUT,
+              });
+              console.log('✅ State updated from SIGNED_IN event');
+            }
+          } catch (error) {
+            console.error('❌ Error in SIGNED_IN handler:', error);
+            // Even if profile fetch fails, mark as authenticated
+            if (isMounted) {
+              const now = Date.now();
+              setState({
+                user: session.user,
+                profile: null,
+                session,
+                isLoading: false,
+                isAuthenticated: true,
+                mfaEnabled: false,
+                mfaVerified: false,
+                lastActivity: now,
+                sessionExpiresAt: now + SESSION_TIMEOUT,
+              });
+              console.log('✅ User authenticated (profile fetch failed)');
+            }
+          }
         } else if (event === 'SIGNED_OUT') {
           setState({
             user: null,
@@ -272,7 +402,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     return () => {
       isMounted = false;
-      clearTimeout(timeoutId);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
       subscription.unsubscribe();
     };
   }, [fetchProfile]);
@@ -282,7 +414,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setState(prev => ({ ...prev, isLoading: true }));
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
@@ -293,16 +425,53 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return { error };
       }
 
-      // Successfully signed in - onAuthStateChange will handle profile fetch and state update
-      // This prevents duplicate fetchProfile calls
-      console.log('✅ Sign in successful, waiting for auth state change...');
+      // Successfully signed in - update state immediately
+      // onAuthStateChange will also fire, but we update state here for immediate feedback
+      if (data?.session?.user) {
+        console.log('✅ Sign in successful, fetching profile...');
+        try {
+          const profile = await fetchProfile(data.session.user.id);
+          const now = Date.now();
+          setState({
+            user: data.session.user,
+            profile,
+            session: data.session,
+            isLoading: false,
+            isAuthenticated: true,
+            mfaEnabled: (profile as any)?.mfa_enabled || false,
+            mfaVerified: false,
+            lastActivity: now,
+            sessionExpiresAt: now + SESSION_TIMEOUT,
+          });
+          console.log('✅ User authenticated successfully');
+        } catch (profileError) {
+          console.error('❌ Error fetching profile after sign in:', profileError);
+          // Even if profile fetch fails, we still have a valid session
+          const now = Date.now();
+          setState({
+            user: data.session.user,
+            profile: null,
+            session: data.session,
+            isLoading: false,
+            isAuthenticated: true,
+            mfaEnabled: false,
+            mfaVerified: false,
+            lastActivity: now,
+            sessionExpiresAt: now + SESSION_TIMEOUT,
+          });
+        }
+      } else {
+        console.warn('⚠️  Sign in succeeded but no session data');
+        setState(prev => ({ ...prev, isLoading: false }));
+      }
+
       return { error: null };
     } catch (err) {
       console.error('❌ Unexpected sign in error:', err);
       setState(prev => ({ ...prev, isLoading: false }));
       return { error: err as Error };
     }
-  }, []);
+  }, [fetchProfile]);
 
   // Sign up new user
   const signUp = useCallback(async (email: string, password: string, fullName: string) => {

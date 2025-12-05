@@ -129,9 +129,11 @@ src/
 
 ### Troubleshooting
 1. [TROUBLESHOOTING_LOADING.md](../TROUBLESHOOTING_LOADING.md) - Решение проблем с загрузкой приложения
-2. [FIND_SUPABASE_URL.md](../FIND_SUPABASE_URL.md) - Поиск URL Supabase
-3. [REMOTE_SUPABASE_SETUP.md](../REMOTE_SUPABASE_SETUP.md) - Настройка удаленного Supabase
-4. [MIGRATION_GUIDE.md](../MIGRATION_GUIDE.md#решение-проблем) - Решение проблем с миграциями
+2. [TROUBLESHOOTING_LOGIN.md](TROUBLESHOOTING_LOGIN.md) - Решение проблем с входом в систему
+3. [USER_PROFILE_CREATION.md](USER_PROFILE_CREATION.md) - Создание профилей пользователей
+4. [FIND_SUPABASE_URL.md](../FIND_SUPABASE_URL.md) - Поиск URL Supabase
+5. [REMOTE_SUPABASE_SETUP.md](../REMOTE_SUPABASE_SETUP.md) - Настройка удаленного Supabase
+6. [MIGRATION_GUIDE.md](../MIGRATION_GUIDE.md#решение-проблем) - Решение проблем с миграциями
 5. [docs/BUGFIXES.md](BUGFIXES.md) - История исправлений ошибок
 
 ## 🎯 Быстрые ссылки
