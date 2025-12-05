@@ -65,10 +65,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Fetch user profile with clinic data
   const fetchProfile = useCallback(async (userId: string): Promise<ProfileWithClinic | null> => {
     console.log('🔍 Fetching profile for user:', userId);
-    
-    // Добавляем таймаут для запроса
-    const fetchWithTimeout = async (timeoutMs: number = 5000) => {
+
+    // Helper function to wrap a promise with timeout
+    const withTimeout = <T,>(promise: Promise<T>, timeoutMs: number, errorMessage: string): Promise<T> => {
       return Promise.race([
+        promise,
+        new Promise<T>((_, reject) =>
+          setTimeout(() => reject(new Error(errorMessage)), timeoutMs)
+        )
+      ]);
+    };
+
+    // Try fetching profile with clinic JOIN first (longer timeout for complex query)
+    const fetchWithClinic = async () => {
+      return withTimeout(
         supabase
           .from('profiles')
           .select(`
@@ -77,14 +87,26 @@ export function AuthProvider({ children }: AuthProviderProps) {
           `)
           .eq('id', userId)
           .single(),
-        new Promise<{ data: null; error: { message: string } }>((_, reject) =>
-          setTimeout(() => reject(new Error('Profile fetch timeout')), timeoutMs)
-        )
-      ]);
+        15000, // 15 seconds for JOIN query
+        'Profile fetch timeout'
+      );
     };
-    
+
+    // Simpler query without JOIN (faster)
+    const fetchWithoutClinic = async () => {
+      return withTimeout(
+        supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', userId)
+          .single(),
+        10000, // 10 seconds for simple query
+        'Profile fetch timeout (simple)'
+      );
+    };
+
     try {
-      const { data, error } = await fetchWithTimeout(5000);
+      const { data, error } = await fetchWithClinic();
 
       if (error) {
         console.error('❌ Error fetching profile:', error);
@@ -98,25 +120,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
         if ('hint' in error) {
           console.error('   Error hint:', error.hint);
         }
-        
-        // Если это ошибка RLS или таймаут, попробуем получить профиль без JOIN к clinics
+
+        // If RLS error, try without clinic JOIN
         const isRLSError = 'code' in error && (error.code === '42501' || error.code === 'PGRST301');
-        const isTimeout = error.message === 'Profile fetch timeout';
-        
-        if (isRLSError || isTimeout) {
-          console.warn('⚠️  RLS/timeout error, trying to fetch profile without clinic JOIN...');
+
+        if (isRLSError) {
+          console.warn('⚠️  RLS error, trying to fetch profile without clinic JOIN...');
           try {
-            const { data: profileData, error: profileError } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('id', userId)
-              .single();
-            
+            const { data: profileData, error: profileError } = await fetchWithoutClinic();
+
             if (profileError) {
               console.error('❌ Error fetching profile without JOIN:', profileError);
               return null;
             }
-            
+
             if (profileData) {
               console.log('✅ Profile fetched without clinic data');
               return profileData as ProfileWithClinic & { mfa_enabled?: boolean };
@@ -125,7 +142,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
             console.error('❌ Error in retry fetch:', retryErr);
           }
         }
-        
+
         return null;
       }
 
@@ -147,22 +164,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
       return profile;
     } catch (err) {
       console.error('❌ Unexpected error fetching profile:', err);
-      
-      // Если это таймаут, попробуем без JOIN
-      if (err instanceof Error && err.message === 'Profile fetch timeout') {
-        console.warn('⚠️  Fetch timeout, trying without clinic JOIN...');
+
+      // If timeout or network error, try simpler query without JOIN
+      if (err instanceof Error && (err.message.includes('timeout') || err.message.includes('network'))) {
+        console.warn('⚠️  Fetch timeout/error, trying without clinic JOIN...');
         try {
-          const { data: profileData, error: profileError } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', userId)
-            .single();
-          
+          const { data: profileData, error: profileError } = await fetchWithoutClinic();
+
           if (profileError) {
             console.error('❌ Error fetching profile without JOIN:', profileError);
             return null;
           }
-          
+
           if (profileData) {
             console.log('✅ Profile fetched without clinic data (after timeout)');
             return profileData as ProfileWithClinic & { mfa_enabled?: boolean };
@@ -171,7 +184,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           console.error('❌ Error in retry fetch:', retryErr);
         }
       }
-      
+
       return null;
     }
   }, []);
