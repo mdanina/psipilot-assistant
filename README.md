@@ -9,6 +9,18 @@ AI-powered clinical documentation assistant for mental health professionals.
 - Patient management
 - Secure multi-tenant architecture
 
+## Security Features (HIPAA/GDPR/152-ФЗ Compliant)
+
+- ✅ **Multi-Factor Authentication (MFA)** - TOTP support via Supabase Auth
+- ✅ **Session Timeout** - Automatic logout after 15 minutes of inactivity
+- ✅ **Field-Level Encryption** - AES-GCM 256-bit encryption for PHI data
+- ✅ **READ Audit Logging** - Complete audit trail of all data access
+- ✅ **Consent Management** - Active consent verification in RLS policies
+- ✅ **Row Level Security (RLS)** - Multi-tenant data isolation
+- ✅ **Comprehensive Audit Logs** - All operations logged for compliance
+
+See [SECURITY_IMPLEMENTATION.md](./SECURITY_IMPLEMENTATION.md) for detailed documentation.
+
 ## Tech Stack
 
 - **Frontend**: React, TypeScript, Vite
@@ -68,6 +80,11 @@ VITE_SUPABASE_URL=http://localhost:8000
 # Anon/Public ключ из Supabase Dashboard
 # Найти можно в: Settings > API > Project API keys > anon public
 VITE_SUPABASE_ANON_KEY=your-anon-key-here
+
+# Encryption Key for PHI Data (Field-level encryption)
+# Генерируется командой: openssl rand -base64 32
+# ВАЖНО: Храните в безопасности! Не коммитьте в git!
+VITE_ENCRYPTION_KEY=your-base64-encryption-key-here
 ```
 
 **Где найти ключи в Supabase:**
@@ -88,6 +105,8 @@ VITE_SUPABASE_ANON_KEY=your-anon-key-here
    - `supabase/migrations/001_initial_schema.sql`
    - `supabase/migrations/002_row_level_security.sql`
    - `supabase/migrations/003_seed_section_templates.sql`
+   - `supabase/migrations/004_audit_and_compliance.sql` (если еще не применена)
+   - `supabase/migrations/005_mfa_and_security.sql` (новые функции безопасности)
 
 **Вариант B: Через psql**
 ```bash
@@ -195,6 +214,26 @@ src/
 supabase/
 └── migrations/     # SQL migrations
 ```
+
+## Documentation
+
+### Quick Start
+- [QUICKSTART.md](./QUICKSTART.md) - Быстрый старт за 6 шагов
+- [SETUP.md](./SETUP.md) - Подробное руководство по развертыванию
+- [DEPLOYMENT_CHECKLIST.md](./DEPLOYMENT_CHECKLIST.md) - Чеклист для проверки готовности
+
+### Security
+- [SECURITY_IMPLEMENTATION.md](./SECURITY_IMPLEMENTATION.md) - Полная документация по безопасности
+- [SECURITY_SETUP.md](./SECURITY_SETUP.md) - Настройка функций безопасности
+- [CHANGELOG_SECURITY.md](./CHANGELOG_SECURITY.md) - История изменений безопасности
+- [MIGRATION_GUIDE.md](./MIGRATION_GUIDE.md) - Руководство по миграции
+- [docs/SECURITY_SUMMARY.md](./docs/SECURITY_SUMMARY.md) - Краткое резюме
+
+### Database
+- [supabase/README.md](./supabase/README.md) - Документация по миграциям БД
+
+### Index
+- [docs/INDEX.md](./docs/INDEX.md) - Полный индекс всей документации
 
 ## License
 
