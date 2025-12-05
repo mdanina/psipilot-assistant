@@ -1,0 +1,41 @@
+import { Navigate, useLocation } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
+import type { UserRole } from '@/types';
+import { Loader2 } from 'lucide-react';
+
+interface ProtectedRouteProps {
+  children: React.ReactNode;
+  requiredRole?: UserRole | UserRole[];
+}
+
+export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
+  const { isAuthenticated, isLoading, profile } = useAuth();
+  const location = useLocation();
+
+  // Show loading spinner while checking auth
+  if (isLoading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // Redirect to login if not authenticated
+  if (!isAuthenticated) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  // Check role if required
+  if (requiredRole && profile) {
+    const allowedRoles = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
+
+    if (!allowedRoles.includes(profile.role)) {
+      return <Navigate to="/unauthorized" replace />;
+    }
+  }
+
+  return <>{children}</>;
+}
+
+export default ProtectedRoute;
