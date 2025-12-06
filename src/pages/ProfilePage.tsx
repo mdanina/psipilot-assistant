@@ -45,15 +45,15 @@ export default function ProfilePage() {
         .eq('id', profile.id);
 
       if (updateError) {
-        setError(`Failed to update profile: ${updateError.message}`);
+        setError(`Не удалось обновить профиль: ${updateError.message}`);
         return;
       }
 
-      setSuccess('Profile updated successfully');
+      setSuccess('Профиль успешно обновлен');
       setIsEditing(false);
       await refreshProfile();
     } catch (err) {
-      setError(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setError(`Ошибка: ${err instanceof Error ? err.message : 'Неизвестная ошибка'}`);
     } finally {
       setIsSaving(false);
     }
@@ -61,7 +61,7 @@ export default function ProfilePage() {
 
   return (
     <>
-      <Header title="Profile" icon={<User className="w-5 h-5" />} />
+      <Header title="Профиль" icon={<User className="w-5 h-5" />} />
       <div className="flex-1 p-6 overflow-auto">
         <div className="max-w-4xl mx-auto space-y-6">
           {error && (
@@ -84,7 +84,7 @@ export default function ProfilePage() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <User className="w-5 h-5 text-muted-foreground" />
-                  <CardTitle>My Profile</CardTitle>
+                  <CardTitle>Мой профиль</CardTitle>
                 </div>
                 {!isEditing && (
                   <Button
@@ -93,22 +93,22 @@ export default function ProfilePage() {
                     onClick={() => setIsEditing(true)}
                   >
                     <Edit className="w-4 h-4 mr-2" />
-                    Edit
+                    Редактировать
                   </Button>
                 )}
               </div>
-              <CardDescription>Your personal information and account details</CardDescription>
+              <CardDescription>Ваша личная информация и данные аккаунта</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {isEditing ? (
                 <>
                   <div className="space-y-2">
-                    <Label htmlFor="fullName">Full Name</Label>
+                    <Label htmlFor="fullName">Полное имя</Label>
                     <Input
                       id="fullName"
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
-                      placeholder="Enter your full name"
+                      placeholder="Введите ваше полное имя"
                     />
                   </div>
                   <div className="space-y-2">
@@ -118,21 +118,21 @@ export default function ProfilePage() {
                       type="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="Enter your email"
+                      placeholder="Введите ваш email"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Role</Label>
+                    <Label>Роль</Label>
                     <Input
-                      value={profile?.role || 'N/A'}
+                      value={profile?.role === 'admin' ? 'Администратор' : profile?.role === 'doctor' ? 'Врач' : profile?.role === 'assistant' ? 'Ассистент' : profile?.role || 'Н/Д'}
                       disabled
                       className="bg-muted"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>User ID</Label>
+                    <Label>ID пользователя</Label>
                     <Input
-                      value={profile?.id || user?.id || 'N/A'}
+                      value={profile?.id || user?.id || 'Н/Д'}
                       disabled
                       className="bg-muted font-mono text-sm"
                     />
@@ -143,7 +143,7 @@ export default function ProfilePage() {
                       disabled={isSaving}
                     >
                       {isSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                      Save Changes
+                      Сохранить изменения
                     </Button>
                     <Button
                       variant="outline"
@@ -157,27 +157,27 @@ export default function ProfilePage() {
                       disabled={isSaving}
                     >
                       <X className="w-4 h-4 mr-2" />
-                      Cancel
+                      Отмена
                     </Button>
                   </div>
                 </>
               ) : (
                 <div className="space-y-3">
                   <div>
-                    <Label className="text-muted-foreground">Full Name</Label>
-                    <p className="text-sm font-medium">{profile?.full_name || 'Not set'}</p>
+                    <Label className="text-muted-foreground">Полное имя</Label>
+                    <p className="text-sm font-medium">{profile?.full_name || 'Не задано'}</p>
                   </div>
                   <div>
                     <Label className="text-muted-foreground">Email</Label>
-                    <p className="text-sm font-medium">{profile?.email || user?.email || 'N/A'}</p>
+                    <p className="text-sm font-medium">{profile?.email || user?.email || 'Н/Д'}</p>
                   </div>
                   <div>
-                    <Label className="text-muted-foreground">Role</Label>
-                    <p className="text-sm font-medium capitalize">{profile?.role || 'N/A'}</p>
+                    <Label className="text-muted-foreground">Роль</Label>
+                    <p className="text-sm font-medium">{profile?.role === 'admin' ? 'Администратор' : profile?.role === 'doctor' ? 'Врач' : profile?.role === 'assistant' ? 'Ассистент' : profile?.role || 'Н/Д'}</p>
                   </div>
                   <div>
-                    <Label className="text-muted-foreground">User ID</Label>
-                    <p className="text-sm font-mono text-muted-foreground">{profile?.id || user?.id || 'N/A'}</p>
+                    <Label className="text-muted-foreground">ID пользователя</Label>
+                    <p className="text-sm font-mono text-muted-foreground">{profile?.id || user?.id || 'Н/Д'}</p>
                   </div>
                 </div>
               )}

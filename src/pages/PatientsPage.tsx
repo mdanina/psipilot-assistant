@@ -37,22 +37,22 @@ const PatientsPage = () => {
 
   return (
     <>
-      <Header title="Patients" icon={<Users className="w-5 h-5" />} />
+      <Header title="Пациенты" icon={<Users className="w-5 h-5" />} />
       <div className="flex-1 p-6 overflow-auto">
         {/* Page header */}
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-foreground">Patients</h1>
-            <p className="text-muted-foreground">Manage patients</p>
+            <h1 className="text-2xl font-bold text-foreground">Пациенты</h1>
+            <p className="text-muted-foreground">Управление пациентами</p>
           </div>
           <div className="flex items-center gap-3">
             <Button className="gap-2">
               <Plus className="w-4 h-4" />
-              New Patient
+              Новый пациент
             </Button>
             <Button variant="outline" className="gap-2">
               <RefreshCw className="w-4 h-4" />
-              Refresh Activities
+              Обновить активность
             </Button>
           </div>
         </div>
@@ -61,7 +61,7 @@ const PatientsPage = () => {
         <div className="relative mb-6">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="e.g. john@doe.com"
+            placeholder="например, ivanov@example.com"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9 max-w-md"
@@ -73,12 +73,12 @@ const PatientsPage = () => {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
+                <TableHead>Имя</TableHead>
                 <TableHead>Email</TableHead>
-                <TableHead>Phone</TableHead>
-                <TableHead>Last Activity At</TableHead>
-                <TableHead>Documents</TableHead>
-                <TableHead>Actions</TableHead>
+                <TableHead>Телефон</TableHead>
+                <TableHead>Последняя активность</TableHead>
+                <TableHead>Документы</TableHead>
+                <TableHead>Действия</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -116,7 +116,7 @@ const PatientsPage = () => {
           
           {/* Table footer */}
           <div className="p-4 border-t border-border text-center text-sm text-muted-foreground">
-            List of all patients and their details.
+            Список всех пациентов и их данные.
           </div>
         </div>
         
@@ -124,11 +124,11 @@ const PatientsPage = () => {
         <div className="flex items-center justify-end gap-2 mt-4">
           <Button variant="ghost" size="sm" className="gap-1">
             <ChevronLeft className="w-4 h-4" />
-            Previous
+            Назад
           </Button>
           <span className="px-3 py-1 bg-muted rounded text-sm">1</span>
           <Button variant="ghost" size="sm" className="gap-1">
-            Next
+            Вперед
             <ChevronRight className="w-4 h-4" />
           </Button>
         </div>

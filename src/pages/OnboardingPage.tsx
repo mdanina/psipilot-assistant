@@ -27,7 +27,7 @@ export default function OnboardingPage() {
 
     try {
       if (!user) {
-        setError('User not authenticated');
+        setError('Пользователь не аутентифицирован');
         return;
       }
 
@@ -46,15 +46,15 @@ export default function OnboardingPage() {
       if (clinicError) {
         console.error('Error creating clinic:', clinicError);
         // Provide more helpful error messages
-        let errorMessage = `Failed to create clinic: ${clinicError.message}`;
+        let errorMessage = `Не удалось создать клинику: ${clinicError.message}`;
         if (clinicError.code === '42501' || clinicError.code === 'PGRST301') {
-          errorMessage = 'Permission denied. Please check that you have the necessary permissions to create a clinic.';
+          errorMessage = 'Доступ запрещен. Пожалуйста, проверьте, что у вас есть необходимые разрешения для создания клиники.';
         } else if (clinicError.code === '23505') {
-          errorMessage = 'A clinic with this information already exists.';
+          errorMessage = 'Клиника с такими данными уже существует.';
         } else if (clinicError.message.includes('already has a clinic')) {
-          errorMessage = 'You already have a clinic assigned. Please refresh the page.';
+          errorMessage = 'У вас уже назначена клиника. Пожалуйста, обновите страницу.';
         } else if (clinicError.message.includes('timeout') || clinicError.message.includes('network')) {
-          errorMessage = 'Network error. Please check your connection and try again.';
+          errorMessage = 'Ошибка сети. Пожалуйста, проверьте подключение и попробуйте снова.';
         }
         setError(errorMessage);
         setIsSubmitting(false);
@@ -62,7 +62,7 @@ export default function OnboardingPage() {
       }
 
       if (!clinicId) {
-        setError('Failed to create clinic. Please try again.');
+        setError('Не удалось создать клинику. Пожалуйста, попробуйте снова.');
         setIsSubmitting(false);
         return;
       }
@@ -74,7 +74,7 @@ export default function OnboardingPage() {
       navigate('/', { replace: true });
     } catch (err) {
       console.error('Onboarding error:', err);
-      setError('An unexpected error occurred. Please try again.');
+      setError('Произошла непредвиденная ошибка. Пожалуйста, попробуйте снова.');
     } finally {
       setIsSubmitting(false);
     }
@@ -89,9 +89,9 @@ export default function OnboardingPage() {
               <Building2 className="h-6 w-6 text-primary" />
             </div>
           </div>
-          <CardTitle className="text-2xl font-bold">Welcome to PsiPilot!</CardTitle>
+          <CardTitle className="text-2xl font-bold">Добро пожаловать в PsiPilot!</CardTitle>
           <CardDescription>
-            Let's set up your clinic to get started
+            Давайте настроим вашу клинику для начала работы
           </CardDescription>
         </CardHeader>
 
@@ -105,11 +105,11 @@ export default function OnboardingPage() {
             )}
 
             <div className="space-y-2">
-              <Label htmlFor="clinicName">Clinic Name *</Label>
+              <Label htmlFor="clinicName">Название клиники *</Label>
               <Input
                 id="clinicName"
                 type="text"
-                placeholder="My Clinic"
+                placeholder="Моя клиника"
                 value={clinicName}
                 onChange={(e) => setClinicName(e.target.value)}
                 required
@@ -119,10 +119,10 @@ export default function OnboardingPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="clinicAddress">Address</Label>
+              <Label htmlFor="clinicAddress">Адрес</Label>
               <Textarea
                 id="clinicAddress"
-                placeholder="123 Main St, City, Country"
+                placeholder="ул. Примерная, д. 1, г. Москва"
                 value={clinicAddress}
                 onChange={(e) => setClinicAddress(e.target.value)}
                 disabled={isSubmitting}
@@ -131,7 +131,7 @@ export default function OnboardingPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="clinicPhone">Phone</Label>
+              <Label htmlFor="clinicPhone">Телефон</Label>
               <Input
                 id="clinicPhone"
                 type="tel"
@@ -145,11 +145,11 @@ export default function OnboardingPage() {
             <div className="rounded-lg bg-muted p-4 space-y-2">
               <div className="flex items-center gap-2 text-sm font-medium">
                 <CheckCircle2 className="h-4 w-4 text-green-500" />
-                You will be the administrator
+                Вы будете администратором
               </div>
               <p className="text-sm text-muted-foreground">
-                As the clinic creator, you'll have full access to manage settings,
-                invite team members, and configure the workspace.
+                Как создатель клиники, вы получите полный доступ к управлению настройками,
+                приглашению участников команды и настройке рабочего пространства.
               </p>
             </div>
           </CardContent>
@@ -163,10 +163,10 @@ export default function OnboardingPage() {
               {isSubmitting ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Creating clinic...
+                  Создание клиники...
                 </>
               ) : (
-                'Create Clinic & Continue'
+                'Создать клинику и продолжить'
               )}
             </Button>
           </CardFooter>

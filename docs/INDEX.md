@@ -59,11 +59,18 @@
 - **003_seed_section_templates.sql** - Шаблоны секций
 - **004_audit_and_compliance.sql** - Аудит и соответствие требованиям
 - **005_mfa_and_security.sql** - MFA и расширенные функции безопасности
+- **013_make_sessions_patient_nullable.sql** - Поддержка сессий без пациента
+  - **[docs/MIGRATION_013.md](MIGRATION_013.md)** - Документация миграции 013
 
 ### Структура БД
 - **Таблицы:** clinics, profiles, patients, sessions, clinical_notes, sections, recordings, documents
 - **Безопасность:** audit_logs, consent_records, mfa_factors, user_sessions
 - **Типы:** См. `src/types/database.types.ts`
+
+### Функционал записи и транскрипции
+- **[docs/AUDIO_RECORDING_TRANSCRIPTION.md](AUDIO_RECORDING_TRANSCRIPTION.md)** - Полная документация функционала записи аудио и транскрипции
+- **[docs/MIGRATION_013.md](MIGRATION_013.md)** - Документация миграции для поддержки сессий без пациента
+- **Backend сервис:** `backend/transcription-service/` - Сервис транскрипции через AssemblyAI
 
 ## 💻 Разработка
 
@@ -74,14 +81,17 @@ src/
 │   ├── ui/         # shadcn/ui components (50+ компонентов)
 │   ├── layout/     # Header, Sidebar, MainLayout
 │   ├── auth/       # ProtectedRoute, SessionTimeoutWarning
-│   └── scribe/     # RecordingCard
+│   └── scribe/     # RecordingCard - компонент записи аудио
 ├── pages/          # Страницы приложения
 ├── contexts/       # AuthContext (MFA, session management)
 ├── hooks/          # Custom React hooks
+│   └── useAudioRecorder.ts   # Хук для записи аудио
 ├── lib/            # Утилиты
 │   ├── supabase.ts           # Базовый Supabase клиент
 │   ├── supabase-encrypted.ts # Клиент с шифрованием
 │   ├── supabase-audited.ts   # Клиент с аудитом
+│   ├── supabase-recordings.ts # Работа с записями аудио
+│   ├── supabase-sessions.ts  # Работа с сессиями
 │   └── encryption.ts         # Утилиты шифрования
 └── types/          # TypeScript типы
 ```
@@ -93,6 +103,11 @@ src/
   - `VITE_SUPABASE_URL` - URL вашего Supabase
   - `VITE_SUPABASE_ANON_KEY` - Anon ключ Supabase
   - `VITE_ENCRYPTION_KEY` - Ключ шифрования (base64, 32 байта)
+  - `VITE_TRANSCRIPTION_API_URL` - URL backend сервиса транскрипции (по умолчанию http://localhost:3001)
+- **Backend сервис:** `.env` в `backend/transcription-service/`
+  - `ASSEMBLYAI_API_KEY` - API ключ AssemblyAI
+  - `SUPABASE_URL` - URL Supabase
+  - `SUPABASE_SERVICE_ROLE_KEY` - Service role ключ Supabase
 
 ## 🔧 Утилиты и скрипты
 
@@ -126,6 +141,12 @@ src/
 1. [supabase/README.md](../supabase/README.md) - Общая информация
 2. Миграции в `supabase/migrations/`
 3. Типы в `src/types/database.types.ts`
+4. [docs/MIGRATION_013.md](MIGRATION_013.md) - Документация миграции 013
+
+### Запись и транскрипция
+1. [docs/AUDIO_RECORDING_TRANSCRIPTION.md](AUDIO_RECORDING_TRANSCRIPTION.md) - Полная документация
+2. [backend/transcription-service/README.md](../backend/transcription-service/README.md) - Backend сервис
+3. [backend/transcription-service/SETUP.md](../backend/transcription-service/SETUP.md) - Настройка сервиса
 
 ### Troubleshooting
 1. [TROUBLESHOOTING_LOADING.md](../TROUBLESHOOTING_LOADING.md) - Решение проблем с загрузкой приложения

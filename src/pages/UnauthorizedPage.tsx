@@ -15,19 +15,19 @@ export default function UnauthorizedPage() {
         </div>
 
         <div className="space-y-2">
-          <h1 className="text-3xl font-bold">Access Denied</h1>
+          <h1 className="text-3xl font-bold">Доступ запрещен</h1>
           <p className="text-muted-foreground max-w-md">
-            You don't have permission to access this page. Please contact your
-            administrator if you believe this is an error.
+            У вас нет разрешения на доступ к этой странице. Пожалуйста, свяжитесь с
+            администратором, если считаете, что это ошибка.
           </p>
         </div>
 
         <div className="flex gap-4 justify-center">
           <Button variant="outline" onClick={() => navigate(-1)}>
-            Go back
+            Назад
           </Button>
           <Button onClick={() => navigate('/')}>
-            Go to Dashboard
+            Перейти на главную
           </Button>
         </div>
       </div>

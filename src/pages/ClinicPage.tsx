@@ -51,15 +51,15 @@ const ClinicPage = () => {
         .eq('id', profile.clinic_id);
 
       if (updateError) {
-        setError(`Failed to update clinic: ${updateError.message}`);
+        setError(`Не удалось обновить клинику: ${updateError.message}`);
         return;
       }
 
-      setSuccess('Clinic updated successfully');
+      setSuccess('Клиника успешно обновлена');
       setIsEditing(false);
       await refreshProfile();
     } catch (err) {
-      setError(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setError(`Ошибка: ${err instanceof Error ? err.message : 'Неизвестная ошибка'}`);
     } finally {
       setIsSaving(false);
     }
@@ -77,7 +77,7 @@ const ClinicPage = () => {
 
   return (
     <>
-      <Header title="Clinic" icon={<Building2 className="w-5 h-5" />} />
+      <Header title="Клиника" icon={<Building2 className="w-5 h-5" />} />
       <div className="flex-1 p-6 overflow-auto">
         <div className="max-w-3xl mx-auto">
           {error && (
@@ -99,7 +99,7 @@ const ClinicPage = () => {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Building2 className="w-5 h-5 text-muted-foreground" />
-                  <CardTitle>Clinic Information</CardTitle>
+                  <CardTitle>Информация о клинике</CardTitle>
                 </div>
                 {profile?.clinic && !isEditing && (
                   <Button
@@ -108,59 +108,59 @@ const ClinicPage = () => {
                     onClick={() => setIsEditing(true)}
                   >
                     <Edit className="w-4 h-4 mr-2" />
-                    Edit
+                    Редактировать
                   </Button>
                 )}
               </div>
               <CardDescription>
-                Manage your clinic details and settings
+                Управление данными и настройками вашей клиники
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {!profile?.clinic_id ? (
                 <div className="text-center py-12">
                   <Building2 className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-                  <h2 className="text-xl font-semibold text-foreground mb-2">No Clinic Assigned</h2>
+                  <h2 className="text-xl font-semibold text-foreground mb-2">Клиника не назначена</h2>
                   <p className="text-muted-foreground mb-6">
-                    You don't have a clinic assigned to your account. Please contact an administrator.
+                    У вас нет клиники, назначенной на ваш аккаунт. Пожалуйста, свяжитесь с администратором.
                   </p>
                   <Button asChild>
-                    <a href="/onboarding">Complete Onboarding</a>
+                    <a href="/onboarding">Завершить настройку</a>
                   </Button>
                 </div>
               ) : !profile?.clinic ? (
                 <div className="text-center py-12">
                   <Loader2 className="w-8 h-8 text-muted-foreground mx-auto mb-4 animate-spin" />
-                  <p className="text-muted-foreground">Loading clinic information...</p>
+                  <p className="text-muted-foreground">Загрузка информации о клинике...</p>
                 </div>
               ) : isEditing ? (
                 <>
                   <div className="space-y-2">
-                    <Label htmlFor="clinicName">Clinic Name *</Label>
+                    <Label htmlFor="clinicName">Название клиники *</Label>
                     <Input
                       id="clinicName"
                       value={clinicName}
                       onChange={(e) => setClinicName(e.target.value)}
-                      placeholder="Enter clinic name"
+                      placeholder="Введите название клиники"
                       required
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="clinicAddress">Address</Label>
+                    <Label htmlFor="clinicAddress">Адрес</Label>
                     <Input
                       id="clinicAddress"
                       value={clinicAddress}
                       onChange={(e) => setClinicAddress(e.target.value)}
-                      placeholder="Enter clinic address"
+                      placeholder="Введите адрес клиники"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="clinicPhone">Phone</Label>
+                    <Label htmlFor="clinicPhone">Телефон</Label>
                     <Input
                       id="clinicPhone"
                       value={clinicPhone}
                       onChange={(e) => setClinicPhone(e.target.value)}
-                      placeholder="Enter clinic phone"
+                      placeholder="Введите телефон клиники"
                     />
                   </div>
                   <div className="space-y-2">
@@ -170,7 +170,7 @@ const ClinicPage = () => {
                       type="email"
                       value={clinicEmail}
                       onChange={(e) => setClinicEmail(e.target.value)}
-                      placeholder="Enter clinic email"
+                      placeholder="Введите email клиники"
                     />
                   </div>
                   <div className="flex gap-2 pt-4">
@@ -179,37 +179,37 @@ const ClinicPage = () => {
                       disabled={isSaving || !clinicName.trim()}
                     >
                       {isSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                      Save Changes
+                      Сохранить изменения
                     </Button>
                     <Button
                       variant="outline"
                       onClick={handleCancel}
                       disabled={isSaving}
                     >
-                      Cancel
+                      Отмена
                     </Button>
                   </div>
                 </>
               ) : (
                 <div className="space-y-4">
                   <div>
-                    <Label className="text-muted-foreground">Clinic Name</Label>
-                    <p className="text-sm font-medium mt-1">{profile.clinic.name || 'Not set'}</p>
+                    <Label className="text-muted-foreground">Название клиники</Label>
+                    <p className="text-sm font-medium mt-1">{profile.clinic.name || 'Не задано'}</p>
                   </div>
                   <div>
-                    <Label className="text-muted-foreground">Address</Label>
-                    <p className="text-sm font-medium mt-1">{profile.clinic.address || 'Not set'}</p>
+                    <Label className="text-muted-foreground">Адрес</Label>
+                    <p className="text-sm font-medium mt-1">{profile.clinic.address || 'Не задано'}</p>
                   </div>
                   <div>
-                    <Label className="text-muted-foreground">Phone</Label>
-                    <p className="text-sm font-medium mt-1">{profile.clinic.phone || 'Not set'}</p>
+                    <Label className="text-muted-foreground">Телефон</Label>
+                    <p className="text-sm font-medium mt-1">{profile.clinic.phone || 'Не задано'}</p>
                   </div>
                   <div>
                     <Label className="text-muted-foreground">Email</Label>
-                    <p className="text-sm font-medium mt-1">{profile.clinic.email || 'Not set'}</p>
+                    <p className="text-sm font-medium mt-1">{profile.clinic.email || 'Не задано'}</p>
                   </div>
                   <div className="pt-4 border-t">
-                    <Label className="text-muted-foreground">Clinic ID</Label>
+                    <Label className="text-muted-foreground">ID клиники</Label>
                     <p className="text-sm font-mono text-muted-foreground mt-1">{profile.clinic_id}</p>
                   </div>
                 </div>

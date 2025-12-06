@@ -99,13 +99,13 @@ export default function AdministrationPage() {
         .order('created_at', { ascending: false });
 
       if (fetchError) {
-        setError(`Failed to load users: ${fetchError.message}`);
+        setError(`Не удалось загрузить пользователей: ${fetchError.message}`);
         return;
       }
 
       setUsers(data || []);
     } catch (err) {
-      setError(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setError(`Ошибка: ${err instanceof Error ? err.message : 'Неизвестная ошибка'}`);
     } finally {
       setIsLoading(false);
     }
@@ -147,7 +147,7 @@ export default function AdministrationPage() {
         .single();
 
       if (existingUser) {
-        setError(`User ${inviteEmail} is already in your clinic`);
+        setError(`Пользователь ${inviteEmail} уже находится в вашей клинике`);
         return;
       }
 
@@ -162,12 +162,12 @@ export default function AdministrationPage() {
       );
 
       if (inviteError) {
-        setError(`Failed to create invitation: ${inviteError.message}`);
+        setError(`Не удалось создать приглашение: ${inviteError.message}`);
         return;
       }
 
       setSuccess(
-        `Invitation sent to ${inviteEmail}. They will be added to your clinic when they register.`
+        `Приглашение отправлено на ${inviteEmail}. Они будут добавлены в вашу клинику при регистрации.`
       );
 
       setIsInviteDialogOpen(false);
@@ -177,7 +177,7 @@ export default function AdministrationPage() {
       await loadUsers();
       await loadInvitations();
     } catch (err) {
-      setError(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setError(`Ошибка: ${err instanceof Error ? err.message : 'Неизвестная ошибка'}`);
     } finally {
       setIsInviting(false);
     }
@@ -208,22 +208,22 @@ export default function AdministrationPage() {
         .eq('id', editingUser.id);
 
       if (updateError) {
-        setError(`Failed to update user: ${updateError.message}`);
+        setError(`Не удалось обновить пользователя: ${updateError.message}`);
         return;
       }
 
-      setSuccess('User updated successfully');
+      setSuccess('Пользователь успешно обновлен');
       setEditingUser(null);
       await loadUsers();
     } catch (err) {
-      setError(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setError(`Ошибка: ${err instanceof Error ? err.message : 'Неизвестная ошибка'}`);
     } finally {
       setIsSaving(false);
     }
   };
 
   const handleRemoveUser = async (userId: string, userEmail: string) => {
-    if (!confirm(`Are you sure you want to remove ${userEmail} from your clinic?`)) {
+    if (!confirm(`Вы уверены, что хотите удалить ${userEmail} из вашей клиники?`)) {
       return;
     }
 
@@ -237,14 +237,14 @@ export default function AdministrationPage() {
         .eq('id', userId);
 
       if (updateError) {
-        setError(`Failed to remove user: ${updateError.message}`);
+        setError(`Не удалось удалить пользователя: ${updateError.message}`);
         return;
       }
 
-      setSuccess('User removed from clinic successfully');
+      setSuccess('Пользователь успешно удален из клиники');
       await loadUsers();
     } catch (err) {
-      setError(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setError(`Ошибка: ${err instanceof Error ? err.message : 'Неизвестная ошибка'}`);
     }
   };
 
@@ -274,16 +274,29 @@ export default function AdministrationPage() {
     }
   };
 
+  const translateRole = (role: string) => {
+    switch (role) {
+      case 'admin':
+        return 'Администратор';
+      case 'doctor':
+        return 'Врач';
+      case 'assistant':
+        return 'Ассистент';
+      default:
+        return role;
+    }
+  };
+
   // Only show for admins
   if (profile?.role !== 'admin') {
     return (
       <>
-        <Header title="Administration" icon={<Settings className="w-5 h-5" />} />
+        <Header title="Администрирование" icon={<Settings className="w-5 h-5" />} />
         <div className="flex-1 p-6 overflow-auto">
           <Alert>
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
-              You need administrator privileges to access this page.
+              Для доступа к этой странице необходимы права администратора.
             </AlertDescription>
           </Alert>
         </div>
@@ -293,7 +306,7 @@ export default function AdministrationPage() {
 
   return (
     <>
-      <Header title="Administration" icon={<Settings className="w-5 h-5" />} />
+      <Header title="Администрирование" icon={<Settings className="w-5 h-5" />} />
       <div className="flex-1 p-6 overflow-auto">
         <div className="max-w-6xl mx-auto space-y-6">
           {error && (
@@ -313,14 +326,14 @@ export default function AdministrationPage() {
           {/* Header with Add User button */}
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-foreground">Clinic Users</h1>
+              <h1 className="text-2xl font-bold text-foreground">Пользователи клиники</h1>
               <p className="text-muted-foreground mt-1">
-                Manage users and their roles in your clinic
+                Управление пользователями и их ролями в вашей клинике
               </p>
             </div>
             <Button onClick={() => setIsInviteDialogOpen(true)}>
               <UserPlus className="w-4 h-4 mr-2" />
-              Add User
+              Добавить пользователя
             </Button>
           </div>
 
@@ -329,10 +342,10 @@ export default function AdministrationPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Users className="w-5 h-5" />
-                Users ({users.length})
+                Пользователи ({users.length})
               </CardTitle>
               <CardDescription>
-                All users associated with your clinic
+                Все пользователи, связанные с вашей клиникой
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -343,10 +356,10 @@ export default function AdministrationPage() {
               ) : users.length === 0 ? (
                 <div className="text-center py-12">
                   <Users className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                  <p className="text-muted-foreground mb-4">No users found</p>
+                  <p className="text-muted-foreground mb-4">Пользователи не найдены</p>
                   <Button onClick={() => setIsInviteDialogOpen(true)}>
                     <UserPlus className="w-4 h-4 mr-2" />
-                    Add First User
+                    Добавить первого пользователя
                   </Button>
                 </div>
               ) : (
@@ -382,7 +395,7 @@ export default function AdministrationPage() {
                             )}`}
                           >
                             {getRoleIcon(user.role)}
-                            <span className="capitalize">{user.role}</span>
+                            <span>{translateRole(user.role)}</span>
                           </span>
                         </div>
                       </div>
@@ -417,10 +430,10 @@ export default function AdministrationPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <UserPlus className="w-5 h-5" />
-                  Pending Invitations ({invitations.length})
+                  Ожидающие приглашения ({invitations.length})
                 </CardTitle>
                 <CardDescription>
-                  Users who have been invited but haven't registered yet
+                  Пользователи, которым отправлено приглашение, но они еще не зарегистрировались
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -449,22 +462,22 @@ export default function AdministrationPage() {
                             {invitation.email}
                           </p>
                           <p className="text-xs text-muted-foreground mt-1">
-                            Expires: {new Date(invitation.expires_at).toLocaleDateString()}
+                            Истекает: {new Date(invitation.expires_at).toLocaleDateString()}
                           </p>
                         </div>
                         <span
-                          className={`px-2 py-1 rounded-md text-xs font-medium border capitalize ${getRoleBadgeColor(
+                          className={`px-2 py-1 rounded-md text-xs font-medium border ${getRoleBadgeColor(
                             invitation.role
                           )}`}
                         >
-                          {invitation.role}
+                          {translateRole(invitation.role)}
                         </span>
                       </div>
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={async () => {
-                          if (confirm(`Cancel invitation for ${invitation.email}?`)) {
+                          if (confirm(`Отменить приглашение для ${invitation.email}?`)) {
                             const { error } = await supabase
                               .from('user_invitations')
                               .update({ status: 'cancelled' })
@@ -491,9 +504,9 @@ export default function AdministrationPage() {
       <Dialog open={isInviteDialogOpen} onOpenChange={setIsInviteDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Invite User to Clinic</DialogTitle>
+            <DialogTitle>Пригласить пользователя в клинику</DialogTitle>
             <DialogDescription>
-              Invite a user to your clinic by email. They will be automatically added when they register.
+              Пригласите пользователя в вашу клинику по email. Он будет автоматически добавлен при регистрации.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -508,23 +521,23 @@ export default function AdministrationPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="invite-name">Full Name</Label>
+              <Label htmlFor="invite-name">Полное имя</Label>
               <Input
                 id="invite-name"
                 value={inviteFullName}
                 onChange={(e) => setInviteFullName(e.target.value)}
-                placeholder="John Doe"
+                placeholder="Иван Иванов"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="invite-role">Role *</Label>
+              <Label htmlFor="invite-role">Роль *</Label>
               <Select value={inviteRole} onValueChange={(value: 'doctor' | 'assistant') => setInviteRole(value)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="doctor">Doctor</SelectItem>
-                  <SelectItem value="assistant">Assistant</SelectItem>
+                  <SelectItem value="doctor">Врач</SelectItem>
+                  <SelectItem value="assistant">Ассистент</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -539,11 +552,11 @@ export default function AdministrationPage() {
                 setInviteRole('doctor');
               }}
             >
-              Cancel
+              Отмена
             </Button>
             <Button onClick={handleInviteUser} disabled={isInviting || !inviteEmail.trim()}>
               {isInviting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Add User
+              Добавить пользователя
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -553,9 +566,9 @@ export default function AdministrationPage() {
       <Dialog open={!!editingUser} onOpenChange={(open) => !open && setEditingUser(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit User</DialogTitle>
+            <DialogTitle>Редактировать пользователя</DialogTitle>
             <DialogDescription>
-              Update user information and role.
+              Обновить информацию о пользователе и роль.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -570,16 +583,16 @@ export default function AdministrationPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit-name">Full Name</Label>
+              <Label htmlFor="edit-name">Полное имя</Label>
               <Input
                 id="edit-name"
                 value={editFullName}
                 onChange={(e) => setEditFullName(e.target.value)}
-                placeholder="John Doe"
+                placeholder="Иван Иванов"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit-role">Role *</Label>
+              <Label htmlFor="edit-role">Роль *</Label>
               <Select
                 value={editRole}
                 onValueChange={(value: 'admin' | 'doctor' | 'assistant') => setEditRole(value)}
@@ -588,9 +601,9 @@ export default function AdministrationPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="admin">Admin</SelectItem>
-                  <SelectItem value="doctor">Doctor</SelectItem>
-                  <SelectItem value="assistant">Assistant</SelectItem>
+                  <SelectItem value="admin">Администратор</SelectItem>
+                  <SelectItem value="doctor">Врач</SelectItem>
+                  <SelectItem value="assistant">Ассистент</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -600,11 +613,11 @@ export default function AdministrationPage() {
               variant="outline"
               onClick={() => setEditingUser(null)}
             >
-              Cancel
+              Отмена
             </Button>
             <Button onClick={handleSaveUser} disabled={isSaving || !editEmail.trim()}>
               {isSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Save Changes
+              Сохранить изменения
             </Button>
           </DialogFooter>
         </DialogContent>

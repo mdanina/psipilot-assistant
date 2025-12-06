@@ -37,7 +37,7 @@ export default function LoginPage() {
       // Redirect to original destination
       navigate(from, { replace: true });
     } catch (err) {
-      setError('An unexpected error occurred. Please try again.');
+      setError('Произошла непредвиденная ошибка. Пожалуйста, попробуйте снова.');
     } finally {
       // Always reset submitting state to prevent UI lock
       setIsSubmitting(false);
@@ -55,7 +55,7 @@ export default function LoginPage() {
           </div>
           <CardTitle className="text-2xl font-bold">PsiPilot Assistant</CardTitle>
           <CardDescription>
-            Sign in to access your clinical workspace
+            Войдите, чтобы получить доступ к рабочему пространству
           </CardDescription>
         </CardHeader>
 
@@ -84,18 +84,18 @@ export default function LoginPage() {
 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password">Пароль</Label>
                 <Link
                   to="/forgot-password"
                   className="text-sm text-primary hover:underline"
                 >
-                  Forgot password?
+                  Забыли пароль?
                 </Link>
               </div>
               <Input
                 id="password"
                 type="password"
-                placeholder="Enter your password"
+                placeholder="Введите ваш пароль"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
@@ -114,17 +114,17 @@ export default function LoginPage() {
               {isSubmitting ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Signing in...
+                  Вход...
                 </>
               ) : (
-                'Sign in'
+                'Войти'
               )}
             </Button>
 
             <p className="text-center text-sm text-muted-foreground">
-              Don't have an account?{' '}
+              Нет аккаунта?{' '}
               <Link to="/register" className="text-primary hover:underline">
-                Contact your administrator
+                Свяжитесь с администратором
               </Link>
             </p>
           </CardFooter>

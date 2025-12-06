@@ -10,10 +10,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 const navItems = [
-  { name: "Scribe", icon: FileText, path: "/" },
-  { name: "Patients", icon: Users, path: "/patients" },
-  { name: "Sessions", icon: Calendar, path: "/sessions" },
-  { name: "Clinic", icon: Building2, path: "/clinic" },
+  { name: "Скрайбер", icon: FileText, path: "/" },
+  { name: "Пациенты", icon: Users, path: "/patients" },
+  { name: "Сессии", icon: Calendar, path: "/sessions" },
+  { name: "Клиника", icon: Building2, path: "/clinic" },
 ];
 
 export const Sidebar = () => {
@@ -50,7 +50,7 @@ export const Sidebar = () => {
       <nav className="flex-1 px-3">
         <div className="mb-4">
           <span className="px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            Platform
+            Платформа
           </span>
         </div>
         <ul className="space-y-1">
@@ -78,7 +78,7 @@ export const Sidebar = () => {
           className="sidebar-item sidebar-item-inactive"
         >
           <Settings className="w-5 h-5" />
-          <span>Administration</span>
+          <span>Администрирование</span>
         </NavLink>
         
         {/* User */}
@@ -111,7 +111,7 @@ export const Sidebar = () => {
                 {profile?.clinic_id && !profile?.clinic && (
                   <div className="flex items-center gap-2 pl-11">
                     <Building2 className="w-3 h-3 text-muted-foreground animate-pulse" />
-                    <p className="text-xs text-muted-foreground">Loading clinic...</p>
+                    <p className="text-xs text-muted-foreground">Загрузка клиники...</p>
                   </div>
                 )}
               </div>
@@ -119,7 +119,7 @@ export const Sidebar = () => {
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuItem onClick={() => navigate("/profile")}>
                 <User className="w-4 h-4 mr-2" />
-                <span>Edit Profile</span>
+                <span>Редактировать профиль</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -130,7 +130,7 @@ export const Sidebar = () => {
                 className="text-destructive focus:text-destructive"
               >
                 <LogOut className="w-4 h-4 mr-2" />
-                <span>Sign Out</span>
+                <span>Выйти</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

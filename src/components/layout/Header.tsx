@@ -17,7 +17,7 @@ export const Header = ({ title, icon }: HeaderProps) => {
       <div className="relative w-64">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input
-          placeholder="Search..."
+          placeholder="Поиск..."
           className="pl-9 pr-12 h-9 bg-background"
         />
         <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1 text-xs text-muted-foreground">

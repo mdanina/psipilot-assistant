@@ -163,7 +163,7 @@ export type Database = {
       sessions: {
         Row: {
           id: string;
-          patient_id: string;
+          patient_id: string | null;
           user_id: string;
           clinic_id: string;
           title: string | null;
@@ -181,7 +181,7 @@ export type Database = {
         };
         Insert: {
           id?: string;
-          patient_id: string;
+          patient_id?: string | null;
           user_id: string;
           clinic_id: string;
           title?: string | null;
@@ -199,7 +199,7 @@ export type Database = {
         };
         Update: {
           id?: string;
-          patient_id?: string;
+          patient_id?: string | null;
           user_id?: string;
           clinic_id?: string;
           title?: string | null;
