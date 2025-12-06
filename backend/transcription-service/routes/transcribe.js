@@ -4,10 +4,19 @@ import { createClient } from '@supabase/supabase-js';
 
 const router = express.Router();
 
-// Initialize AssemblyAI client
-const assemblyai = new AssemblyAI({
-  apiKey: process.env.ASSEMBLYAI_API_KEY,
-});
+// Lazy initialization of AssemblyAI client
+let assemblyaiClient = null;
+
+function getAssemblyAI() {
+  if (!assemblyaiClient) {
+    const apiKey = process.env.ASSEMBLYAI_API_KEY;
+    if (!apiKey) {
+      throw new Error('ASSEMBLYAI_API_KEY is required. Please set it in .env file.');
+    }
+    assemblyaiClient = new AssemblyAI({ apiKey });
+  }
+  return assemblyaiClient;
+}
 
 // Helper function to get Supabase admin client (for DB operations)
 function getSupabaseAdmin() {
@@ -122,7 +131,7 @@ router.post('/transcribe', async (req, res) => {
     }
 
     // Start transcription with AssemblyAI
-    // Note: AssemblyAI API may have changed - check latest documentation
+    const assemblyai = getAssemblyAI();
     const transcript = await assemblyai.transcripts.transcribe({
       audio: signedUrlData.signedUrl,
       language_code: 'ru', // Russian language for medical documentation
