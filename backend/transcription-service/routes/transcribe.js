@@ -9,30 +9,52 @@ const assemblyai = new AssemblyAI({
   apiKey: process.env.ASSEMBLYAI_API_KEY,
 });
 
-// Helper function to get Supabase client (lazy initialization)
-function getSupabaseClient() {
+// Helper function to get Supabase admin client (for DB operations)
+function getSupabaseAdmin() {
   const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
-  
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
   if (!supabaseUrl) {
     throw new Error('SUPABASE_URL is required. Please set it in .env file.');
   }
-  
+
   if (!supabaseKey) {
-    throw new Error('SUPABASE_SERVICE_ROLE_KEY or SUPABASE_ANON_KEY is required. Please set it in .env file.');
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY is required. Please set it in .env file.');
   }
-  
-  return createClient(supabaseUrl, supabaseKey);
+
+  return createClient(supabaseUrl, supabaseKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  });
 }
 
 /**
- * Verify Supabase JWT token
+ * Verify Supabase JWT token and get user
  */
 async function verifyAuthToken(token) {
   try {
-    const supabase = getSupabaseClient();
-    const { data: { user }, error } = await supabase.auth.getUser(token);
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      console.error('Missing SUPABASE_URL or SUPABASE_ANON_KEY');
+      return null;
+    }
+
+    // Create client with the user's token for verification
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    });
+
+    const { data: { user }, error } = await supabase.auth.getUser();
     if (error || !user) {
+      console.error('Token verification failed:', error?.message);
       return null;
     }
     return user;
@@ -66,7 +88,7 @@ router.post('/transcribe', async (req, res) => {
     }
 
     // Get Supabase client
-    const supabase = getSupabaseClient();
+    const supabase = getSupabaseAdmin();
 
     // Get recording from database
     const { data: recording, error: recordingError } = await supabase
@@ -162,7 +184,7 @@ router.post('/transcribe', async (req, res) => {
     // Update recording status to failed
     if (req.body.recordingId) {
       try {
-        const supabase = getSupabaseClient();
+        const supabase = getSupabaseAdmin();
         await supabase
           .from('recordings')
           .update({
@@ -203,7 +225,7 @@ router.get('/transcribe/:recordingId/status', async (req, res) => {
     const { recordingId } = req.params;
 
     // Get Supabase client
-    const supabase = getSupabaseClient();
+    const supabase = getSupabaseAdmin();
     
     // Get recording from database
     const { data: recording, error: recordingError } = await supabase
