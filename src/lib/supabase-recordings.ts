@@ -160,13 +160,27 @@ export async function startTranscription(
 }
 
 /**
- * Get recording status and transcription
+ * Get recording status and transcription (only for non-deleted recordings)
  */
-export async function getRecordingStatus(recordingId: string): Promise<TranscriptionStatus> {
+export async function getRecordingStatus(
+  recordingId: string,
+  transcriptionApiUrl?: string,
+  forceSync: boolean = false
+): Promise<TranscriptionStatus> {
+  // If forceSync is true and transcriptionApiUrl is provided, sync from AssemblyAI first
+  if (forceSync && transcriptionApiUrl) {
+    try {
+      await syncTranscriptionStatus(recordingId, transcriptionApiUrl);
+    } catch (error) {
+      console.warn('Failed to sync transcription status, falling back to DB:', error);
+    }
+  }
+
   const { data, error } = await supabase
     .from('recordings')
     .select('transcription_status, transcription_text, transcription_error')
     .eq('id', recordingId)
+    .is('deleted_at', null) // Only get non-deleted recordings
     .single();
 
   if (error) {
@@ -186,13 +200,42 @@ export async function getRecordingStatus(recordingId: string): Promise<Transcrip
 }
 
 /**
- * Get recording by ID
+ * Sync transcription status from AssemblyAI API
+ * Useful when webhook is not configured or transcription is stuck in processing
+ */
+export async function syncTranscriptionStatus(
+  recordingId: string,
+  transcriptionApiUrl: string
+): Promise<void> {
+  const { data: { session } } = await supabase.auth.getSession();
+  
+  if (!session) {
+    throw new Error('No active session found');
+  }
+
+  const response = await fetch(`${transcriptionApiUrl}/api/transcribe/${recordingId}/sync`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session.access_token}`,
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to sync transcription status: ${errorText}`);
+  }
+}
+
+/**
+ * Get recording by ID (only non-deleted recordings)
  */
 export async function getRecording(recordingId: string): Promise<Recording> {
   const { data, error } = await supabase
     .from('recordings')
     .select('*')
     .eq('id', recordingId)
+    .is('deleted_at', null) // Only get non-deleted recordings
     .single();
 
   if (error) {
@@ -215,7 +258,8 @@ export async function getSessionRecordings(sessionId: string): Promise<Recording
     .from('recordings')
     .select('*')
     .eq('session_id', sessionId)
-    .order('created_at', { ascending: false });
+    .is('deleted_at', null) // Only get non-deleted recordings
+    .order('created_at', { ascending: true }); // Старые записи сверху, новые снизу
 
   if (error) {
     console.error('Error getting session recordings:', error);
@@ -267,33 +311,24 @@ export async function pollTranscriptionStatus(
 }
 
 /**
- * Delete recording and its audio file
+ * Soft delete recording (mark as deleted, but keep in database)
+ * Recording will be hidden from user but preserved for audit/history
  */
 export async function deleteRecording(recordingId: string): Promise<void> {
-  // Get recording to get file path
-  const recording = await getRecording(recordingId);
-
-  // Delete file from storage
-  if (recording.file_path) {
-    const { error: storageError } = await supabase.storage
-      .from('recordings')
-      .remove([recording.file_path]);
-
-    if (storageError) {
-      console.error('Error deleting audio file:', storageError);
-      // Continue with database deletion even if storage deletion fails
-    }
-  }
-
-  // Delete recording record
+  // Soft delete: mark as deleted instead of physically removing
   const { error } = await supabase
     .from('recordings')
-    .delete()
+    .update({
+      deleted_at: new Date().toISOString(),
+    })
     .eq('id', recordingId);
 
   if (error) {
-    console.error('Error deleting recording:', error);
+    console.error('Error soft deleting recording:', error);
     throw new Error(`Failed to delete recording: ${error.message}`);
   }
+
+  // Note: Audio file is NOT deleted from storage to preserve data
+  // File can be cleaned up later by an admin job if needed
 }
 

@@ -24,6 +24,7 @@ app.get('/', (req, res) => {
       health: '/health',
       transcribe: 'POST /api/transcribe',
       status: 'GET /api/transcribe/:recordingId/status',
+      sync: 'POST /api/transcribe/:recordingId/sync',
       webhook: 'POST /api/webhook/assemblyai'
     },
     timestamp: new Date().toISOString()

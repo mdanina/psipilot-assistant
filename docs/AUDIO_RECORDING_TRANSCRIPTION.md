@@ -87,10 +87,18 @@
 2. Фронтенд вызывает backend API `/api/transcribe`
 3. Backend сервис:
    - Получает signed URL для аудио файла из Supabase Storage
-   - Отправляет файл в AssemblyAI API
-   - Обновляет статус транскрипции в БД
-4. Фронтенд опрашивает статус транскрипции (polling)
-5. При завершении транскрипция сохраняется в БД
+   - Отправляет файл в AssemblyAI API с webhook URL для асинхронной обработки
+   - Сохраняет `transcript_id` в БД для связи с webhook
+   - Обновляет статус транскрипции в БД на 'processing'
+4. AssemblyAI обрабатывает транскрипцию:
+   - Если транскрипция быстрая (синхронная), результат возвращается сразу
+   - Если транскрипция длительная (асинхронная), AssemblyAI отправляет webhook при завершении
+5. Webhook обрабатывает результаты:
+   - Получает уведомление от AssemblyAI с `transcript_id`
+   - Находит запись в БД по `transcript_id`
+   - Сохраняет транскрибированный текст с диаризацией
+   - Обновляет статус на 'completed' или 'failed'
+6. Фронтенд опрашивает статус транскрипции (polling) для обновления UI
 
 ### 5. Привязка к пациенту (SessionsPage)
 
@@ -220,6 +228,7 @@ CREATE TABLE recordings (
     transcription_status VARCHAR(50),  -- pending, processing, completed, failed
     transcription_text TEXT,
     transcription_error TEXT,
+    transcript_id VARCHAR(255),  -- AssemblyAI transcript ID for webhook processing
     -- ...
 );
 ```
@@ -266,10 +275,23 @@ CREATE TABLE recordings (
 3. **Форматы аудио**: Зависит от поддержки браузером MediaRecorder API
 4. **Одновременные записи**: Одна запись на сессию (можно расширить)
 
+## Настройка Webhook в AssemblyAI
+
+Для работы асинхронной транскрипции необходимо настроить webhook URL в AssemblyAI:
+
+1. Войдите в AssemblyAI Dashboard
+2. Перейдите в Settings > Webhooks
+3. Добавьте webhook URL:
+   - Для локальной разработки: используйте ngrok или аналогичный туннель
+   - Для production: `https://your-domain.com/api/webhook/assemblyai`
+4. Убедитесь, что webhook URL доступен из интернета (AssemblyAI должен иметь возможность отправлять POST запросы)
+
+**Важно:** Webhook URL должен быть доступен из интернета. Для локальной разработки используйте туннель (ngrok, cloudflared и т.д.)
+
 ## Будущие улучшения
 
 - [ ] Поддержка нескольких записей на сессию
-- [ ] Асинхронная транскрипция через webhooks
+- [x] Асинхронная транскрипция через webhooks
 - [ ] Поддержка видео записей
 - [ ] Автоматическое создание клинических заметок из транскрипции
 - [ ] Интеграция с AI для структурирования заметок

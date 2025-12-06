@@ -418,6 +418,8 @@ export type Database = {
           transcription_text: string | null;
           transcription_error: string | null;
           transcribed_at: string | null;
+          transcript_id: string | null;
+          deleted_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -434,6 +436,8 @@ export type Database = {
           transcription_text?: string | null;
           transcription_error?: string | null;
           transcribed_at?: string | null;
+          transcript_id?: string | null;
+          deleted_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -450,6 +454,8 @@ export type Database = {
           transcription_text?: string | null;
           transcription_error?: string | null;
           transcribed_at?: string | null;
+          transcript_id?: string | null;
+          deleted_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };

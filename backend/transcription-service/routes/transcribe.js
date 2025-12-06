@@ -40,6 +40,71 @@ function getSupabaseAdmin() {
 }
 
 /**
+ * Sync transcription status from AssemblyAI API
+ */
+async function syncTranscriptionStatus(recording) {
+  if (!recording.transcript_id) {
+    return null;
+  }
+
+  try {
+    const assemblyai = getAssemblyAI();
+    const transcript = await assemblyai.transcripts.get(recording.transcript_id);
+
+    if (!transcript) {
+      return null;
+    }
+
+    const updateData = {
+      updated_at: new Date().toISOString(),
+    };
+
+    if (transcript.status === 'completed' && transcript.text) {
+      // Format transcript with speaker labels if available
+      let formattedText = transcript.text;
+      if (transcript.utterances && transcript.utterances.length > 0) {
+        const speakerMap = {};
+        let speakerIndex = 0;
+        const speakerNames = ['Врач', 'Пациент', 'Участник 3', 'Участник 4'];
+
+        formattedText = transcript.utterances.map(utterance => {
+          if (!speakerMap[utterance.speaker]) {
+            speakerMap[utterance.speaker] = speakerNames[speakerIndex] || `Участник ${speakerIndex + 1}`;
+            speakerIndex++;
+          }
+          return `${speakerMap[utterance.speaker]}: ${utterance.text}`;
+        }).join('\n');
+      }
+
+      updateData.transcription_status = 'completed';
+      updateData.transcription_text = formattedText;
+      updateData.transcribed_at = new Date().toISOString();
+    } else if (transcript.status === 'error') {
+      updateData.transcription_status = 'failed';
+      updateData.transcription_error = transcript.error || 'Transcription failed';
+    } else if (transcript.status === 'processing' || transcript.status === 'queued') {
+      updateData.transcription_status = 'processing';
+    }
+
+    const supabase = getSupabaseAdmin();
+    const { error: updateError } = await supabase
+      .from('recordings')
+      .update(updateData)
+      .eq('id', recording.id);
+
+    if (updateError) {
+      console.error('Error updating recording during sync:', updateError);
+      return null;
+    }
+
+    return { ...recording, ...updateData, assemblyaiStatus: transcript.status };
+  } catch (error) {
+    console.error('Error syncing transcription status:', error);
+    return null;
+  }
+}
+
+/**
  * Verify Supabase JWT token and get user
  */
 async function verifyAuthToken(token) {
@@ -130,21 +195,27 @@ router.post('/transcribe', async (req, res) => {
       return res.status(500).json({ error: 'Failed to generate signed URL for audio file' });
     }
 
+    // Get webhook URL for async transcription
+    const webhookUrl = process.env.WEBHOOK_URL || `${process.env.SUPABASE_URL?.replace(/\/$/, '') || 'http://localhost:3001'}/api/webhook/assemblyai`;
+
     // Start transcription with AssemblyAI
     const assemblyai = getAssemblyAI();
     const transcript = await assemblyai.transcripts.transcribe({
       audio: signedUrlData.signedUrl,
       language_code: 'ru', // Russian language for medical documentation
       speaker_labels: true, // Identify different speakers (diarization)
+      speech_model: 'universal', // Faster transcription model
       auto_chapters: false,
       auto_highlights: false,
       sentiment_analysis: false,
       entity_detection: false,
+      webhook_url: webhookUrl, // Webhook URL for async transcription completion
     });
 
-    // Update recording with transcription status
+    // Update recording with transcription status and transcript_id
     const updateData = {
       transcription_status: 'processing',
+      transcript_id: transcript.id, // Save transcript_id for webhook processing
     };
 
     // If transcription is already complete (synchronous), update immediately
@@ -214,8 +285,83 @@ router.post('/transcribe', async (req, res) => {
 });
 
 /**
+ * POST /api/transcribe/:recordingId/sync
+ * Sync transcription status from AssemblyAI API
+ * Useful when webhook is not configured or failed
+ */
+router.post('/transcribe/:recordingId/sync', async (req, res) => {
+  try {
+    // Verify authentication
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
+    }
+
+    const token = authHeader.substring(7);
+    const user = await verifyAuthToken(token);
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized: Invalid token' });
+    }
+
+    const { recordingId } = req.params;
+    const supabase = getSupabaseAdmin();
+
+    // Get recording with transcript_id
+    const { data: recording, error: recordingError } = await supabase
+      .from('recordings')
+      .select('*')
+      .eq('id', recordingId)
+      .single();
+
+    if (recordingError || !recording) {
+      return res.status(404).json({ error: 'Recording not found' });
+    }
+
+    // Verify user has access
+    const { data: session } = await supabase
+      .from('sessions')
+      .select('user_id')
+      .eq('id', recording.session_id)
+      .single();
+
+    if (!session || session.user_id !== user.id) {
+      return res.status(403).json({ error: 'Forbidden: Access denied' });
+    }
+
+    // Check if transcript_id exists
+    if (!recording.transcript_id) {
+      return res.status(400).json({ 
+        error: 'No transcript_id found. Transcription may not have started yet.' 
+      });
+    }
+
+    // Sync status from AssemblyAI
+    const syncedRecording = await syncTranscriptionStatus(recording);
+
+    if (!syncedRecording) {
+      return res.status(500).json({ 
+        error: 'Failed to sync transcription status from AssemblyAI' 
+      });
+    }
+
+    res.json({
+      success: true,
+      status: syncedRecording.assemblyaiStatus,
+      transcriptionStatus: syncedRecording.transcription_status,
+      hasText: !!syncedRecording.transcription_text,
+    });
+  } catch (error) {
+    console.error('Sync error:', error);
+    res.status(500).json({
+      error: 'Failed to sync transcription status',
+      message: error.message,
+    });
+  }
+});
+
+/**
  * GET /api/transcribe/:recordingId/status
- * Get transcription status
+ * Get transcription status (with optional auto-sync)
  */
 router.get('/transcribe/:recordingId/status', async (req, res) => {
   try {
@@ -232,14 +378,15 @@ router.get('/transcribe/:recordingId/status', async (req, res) => {
     }
 
     const { recordingId } = req.params;
+    const { sync } = req.query; // Optional: ?sync=true to force sync
 
     // Get Supabase client
     const supabase = getSupabaseAdmin();
     
-    // Get recording from database
+    // Get recording from database (need transcript_id and created_at for sync check)
     const { data: recording, error: recordingError } = await supabase
       .from('recordings')
-      .select('transcription_status, transcription_text, transcription_error')
+      .select('id, transcription_status, transcription_text, transcription_error, transcript_id, created_at, updated_at')
       .eq('id', recordingId)
       .single();
 
@@ -247,10 +394,38 @@ router.get('/transcribe/:recordingId/status', async (req, res) => {
       return res.status(404).json({ error: 'Recording not found' });
     }
 
+    // Auto-sync if status is processing and enough time has passed, or if sync=true
+    const shouldSync = sync === 'true' || (
+      recording.transcription_status === 'processing' &&
+      recording.transcript_id &&
+      recording.created_at
+    );
+
+    if (shouldSync) {
+      const createdAt = new Date(recording.created_at);
+      const now = new Date();
+      const secondsSinceCreated = (now - createdAt) / 1000;
+
+      // Sync if forced or if more than 30 seconds have passed
+      if (sync === 'true' || secondsSinceCreated > 30) {
+        console.log(`Auto-syncing transcription status for recording ${recordingId}`);
+        const syncedRecording = await syncTranscriptionStatus(recording);
+        if (syncedRecording) {
+          return res.json({
+            status: syncedRecording.transcription_status,
+            transcriptionText: syncedRecording.transcription_text,
+            error: syncedRecording.transcription_error,
+            synced: true,
+          });
+        }
+      }
+    }
+
     res.json({
       status: recording.transcription_status,
       transcriptionText: recording.transcription_text,
       error: recording.transcription_error,
+      synced: false,
     });
   } catch (error) {
     console.error('Status check error:', error);

@@ -1,15 +1,25 @@
 import { useState, useEffect, useRef } from "react";
-import { Calendar, Plus, FileText, Circle, User, Link2, Loader2, Mic, Pause, Play, Square, Sparkles, ChevronDown } from "lucide-react";
+import { Calendar, Plus, FileText, Circle, User, Link2, Loader2, Mic, Pause, Play, Square, Sparkles, ChevronDown, RefreshCw, Trash2 } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { linkSessionToPatient, getSession, createSession } from "@/lib/supabase-sessions";
-import { getSessionRecordings, getRecordingStatus, createRecording, uploadAudioFile, updateRecording, startTranscription } from "@/lib/supabase-recordings";
+import { getSessionRecordings, getRecordingStatus, createRecording, uploadAudioFile, updateRecording, startTranscription, syncTranscriptionStatus, deleteRecording } from "@/lib/supabase-recordings";
 import { getPatients } from "@/lib/supabase-patients";
 import { useToast } from "@/hooks/use-toast";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
@@ -33,11 +43,14 @@ const SessionsPage = () => {
   const [isLinking, setIsLinking] = useState(false);
   const [selectedPatientId, setSelectedPatientId] = useState<string>("");
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [deletingRecordingId, setDeletingRecordingId] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   
   // Recording state
   const [isRecordingInSession, setIsRecordingInSession] = useState(false);
   const [isSavingRecording, setIsSavingRecording] = useState(false);
   const currentRecordingSessionIdRef = useRef<string | null>(null);
+  const transcriptionApiUrl = import.meta.env.VITE_TRANSCRIPTION_API_URL || 'http://localhost:3001';
 
   // Audio recorder hook
   const {
@@ -159,8 +172,29 @@ const SessionsPage = () => {
       const recordingsData = await getSessionRecordings(sessionId);
       setRecordings(recordingsData);
 
-      // Poll for transcription status for pending and processing recordings
-      recordingsData.forEach((recording) => {
+      // Check and sync old processing recordings immediately
+      recordingsData.forEach(async (recording) => {
+        if (recording.transcription_status === 'processing' && recording.transcript_id) {
+          // Check if recording is old (more than 2 minutes old)
+          const createdAt = new Date(recording.created_at);
+          const now = new Date();
+          const minutesSinceCreated = (now.getTime() - createdAt.getTime()) / (1000 * 60);
+          
+          // If recording is older than 2 minutes, sync immediately
+          if (minutesSinceCreated > 2) {
+            try {
+              console.log(`Syncing old recording ${recording.id} immediately`);
+              await syncTranscriptionStatus(recording.id, transcriptionApiUrl);
+              // Reload recordings after sync
+              const updatedRecordings = await getSessionRecordings(sessionId);
+              setRecordings(updatedRecordings);
+            } catch (syncError) {
+              console.warn('Failed to sync old recording:', syncError);
+            }
+          }
+        }
+        
+        // Start polling for pending and processing recordings
         if (recording.transcription_status === 'pending' || recording.transcription_status === 'processing') {
           startPollingRecording(recording.id, sessionId);
         }
@@ -199,7 +233,11 @@ const SessionsPage = () => {
         }
 
         pollingAttemptsRef.current.set(recordingId, attempts + 1);
-        const status = await getRecordingStatus(recordingId);
+        
+        // Sync from AssemblyAI if processing for more than 15 attempts (30 seconds)
+        // This helps when webhook is not configured
+        const shouldSync = attempts > 15;
+        const status = await getRecordingStatus(recordingId, transcriptionApiUrl, shouldSync);
         
         if (status.status === 'completed' || status.status === 'failed') {
           // Reload recordings to update UI
@@ -208,6 +246,23 @@ const SessionsPage = () => {
           pollingIntervalsRef.current.delete(recordingId);
           pollingAttemptsRef.current.delete(recordingId);
         } else if (status.status === 'pending' || status.status === 'processing') {
+          // If still processing after many attempts, try manual sync
+          if (attempts > 30 && attempts % 10 === 0) {
+            try {
+              await syncTranscriptionStatus(recordingId, transcriptionApiUrl);
+              // Check again immediately after sync
+              const syncedStatus = await getRecordingStatus(recordingId);
+              if (syncedStatus.status === 'completed' || syncedStatus.status === 'failed') {
+                await loadRecordings(sessionId);
+                pollingIntervalsRef.current.delete(recordingId);
+                pollingAttemptsRef.current.delete(recordingId);
+                return;
+              }
+            } catch (syncError) {
+              console.warn('Sync failed, continuing polling:', syncError);
+            }
+          }
+          
           // Continue polling
           const interval = setTimeout(checkStatus, 2000);
           pollingIntervalsRef.current.set(recordingId, interval);
@@ -233,6 +288,29 @@ const SessionsPage = () => {
       pollingAttemptsRef.current.clear();
     };
   }, []);
+
+  const handleDeleteRecording = async (recordingId: string) => {
+    try {
+      await deleteRecording(recordingId);
+      toast({
+        title: "Успешно",
+        description: "Запись скрыта",
+      });
+      // Reload recordings
+      if (activeSession) {
+        await loadRecordings(activeSession);
+      }
+      setDeleteDialogOpen(false);
+      setDeletingRecordingId(null);
+    } catch (error) {
+      console.error('Error deleting recording:', error);
+      toast({
+        title: "Ошибка",
+        description: "Не удалось удалить запись",
+        variant: "destructive",
+      });
+    }
+  };
 
   const handleLinkToPatient = async () => {
     if (!activeSession || !selectedPatientId) return;
@@ -348,7 +426,6 @@ const SessionsPage = () => {
       });
 
       // Start transcription
-      const transcriptionApiUrl = import.meta.env.VITE_TRANSCRIPTION_API_URL || 'http://localhost:3001';
       try {
         await startTranscription(recording.id, transcriptionApiUrl);
         toast({
@@ -525,36 +602,86 @@ const SessionsPage = () => {
             </div>
             
             <div className="flex-1 p-6 overflow-auto">
-              {transcriptText ? (
-                <div className="prose prose-sm max-w-none">
-                  <pre className="whitespace-pre-wrap font-sans">{transcriptText}</pre>
+              {/* Show transcript text if available */}
+              {transcriptText && (
+                <div className="mb-6 prose prose-sm max-w-none">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-semibold">Объединенный транскрипт</h3>
+                  </div>
+                  <pre className="whitespace-pre-wrap font-sans bg-muted/50 p-4 rounded-lg">{transcriptText}</pre>
                 </div>
-              ) : (
-                <div className="space-y-4">
-                  {currentRecordings.length > 0 ? (
-                    currentRecordings.map((recording) => (
-                      <div key={recording.id} className="border rounded-lg p-4">
+              )}
+              
+              {/* Always show list of recordings with delete buttons */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-semibold">Записи</h3>
+                </div>
+                {currentRecordings.length > 0 ? (
+                  currentRecordings.map((recording) => (
+                    <div key={recording.id} className="border rounded-lg p-4">
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-sm font-medium">
                             {recording.file_name || 'Запись'}
                           </span>
-                          <Badge
-                            variant={
-                              recording.transcription_status === 'completed'
-                                ? 'default'
+                          <div className="flex items-center gap-2">
+                            {(recording.transcription_status === 'processing' || recording.transcription_status === 'pending') && recording.transcript_id && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={async () => {
+                                  try {
+                                    await syncTranscriptionStatus(recording.id, transcriptionApiUrl);
+                                    await loadRecordings(activeSession || '');
+                                    toast({
+                                      title: "Синхронизация",
+                                      description: "Статус транскрипции обновлен",
+                                    });
+                                  } catch (error) {
+                                    console.error('Error syncing transcription:', error);
+                                    toast({
+                                      title: "Ошибка",
+                                      description: "Не удалось синхронизировать транскрипцию",
+                                      variant: "destructive",
+                                    });
+                                  }
+                                }}
+                                className="h-6 px-2 text-xs"
+                              >
+                                <RefreshCw className="w-3 h-3 mr-1" />
+                                Синхронизировать
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setDeletingRecordingId(recording.id);
+                                setDeleteDialogOpen(true);
+                              }}
+                              className="h-7 px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+                              title="Удалить"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                            <Badge
+                              variant={
+                                recording.transcription_status === 'completed'
+                                  ? 'default'
+                                  : recording.transcription_status === 'processing'
+                                  ? 'secondary'
+                                  : 'destructive'
+                              }
+                            >
+                              {recording.transcription_status === 'completed'
+                                ? 'Завершено'
                                 : recording.transcription_status === 'processing'
-                                ? 'secondary'
-                                : 'destructive'
-                            }
-                          >
-                            {recording.transcription_status === 'completed'
-                              ? 'Завершено'
-                              : recording.transcription_status === 'processing'
-                              ? 'Обработка...'
-                              : recording.transcription_status === 'failed'
-                              ? 'Ошибка'
-                              : 'Ожидание'}
-                          </Badge>
+                                ? 'Обработка...'
+                                : recording.transcription_status === 'failed'
+                                ? 'Ошибка'
+                                : 'Ожидание'}
+                            </Badge>
+                          </div>
                         </div>
                         {recording.transcription_status === 'completed' && recording.transcription_text && (
                           <p className="text-sm text-muted-foreground mt-2">
@@ -568,14 +695,43 @@ const SessionsPage = () => {
                         )}
                       </div>
                     ))
-              ) : (
-                <p className="text-muted-foreground text-sm">
-                      Нет записей для этой сессии. Начните запись ниже.
-                </p>
-                  )}
-                </div>
-              )}
+                ) : (
+                  <p className="text-muted-foreground text-sm">
+                    Нет записей для этой сессии. Начните запись ниже.
+                  </p>
+                )}
+              </div>
             </div>
+
+            {/* Delete confirmation dialog */}
+            <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Скрыть запись?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Запись будет скрыта из списка, но останется в базе данных. Вы больше не сможете её видеть, но данные будут сохранены.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel onClick={() => {
+                    setDeleteDialogOpen(false);
+                    setDeletingRecordingId(null);
+                  }}>
+                    Отмена
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => {
+                      if (deletingRecordingId) {
+                        handleDeleteRecording(deletingRecordingId);
+                      }
+                    }}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    Скрыть
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
             
             {/* Recording controls at the bottom */}
             <div className="p-4 border-t border-border flex items-center gap-3">
