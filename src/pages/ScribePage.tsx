@@ -5,12 +5,12 @@ import { Header } from "@/components/layout/Header";
 import { RecordingCard } from "@/components/scribe/RecordingCard";
 import { useAuth } from "@/contexts/AuthContext";
 import { createSession } from "@/lib/supabase-sessions";
-import { 
-  createRecording, 
-  uploadAudioFile, 
+import {
+  createRecording,
+  uploadAudioFile,
   startTranscription,
   getRecordingStatus,
-  updateRecording 
+  updateRecording
 } from "@/lib/supabase-recordings";
 import { useToast } from "@/hooks/use-toast";
 
@@ -18,23 +18,26 @@ const ScribePage = () => {
   const { user, profile } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
-  
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
-  const [currentRecordingId, setCurrentRecordingId] = useState<string | null>(null);
+
   const [isProcessing, setIsProcessing] = useState(false);
   const [transcriptionStatus, setTranscriptionStatus] = useState<'pending' | 'processing' | 'completed' | 'failed'>('pending');
 
   const transcriptionApiUrl = import.meta.env.VITE_TRANSCRIPTION_API_URL || 'http://localhost:3001';
 
-  const handleStartRecording = async () => {
+  const handleRecordingComplete = async (audioBlob: Blob, duration: number) => {
     if (!user || !profile || !profile.clinic_id) {
       toast({
         title: "Ошибка",
         description: "Необходима авторизация и привязка к клинике",
         variant: "destructive",
       });
-      return;
+      throw new Error("Unauthorized");
     }
+
+    setIsProcessing(true);
+    setTranscriptionStatus('pending');
+
+    let currentSessionId: string | null = null;
 
     try {
       // Create session without patient (patient will be linked later)
@@ -45,40 +48,14 @@ const ScribePage = () => {
         title: `Запись ${new Date().toLocaleString('ru-RU')}`,
       });
 
-      setCurrentSessionId(session.id);
-    } catch (error) {
-      console.error('Error creating session:', error);
-      toast({
-        title: "Ошибка",
-        description: "Не удалось создать сессию",
-        variant: "destructive",
-      });
-      throw error;
-    }
-  };
+      currentSessionId = session.id;
 
-  const handleStopRecording = async (audioBlob: Blob, duration: number) => {
-    if (!user || !currentSessionId) {
-      toast({
-        title: "Ошибка",
-        description: "Отсутствует сессия для записи",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsProcessing(true);
-    setTranscriptionStatus('pending');
-
-    try {
       // Create recording record
       const recording = await createRecording({
-        sessionId: currentSessionId,
+        sessionId: session.id,
         userId: user.id,
         fileName: `recording-${Date.now()}.webm`,
       });
-
-      setCurrentRecordingId(recording.id);
 
       // Determine MIME type from blob
       const mimeType = audioBlob.type || 'audio/webm';
@@ -94,6 +71,11 @@ const ScribePage = () => {
       // Update recording with duration
       await updateRecording(recording.id, {
         duration_seconds: duration,
+      });
+
+      toast({
+        title: "Успешно",
+        description: "Запись сохранена. Начинаем транскрипцию...",
       });
 
       // Start transcription
@@ -112,22 +94,26 @@ const ScribePage = () => {
                 title: "Успешно",
                 description: "Транскрипция завершена",
               });
-              // Optionally redirect to sessions page with session ID
-              setTimeout(() => {
-                navigate('/sessions', { state: { sessionId: currentSessionId } });
-              }, 2000);
+              // Navigate to sessions page with session ID
+              navigate('/sessions', { state: { sessionId: currentSessionId } });
             } else if (status.status === 'failed') {
               toast({
                 title: "Ошибка транскрипции",
                 description: status.error || "Не удалось выполнить транскрипцию",
                 variant: "destructive",
               });
+              // Still navigate to sessions so user can see the recording
+              setTimeout(() => {
+                navigate('/sessions', { state: { sessionId: currentSessionId } });
+              }, 2000);
             } else if (status.status === 'processing') {
               // Continue polling
               setTimeout(checkStatus, 2000);
             }
           } catch (error) {
             console.error('Error checking transcription status:', error);
+            // Continue polling even on error
+            setTimeout(checkStatus, 3000);
           }
         };
 
@@ -141,16 +127,15 @@ const ScribePage = () => {
           description: "Запись сохранена, но транскрипция не запущена. Вы можете запустить её позже.",
           variant: "default",
         });
+        // Navigate to sessions even if transcription failed
+        setTimeout(() => {
+          navigate('/sessions', { state: { sessionId: currentSessionId } });
+        }, 2000);
       }
-
-      toast({
-        title: "Успешно",
-        description: "Запись сохранена",
-      });
     } catch (error) {
       console.error('Error saving recording:', error);
       const errorMessage = error instanceof Error ? error.message : 'Неизвестная ошибка';
-      
+
       // More detailed error messages
       let userFriendlyMessage = errorMessage;
       if (errorMessage.includes('Failed to create recording')) {
@@ -160,20 +145,16 @@ const ScribePage = () => {
       } else if (errorMessage.includes('row-level security')) {
         userFriendlyMessage = 'Ошибка прав доступа. Убедитесь, что вы авторизованы и имеете права на создание записей.';
       }
-      
+
       toast({
         title: "Ошибка",
         description: userFriendlyMessage,
         variant: "destructive",
       });
-    } finally {
+
       setIsProcessing(false);
-      // Reset state after a delay to allow UI to update
-      setTimeout(() => {
-        setCurrentSessionId(null);
-        setCurrentRecordingId(null);
-        setTranscriptionStatus('pending');
-      }, 1000);
+      setTranscriptionStatus('pending');
+      throw error;
     }
   };
 
@@ -195,11 +176,10 @@ const ScribePage = () => {
             Преобразуйте ваши медицинские заметки с помощью интеллектуальной транскрипции и автоматической структуризации
           </p>
         </div>
-        
+
         {/* Recording card */}
         <RecordingCard
-          onStartRecording={handleStartRecording}
-          onStopRecording={handleStopRecording}
+          onRecordingComplete={handleRecordingComplete}
           onGenerateNote={handleGenerateNote}
           isProcessing={isProcessing}
           transcriptionStatus={transcriptionStatus}

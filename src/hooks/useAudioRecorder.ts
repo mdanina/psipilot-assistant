@@ -3,13 +3,14 @@ import { useState, useRef, useCallback } from 'react';
 export interface UseAudioRecorderReturn {
   isRecording: boolean;
   isPaused: boolean;
+  isStopped: boolean;
   recordingTime: number;
   audioBlob: Blob | null;
   error: string | null;
   startRecording: () => Promise<void>;
   pauseRecording: () => void;
   resumeRecording: () => void;
-  stopRecording: () => void;
+  stopRecording: () => Promise<Blob | null>;
   cancelRecording: () => void;
   reset: () => void;
 }
@@ -21,6 +22,7 @@ export interface UseAudioRecorderReturn {
 export function useAudioRecorder(): UseAudioRecorderReturn {
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [isStopped, setIsStopped] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -31,16 +33,21 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const startTimeRef = useRef<number>(0);
   const pausedTimeRef = useRef<number>(0);
+  const stopResolveRef = useRef<((blob: Blob | null) => void) | null>(null);
+  const finalRecordingTimeRef = useRef<number>(0);
 
   const reset = useCallback(() => {
     setIsRecording(false);
     setIsPaused(false);
+    setIsStopped(false);
     setRecordingTime(0);
     setAudioBlob(null);
     setError(null);
     chunksRef.current = [];
     pausedTimeRef.current = 0;
-    
+    finalRecordingTimeRef.current = 0;
+    stopResolveRef.current = null;
+
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
@@ -136,13 +143,21 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
 
       // Handle recording stop
       mediaRecorder.onstop = () => {
+        let blob: Blob | null = null;
         if (chunksRef.current.length > 0) {
-          const blob = new Blob(chunksRef.current, {
+          blob = new Blob(chunksRef.current, {
             type: selectedMimeType || 'audio/webm',
           });
           setAudioBlob(blob);
         }
+        setIsStopped(true);
         cleanup();
+
+        // Resolve the promise if stopRecording was called
+        if (stopResolveRef.current) {
+          stopResolveRef.current(blob);
+          stopResolveRef.current = null;
+        }
       };
 
       // Handle errors
@@ -193,14 +208,23 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     }
   }, [startTimer]);
 
-  const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-    }
-    setIsRecording(false);
-    setIsPaused(false);
-    stopTimer();
-  }, [stopTimer]);
+  const stopRecording = useCallback((): Promise<Blob | null> => {
+    return new Promise((resolve) => {
+      // Save current recording time before stopping
+      finalRecordingTimeRef.current = recordingTime;
+
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        // Store resolve function for the onstop handler
+        stopResolveRef.current = resolve;
+        mediaRecorderRef.current.stop();
+      } else {
+        resolve(null);
+      }
+      setIsRecording(false);
+      setIsPaused(false);
+      stopTimer();
+    });
+  }, [stopTimer, recordingTime]);
 
   const cancelRecording = useCallback(() => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
@@ -213,6 +237,7 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
   return {
     isRecording,
     isPaused,
+    isStopped,
     recordingTime,
     audioBlob,
     error,
