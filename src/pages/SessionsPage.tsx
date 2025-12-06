@@ -38,12 +38,12 @@ const SessionsPage = () => {
   const [isRecordingInSession, setIsRecordingInSession] = useState(false);
   const [isSavingRecording, setIsSavingRecording] = useState(false);
   const currentRecordingSessionIdRef = useRef<string | null>(null);
-  const pendingSaveRef = useRef<{ sessionId: string; duration: number } | null>(null);
-  
+
   // Audio recorder hook
   const {
     isRecording,
     isPaused,
+    isStopped,
     recordingTime,
     audioBlob,
     error: recorderError,
@@ -65,91 +65,6 @@ const SessionsPage = () => {
       });
     }
   }, [recorderError, toast]);
-
-  // Handle audioBlob availability after stopping recording
-  useEffect(() => {
-    if (audioBlob && pendingSaveRef.current && user) {
-      const { sessionId, duration } = pendingSaveRef.current;
-      pendingSaveRef.current = null;
-      
-      // Save recording
-      const saveRecording = async () => {
-        setIsSavingRecording(true);
-        try {
-          // Create recording record
-          const recording = await createRecording({
-            sessionId,
-            userId: user.id,
-            fileName: `recording-${Date.now()}.webm`,
-          });
-
-          // Determine MIME type from blob
-          const mimeType = audioBlob.type || 'audio/webm';
-
-          // Upload audio file
-          await uploadAudioFile({
-            recordingId: recording.id,
-            audioBlob,
-            fileName: recording.file_name || `recording-${recording.id}.webm`,
-            mimeType,
-          });
-
-          // Update recording with duration
-          await updateRecording(recording.id, {
-            duration_seconds: duration,
-          });
-
-          // Start transcription
-          const transcriptionApiUrl = import.meta.env.VITE_TRANSCRIPTION_API_URL || 'http://localhost:3001';
-          try {
-            await startTranscription(recording.id, transcriptionApiUrl);
-          } catch (transcriptionError) {
-            console.error('Error starting transcription:', transcriptionError);
-            toast({
-              title: "Предупреждение",
-              description: "Запись сохранена, но транскрипция не запущена",
-              variant: "default",
-            });
-          }
-
-          // Reload recordings
-          await loadRecordings(sessionId);
-
-          toast({
-            title: "Успешно",
-            description: "Запись сохранена",
-          });
-
-          reset();
-          setIsRecordingInSession(false);
-          currentRecordingSessionIdRef.current = null;
-        } catch (error) {
-          console.error('Error saving recording:', error);
-          const errorMessage = error instanceof Error ? error.message : 'Неизвестная ошибка';
-          
-          // More detailed error messages
-          let userFriendlyMessage = errorMessage;
-          if (errorMessage.includes('Failed to create recording')) {
-            userFriendlyMessage = 'Не удалось создать запись в базе данных. Проверьте подключение к Supabase.';
-          } else if (errorMessage.includes('Failed to upload audio file')) {
-            userFriendlyMessage = 'Не удалось загрузить аудио файл. Проверьте, что bucket "recordings" создан в Supabase Storage.';
-          } else if (errorMessage.includes('row-level security')) {
-            userFriendlyMessage = 'Ошибка прав доступа. Убедитесь, что вы авторизованы и имеете права на создание записей.';
-          }
-          
-          toast({
-            title: "Ошибка",
-            description: userFriendlyMessage,
-            variant: "destructive",
-          });
-        } finally {
-          setIsSavingRecording(false);
-        }
-      };
-
-      saveRecording();
-    }
-  }, [audioBlob, user, toast, reset]);
 
   // Load sessions
   useEffect(() => {
@@ -388,40 +303,99 @@ const SessionsPage = () => {
   };
 
   // Handle stop recording in session context
-  const handleStopRecordingInSession = () => {
+  const handleStopRecordingInSession = async () => {
     if (!currentRecordingSessionIdRef.current || !user) {
-      stopRecording();
+      await stopRecording();
       reset();
       setIsRecordingInSession(false);
       return;
     }
 
-    // Save session info for when blob becomes available
-    pendingSaveRef.current = {
-      sessionId: currentRecordingSessionIdRef.current,
-      duration: recordingTime,
-    };
+    const sessionId = currentRecordingSessionIdRef.current;
+    const duration = recordingTime;
 
-    // Stop recording - this will trigger onstop event which creates the blob
-    // The useEffect hook will handle saving when audioBlob becomes available
-    stopRecording();
-    
-    // Set timeout to handle case where blob never arrives
-    setTimeout(() => {
-      if (pendingSaveRef.current) {
-        console.error('Audio blob not available after stopping recording');
-        toast({
-          title: "Ошибка",
-          description: "Не удалось получить аудио данные. Попробуйте записать снова.",
-          variant: "destructive",
-        });
-        reset();
-        setIsRecordingInSession(false);
-        setIsSavingRecording(false);
-        pendingSaveRef.current = null;
-        currentRecordingSessionIdRef.current = null;
+    setIsSavingRecording(true);
+
+    try {
+      // Stop recording and get the blob directly
+      const blob = await stopRecording();
+
+      if (!blob) {
+        throw new Error('Не удалось получить аудио данные');
       }
-    }, 5000);
+
+      // Create recording record
+      const recording = await createRecording({
+        sessionId,
+        userId: user.id,
+        fileName: `recording-${Date.now()}.webm`,
+      });
+
+      // Determine MIME type from blob
+      const mimeType = blob.type || 'audio/webm';
+
+      // Upload audio file
+      await uploadAudioFile({
+        recordingId: recording.id,
+        audioBlob: blob,
+        fileName: recording.file_name || `recording-${recording.id}.webm`,
+        mimeType,
+      });
+
+      // Update recording with duration
+      await updateRecording(recording.id, {
+        duration_seconds: duration,
+      });
+
+      // Start transcription
+      const transcriptionApiUrl = import.meta.env.VITE_TRANSCRIPTION_API_URL || 'http://localhost:3001';
+      try {
+        await startTranscription(recording.id, transcriptionApiUrl);
+        toast({
+          title: "Успешно",
+          description: "Запись сохранена. Транскрипция запущена.",
+        });
+      } catch (transcriptionError) {
+        console.error('Error starting transcription:', transcriptionError);
+        toast({
+          title: "Предупреждение",
+          description: "Запись сохранена, но транскрипция не запущена",
+          variant: "default",
+        });
+      }
+
+      // Reload recordings
+      await loadRecordings(sessionId);
+
+      reset();
+      setIsRecordingInSession(false);
+      currentRecordingSessionIdRef.current = null;
+    } catch (error) {
+      console.error('Error saving recording:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Неизвестная ошибка';
+
+      // More detailed error messages
+      let userFriendlyMessage = errorMessage;
+      if (errorMessage.includes('Failed to create recording')) {
+        userFriendlyMessage = 'Не удалось создать запись в базе данных. Проверьте подключение к Supabase.';
+      } else if (errorMessage.includes('Failed to upload audio file')) {
+        userFriendlyMessage = 'Не удалось загрузить аудио файл. Проверьте, что bucket "recordings" создан в Supabase Storage.';
+      } else if (errorMessage.includes('row-level security')) {
+        userFriendlyMessage = 'Ошибка прав доступа. Убедитесь, что вы авторизованы и имеете права на создание записей.';
+      }
+
+      toast({
+        title: "Ошибка",
+        description: userFriendlyMessage,
+        variant: "destructive",
+      });
+
+      reset();
+      setIsRecordingInSession(false);
+      currentRecordingSessionIdRef.current = null;
+    } finally {
+      setIsSavingRecording(false);
+    }
   };
 
   // Handle cancel recording

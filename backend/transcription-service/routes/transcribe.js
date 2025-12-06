@@ -104,7 +104,7 @@ router.post('/transcribe', async (req, res) => {
     const transcript = await assemblyai.transcripts.transcribe({
       audio: signedUrlData.signedUrl,
       language_code: 'ru', // Russian language for medical documentation
-      speaker_labels: true, // Identify different speakers
+      speaker_labels: true, // Identify different speakers (diarization)
       auto_chapters: false,
       auto_highlights: false,
       sentiment_analysis: false,
@@ -119,7 +119,25 @@ router.post('/transcribe', async (req, res) => {
     // If transcription is already complete (synchronous), update immediately
     if (transcript.status === 'completed') {
       updateData.transcription_status = 'completed';
-      updateData.transcription_text = transcript.text;
+
+      // Format transcript with speaker labels if available
+      let formattedText = transcript.text;
+      if (transcript.utterances && transcript.utterances.length > 0) {
+        // Map speaker labels to readable names (Doctor/Patient)
+        const speakerMap = {};
+        let speakerIndex = 0;
+        const speakerNames = ['Врач', 'Пациент', 'Участник 3', 'Участник 4'];
+
+        formattedText = transcript.utterances.map(utterance => {
+          if (!speakerMap[utterance.speaker]) {
+            speakerMap[utterance.speaker] = speakerNames[speakerIndex] || `Участник ${speakerIndex + 1}`;
+            speakerIndex++;
+          }
+          return `${speakerMap[utterance.speaker]}: ${utterance.text}`;
+        }).join('\n');
+      }
+
+      updateData.transcription_text = formattedText;
       updateData.transcribed_at = new Date().toISOString();
     } else if (transcript.status === 'error') {
       updateData.transcription_status = 'failed';
