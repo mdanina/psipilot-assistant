@@ -62,72 +62,54 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Ref to track last activity update time for debouncing
   const lastActivityUpdateRef = useRef<number>(0);
 
-  // Fetch user profile with clinic data
+  // Fetch user profile with clinic data (simple version - load separately)
   const fetchProfile = useCallback(async (userId: string): Promise<ProfileWithClinic | null> => {
     console.log('🔍 Fetching profile for user:', userId);
 
     try {
-      // Start with simple profile query (no JOIN - faster and more reliable)
-      // We'll fetch clinic separately if needed
-      const { data, error } = await supabase
+      // Add timeout to prevent hanging
+      const profilePromise = supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
         .single();
 
-      if (error) {
-        console.error('❌ Error fetching profile:', error);
-        if ('code' in error) {
-          console.error('   Error code:', error.code);
-        }
-        console.error('   Error message:', error.message);
+      const timeoutPromise = new Promise<null>((_, reject) => 
+        setTimeout(() => reject(new Error('Profile fetch timeout after 5 seconds')), 5000)
+      );
+
+      const result = await Promise.race([profilePromise, timeoutPromise]) as any;
+      
+      if (result.error) {
+        console.error('❌ Error fetching profile:', result.error);
         return null;
       }
 
-      if (!data) {
+      if (!result.data) {
         console.warn('⚠️  Profile query returned no data for user:', userId);
         return null;
       }
 
-      // If user has clinic_id, fetch clinic separately (non-blocking)
+      const data = result.data;
+
+      // Don't fetch clinic during initial load - load it asynchronously later
+      // This prevents blocking on RLS policies
       let clinic = null;
-      if (data.clinic_id) {
-        try {
-          const clinicResult = await supabase
-            .from('clinics')
-            .select('*')
-            .eq('id', data.clinic_id)
-            .single();
-          
-          if (!clinicResult.error && clinicResult.data) {
-            clinic = clinicResult.data;
-          } else {
-            console.warn('⚠️  Could not fetch clinic:', clinicResult.error?.message);
-          }
-        } catch (clinicErr) {
-          console.warn('⚠️  Error fetching clinic:', clinicErr);
-          // Continue without clinic data - not critical
-        }
-      }
 
       console.log('✅ Profile fetched successfully:', {
         id: data.id,
         email: data.email,
-        full_name: data.full_name,
-        role: data.role,
         clinic_id: data.clinic_id,
         has_clinic: !!clinic
       });
 
-      // Combine profile with clinic data
-      const profile = {
+      return {
         ...data,
-        clinic: clinic || undefined
+        clinic: clinic || null
       } as ProfileWithClinic & { mfa_enabled?: boolean };
-      
-      return profile;
     } catch (err) {
-      console.error('❌ Unexpected error fetching profile:', err);
+      console.error('❌ Error fetching profile (timeout or error):', err);
+      // Return null to allow app to continue - user can still use app without profile
       return null;
     }
   }, []);
@@ -251,6 +233,29 @@ export function AuthProvider({ children }: AuthProviderProps) {
             sessionExpiresAt: now + SESSION_TIMEOUT,
           });
           console.log('✅ Auth initialized successfully');
+          
+          // Load clinic asynchronously after profile is loaded (non-blocking)
+          if (profile?.clinic_id) {
+            (async () => {
+              try {
+                const { data: clinicData, error: clinicError } = await supabase
+                  .from('clinics')
+                  .select('*')
+                  .eq('id', profile.clinic_id)
+                  .single();
+
+                if (!clinicError && clinicData && isMounted) {
+                  setState(prev => ({
+                    ...prev,
+                    profile: prev.profile ? { ...prev.profile, clinic: clinicData } : null
+                  }));
+                  console.log('✅ Clinic loaded asynchronously');
+                }
+              } catch (err) {
+                console.warn('⚠️  Error loading clinic asynchronously:', err);
+              }
+            })();
+          }
         } else if (isMounted) {
           console.log('ℹ️  No session found, user not authenticated');
           setState(prev => ({ ...prev, isLoading: false }));
@@ -276,7 +281,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           return prev;
         });
       }
-    }, 10000); // 10 second timeout
+    }, 15000); // 15 second timeout (increased for slow connections)
     
     initAuth().finally(() => {
       // Clear timeout if initAuth completes (even if it fails)
@@ -298,46 +303,66 @@ export function AuthProvider({ children }: AuthProviderProps) {
           if (timeoutId) {
             clearTimeout(timeoutId);
           }
-          
+
           // This may be called after signIn already updated state, but it's safe to update again
           // It ensures state is consistent even if signIn didn't complete
           console.log('🔄 SIGNED_IN event, updating state...');
-          try {
-            const profile = await fetchProfile(session.user.id);
-            const now = Date.now();
-            if (isMounted) {
-              setState({
-                user: session.user,
-                profile,
-                session,
-                isLoading: false,
-                isAuthenticated: true,
-                mfaEnabled: (profile as any)?.mfa_enabled || false,
-                mfaVerified: false,
-                lastActivity: now,
-                sessionExpiresAt: now + SESSION_TIMEOUT,
-              });
-              console.log('✅ State updated from SIGNED_IN event');
-            }
-          } catch (error) {
-            console.error('❌ Error in SIGNED_IN handler:', error);
-            // Even if profile fetch fails, mark as authenticated
-            if (isMounted) {
-              const now = Date.now();
-              setState({
-                user: session.user,
-                profile: null,
-                session,
-                isLoading: false,
-                isAuthenticated: true,
-                mfaEnabled: false,
-                mfaVerified: false,
-                lastActivity: now,
-                sessionExpiresAt: now + SESSION_TIMEOUT,
-              });
-              console.log('✅ User authenticated (profile fetch failed)');
-            }
+          
+          // Set authenticated state immediately (don't wait for profile)
+          const now = Date.now();
+          if (isMounted) {
+            setState({
+              user: session.user,
+              profile: null, // Will be updated when profile loads
+              session,
+              isLoading: false,
+              isAuthenticated: true,
+              mfaEnabled: false,
+              mfaVerified: false,
+              lastActivity: now,
+              sessionExpiresAt: now + SESSION_TIMEOUT,
+            });
+            console.log('✅ User authenticated (profile loading in background)');
           }
+          
+          // Fetch profile in background (non-blocking)
+          fetchProfile(session.user.id).then(profile => {
+            if (profile && isMounted) {
+              setState(prev => ({
+                ...prev,
+                profile,
+                mfaEnabled: (profile as any)?.mfa_enabled || false,
+              }));
+              console.log('✅ Profile loaded and updated');
+              
+              // Load clinic asynchronously after profile is loaded (non-blocking)
+              if (profile?.clinic_id) {
+                (async () => {
+                  try {
+                    const { data: clinicData, error: clinicError } = await supabase
+                      .from('clinics')
+                      .select('*')
+                      .eq('id', profile.clinic_id)
+                      .single();
+
+                    if (!clinicError && clinicData && isMounted) {
+                      setState(prev => ({
+                        ...prev,
+                        profile: prev.profile ? { ...prev.profile, clinic: clinicData } : null
+                      }));
+                      console.log('✅ Clinic loaded asynchronously');
+                    }
+                  } catch (err) {
+                    console.warn('⚠️  Error loading clinic asynchronously:', err);
+                  }
+                })();
+              }
+            }
+          }).catch(error => {
+            console.error('❌ Error in SIGNED_IN handler:', error);
+            // Even if profile fetch fails, user is already authenticated
+            // No need to update state again - it was already set above
+          });
         } else if (event === 'SIGNED_OUT') {
           setState({
             user: null,
@@ -365,6 +390,36 @@ export function AuthProvider({ children }: AuthProviderProps) {
     };
   }, [fetchProfile]);
 
+  // Auto-load clinic when profile has clinic_id but clinic is not loaded
+  useEffect(() => {
+    if (!state.profile?.clinic_id || state.profile.clinic) {
+      return; // No clinic_id or clinic already loaded
+    }
+
+    // Load clinic asynchronously
+    (async () => {
+      try {
+        const { data: clinicData, error: clinicError } = await supabase
+          .from('clinics')
+          .select('*')
+          .eq('id', state.profile!.clinic_id)
+          .single();
+
+        if (!clinicError && clinicData) {
+          setState(prev => ({
+            ...prev,
+            profile: prev.profile ? { ...prev.profile, clinic: clinicData } : null
+          }));
+          console.log('✅ Clinic auto-loaded after profile update');
+        } else {
+          console.warn('⚠️  Could not auto-load clinic:', clinicError?.message);
+        }
+      } catch (err) {
+        console.warn('⚠️  Error auto-loading clinic:', err);
+      }
+    })();
+  }, [state.profile?.clinic_id, state.profile?.clinic]);
+
   // Sign in with email/password
   const signIn = useCallback(async (email: string, password: string) => {
     setState(prev => ({ ...prev, isLoading: true }));
@@ -381,41 +436,62 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return { error };
       }
 
-      // Successfully signed in - update state immediately
-      // onAuthStateChange will also fire, but we update state here for immediate feedback
+      // Successfully signed in - update state immediately (don't wait for profile)
       if (data?.session?.user) {
-        console.log('✅ Sign in successful, fetching profile...');
-        try {
-          const profile = await fetchProfile(data.session.user.id);
-          const now = Date.now();
-          setState({
-            user: data.session.user,
-            profile,
-            session: data.session,
-            isLoading: false,
-            isAuthenticated: true,
-            mfaEnabled: (profile as any)?.mfa_enabled || false,
-            mfaVerified: false,
-            lastActivity: now,
-            sessionExpiresAt: now + SESSION_TIMEOUT,
-          });
-          console.log('✅ User authenticated successfully');
-        } catch (profileError) {
-          console.error('❌ Error fetching profile after sign in:', profileError);
-          // Even if profile fetch fails, we still have a valid session
-          const now = Date.now();
-          setState({
-            user: data.session.user,
-            profile: null,
-            session: data.session,
-            isLoading: false,
-            isAuthenticated: true,
-            mfaEnabled: false,
-            mfaVerified: false,
-            lastActivity: now,
-            sessionExpiresAt: now + SESSION_TIMEOUT,
-          });
-        }
+        console.log('✅ Sign in successful, authenticating user...');
+        
+        // Authenticate user immediately with session (don't wait for profile)
+        const now = Date.now();
+        setState({
+          user: data.session.user,
+          profile: null, // Will be updated when profile loads
+          session: data.session,
+          isLoading: false,
+          isAuthenticated: true,
+          mfaEnabled: false,
+          mfaVerified: false,
+          lastActivity: now,
+          sessionExpiresAt: now + SESSION_TIMEOUT,
+        });
+        console.log('✅ User authenticated (profile loading in background)');
+        
+        // Fetch profile in background (non-blocking)
+        fetchProfile(data.session.user.id).then(profile => {
+          if (profile) {
+            setState(prev => ({
+              ...prev,
+              profile,
+              mfaEnabled: (profile as any)?.mfa_enabled || false,
+            }));
+            console.log('✅ Profile loaded in background');
+            
+            // Load clinic asynchronously after profile is loaded (non-blocking)
+            if (profile?.clinic_id) {
+              (async () => {
+                try {
+                  const { data: clinicData, error: clinicError } = await supabase
+                    .from('clinics')
+                    .select('*')
+                    .eq('id', profile.clinic_id)
+                    .single();
+
+                  if (!clinicError && clinicData) {
+                    setState(prev => ({
+                      ...prev,
+                      profile: prev.profile ? { ...prev.profile, clinic: clinicData } : null
+                    }));
+                    console.log('✅ Clinic loaded asynchronously');
+                  }
+                } catch (err) {
+                  console.warn('⚠️  Error loading clinic asynchronously:', err);
+                }
+              })();
+            }
+          }
+        }).catch(err => {
+          console.warn('⚠️  Background profile fetch failed:', err);
+          // User is already authenticated, so this is not critical
+        });
       } else {
         console.warn('⚠️  Sign in succeeded but no session data');
         setState(prev => ({ ...prev, isLoading: false }));
@@ -566,11 +642,32 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, [state.user]);
 
-  // Refresh profile data
+  // Refresh profile data and clinic
   const refreshProfile = useCallback(async () => {
     if (state.user) {
       const profile = await fetchProfile(state.user.id);
       setState(prev => ({ ...prev, profile }));
+      
+      // Load clinic if profile has clinic_id
+      if (profile?.clinic_id && !profile.clinic) {
+        try {
+          const { data: clinicData, error: clinicError } = await supabase
+            .from('clinics')
+            .select('*')
+            .eq('id', profile.clinic_id)
+            .single();
+
+          if (!clinicError && clinicData) {
+            setState(prev => ({
+              ...prev,
+              profile: prev.profile ? { ...prev.profile, clinic: clinicData } : null
+            }));
+            console.log('✅ Clinic loaded via refreshProfile');
+          }
+        } catch (err) {
+          console.warn('⚠️  Error loading clinic in refreshProfile:', err);
+        }
+      }
     }
   }, [state.user, fetchProfile]);
 

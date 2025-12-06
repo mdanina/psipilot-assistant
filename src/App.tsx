@@ -16,6 +16,8 @@ import UnauthorizedPage from "./pages/UnauthorizedPage";
 import PatientsPage from "./pages/PatientsPage";
 import SessionsPage from "./pages/SessionsPage";
 import ClinicPage from "./pages/ClinicPage";
+import AdministrationPage from "./pages/AdministrationPage";
+import ProfilePage from "./pages/ProfilePage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -81,6 +83,26 @@ const App = () => (
                 <ProtectedRoute requiredRole="admin">
                   <MainLayout>
                     <ClinicPage />
+                  </MainLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/administration"
+              element={
+                <ProtectedRoute>
+                  <MainLayout>
+                    <AdministrationPage />
+                  </MainLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/profile"
+              element={
+                <ProtectedRoute>
+                  <MainLayout>
+                    <ProfilePage />
                   </MainLayout>
                 </ProtectedRoute>
               }
