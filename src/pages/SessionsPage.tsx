@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Calendar, Plus, FileText, Circle, User, Link2, Loader2, Mic, Pause, Play, Square, Sparkles, ChevronDown, RefreshCw, Trash2 } from "lucide-react";
+import { Calendar, Plus, FileText, Circle, User, Link2, Loader2, Mic, Pause, Play, Square, Sparkles, ChevronDown, RefreshCw, Trash2, X } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
-import { linkSessionToPatient, getSession, createSession } from "@/lib/supabase-sessions";
+import { linkSessionToPatient, getSession, createSession, deleteSession } from "@/lib/supabase-sessions";
 import { getSessionRecordings, getRecordingStatus, createRecording, uploadAudioFile, updateRecording, startTranscription, syncTranscriptionStatus, deleteRecording } from "@/lib/supabase-recordings";
 import { getPatients } from "@/lib/supabase-patients";
 import { useToast } from "@/hooks/use-toast";
@@ -45,6 +45,8 @@ const SessionsPage = () => {
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [deletingRecordingId, setDeletingRecordingId] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [closingSessionId, setClosingSessionId] = useState<string | null>(null);
+  const [closeSessionDialogOpen, setCloseSessionDialogOpen] = useState(false);
   
   // Recording state
   const [isRecordingInSession, setIsRecordingInSession] = useState(false);
@@ -136,6 +138,7 @@ const SessionsPage = () => {
         .from('sessions')
         .select('*')
         .eq('clinic_id', profile.clinic_id)
+        .is('deleted_at', null) // Only get non-deleted sessions
         .order('created_at', { ascending: false })
         .limit(50);
 
@@ -281,6 +284,116 @@ const SessionsPage = () => {
   };
 
   // Cleanup polling on unmount
+  const handleCloseSession = async (sessionId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation(); // Prevent session selection
+    
+    const session = sessions.find(s => s.id === sessionId);
+    if (!session) return;
+
+    // If session is linked to patient, close directly
+    if (session.patient_id) {
+      try {
+        await deleteSession(sessionId);
+        toast({
+          title: "Успешно",
+          description: "Сессия закрыта",
+        });
+        
+        // If closed session was active, select another one
+        if (activeSession === sessionId) {
+          const remainingSessions = sessions.filter(s => s.id !== sessionId);
+          if (remainingSessions.length > 0) {
+            setActiveSession(remainingSessions[0].id);
+          } else {
+            setActiveSession(null);
+          }
+        }
+        
+        await loadSessions();
+      } catch (error) {
+        console.error('Error closing session:', error);
+        toast({
+          title: "Ошибка",
+          description: "Не удалось закрыть сессию",
+          variant: "destructive",
+        });
+      }
+    } else {
+      // If not linked, show dialog
+      setClosingSessionId(sessionId);
+      setCloseSessionDialogOpen(true);
+    }
+  };
+
+  const handleLinkAndCloseSession = async () => {
+    if (!closingSessionId || !selectedPatientId) return;
+    
+    try {
+      await linkSessionToPatient(closingSessionId, selectedPatientId);
+      await deleteSession(closingSessionId);
+      
+      toast({
+        title: "Успешно",
+        description: "Сессия привязана к пациенту и закрыта",
+      });
+      
+      // If closed session was active, select another one
+      if (activeSession === closingSessionId) {
+        const remainingSessions = sessions.filter(s => s.id !== closingSessionId);
+        if (remainingSessions.length > 0) {
+          setActiveSession(remainingSessions[0].id);
+        } else {
+          setActiveSession(null);
+        }
+      }
+      
+      await loadSessions();
+      setCloseSessionDialogOpen(false);
+      setClosingSessionId(null);
+      setSelectedPatientId("");
+    } catch (error) {
+      console.error('Error linking and closing session:', error);
+      toast({
+        title: "Ошибка",
+        description: "Не удалось привязать и закрыть сессию",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeleteSession = async () => {
+    if (!closingSessionId) return;
+    
+    try {
+      await deleteSession(closingSessionId);
+      toast({
+        title: "Успешно",
+        description: "Сессия удалена",
+      });
+      
+      // If deleted session was active, select another one
+      if (activeSession === closingSessionId) {
+        const remainingSessions = sessions.filter(s => s.id !== closingSessionId);
+        if (remainingSessions.length > 0) {
+          setActiveSession(remainingSessions[0].id);
+        } else {
+          setActiveSession(null);
+        }
+      }
+      
+      await loadSessions();
+      setCloseSessionDialogOpen(false);
+      setClosingSessionId(null);
+    } catch (error) {
+      console.error('Error deleting session:', error);
+      toast({
+        title: "Ошибка",
+        description: "Не удалось удалить сессию",
+        variant: "destructive",
+      });
+    }
+  };
+
   useEffect(() => {
     return () => {
       pollingIntervalsRef.current.forEach((interval) => clearTimeout(interval));
@@ -504,23 +617,34 @@ const SessionsPage = () => {
           ) : (
             <>
           {sessions.map((session) => (
-            <button
+            <div
               key={session.id}
-              onClick={() => setActiveSession(session.id)}
-                  className={`px-4 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${
+              className={`px-4 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors whitespace-nowrap group ${
                 activeSession === session.id
                   ? "bg-muted text-foreground"
                   : "text-muted-foreground hover:bg-muted/50"
               }`}
             >
-                  <Circle className={`w-2 h-2 ${!session.patient_id ? "text-destructive" : "text-success"} fill-current`} />
-                  {session.title || `Сессия ${new Date(session.created_at).toLocaleDateString('ru-RU')}`}
-                  {!session.patient_id && (
-                    <Badge variant="outline" className="ml-1 text-xs">
-                      Не привязано
-                    </Badge>
-                  )}
-            </button>
+              <button
+                onClick={() => setActiveSession(session.id)}
+                className="flex items-center gap-2 flex-1"
+              >
+                <Circle className={`w-2 h-2 ${!session.patient_id ? "text-destructive" : "text-success"} fill-current`} />
+                {session.title || `Сессия ${new Date(session.created_at).toLocaleDateString('ru-RU')}`}
+                {!session.patient_id && (
+                  <Badge variant="outline" className="ml-1 text-xs">
+                    Не привязано
+                  </Badge>
+                )}
+              </button>
+              <button
+                onClick={(e) => handleCloseSession(session.id, e)}
+                className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-muted rounded"
+                title="Закрыть сессию"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
           ))}
               <button 
                 className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg"
@@ -729,6 +853,60 @@ const SessionsPage = () => {
                   >
                     Скрыть
                   </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+
+            {/* Close session dialog for unlinked sessions */}
+            <AlertDialog open={closeSessionDialogOpen} onOpenChange={setCloseSessionDialogOpen}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Сессия не привязана к пациенту</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Чтобы закрыть сессию, необходимо сначала привязать её к пациенту. Выберите действие:
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <div className="py-4">
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-sm font-medium mb-2 block">Привязать к пациенту:</label>
+                      <Select value={selectedPatientId} onValueChange={setSelectedPatientId}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Выберите пациента" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {patients.map((patient) => (
+                            <SelectItem key={patient.id} value={patient.id}>
+                              {patient.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </div>
+                <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+                  <AlertDialogCancel onClick={() => {
+                    setCloseSessionDialogOpen(false);
+                    setClosingSessionId(null);
+                    setSelectedPatientId("");
+                  }}>
+                    Отмена
+                  </AlertDialogCancel>
+                  <Button
+                    onClick={handleDeleteSession}
+                    variant="outline"
+                    className="w-full sm:w-auto text-muted-foreground hover:text-foreground"
+                  >
+                    Удалить сессию
+                  </Button>
+                  <Button
+                    onClick={handleLinkAndCloseSession}
+                    disabled={!selectedPatientId}
+                    className="bg-primary text-primary-foreground hover:bg-primary/90 w-full sm:w-auto ml-auto"
+                  >
+                    Привязать и закрыть
+                  </Button>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>

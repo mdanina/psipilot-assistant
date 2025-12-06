@@ -72,13 +72,14 @@ export async function updateSession(
 }
 
 /**
- * Get session by ID
+ * Get session by ID (only non-deleted sessions)
  */
 export async function getSession(sessionId: string): Promise<Session> {
   const { data, error } = await supabase
     .from('sessions')
     .select('*')
     .eq('id', sessionId)
+    .is('deleted_at', null) // Only get non-deleted sessions
     .single();
 
   if (error) {
@@ -119,5 +120,23 @@ export async function completeSession(sessionId: string): Promise<Session> {
     ended_at: endedAt.toISOString(),
     duration_seconds: durationSeconds,
   });
+}
+
+/**
+ * Soft delete session (mark as deleted, but keep in database)
+ * Session will be hidden from user but preserved for audit/history
+ */
+export async function deleteSession(sessionId: string): Promise<void> {
+  const { error } = await supabase
+    .from('sessions')
+    .update({
+      deleted_at: new Date().toISOString(),
+    })
+    .eq('id', sessionId);
+
+  if (error) {
+    console.error('Error soft deleting session:', error);
+    throw new Error(`Failed to delete session: ${error.message}`);
+  }
 }
 
