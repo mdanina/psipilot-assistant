@@ -59,39 +59,47 @@ function getUserAgent(): string {
 }
 
 /**
- * Log READ operation to audit_logs
+ * Log READ operation to audit_logs (batch version)
  */
-async function logReadAccess(
+async function logReadAccessBatch(
   table: string,
-  resourceId: string | null,
-  resourceName: string | null,
+  records: Array<{ id: string | null; name: string | null }>,
   phiFields: string[]
 ): Promise<void> {
   try {
     const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user) {
-      return; // Not authenticated, skip logging
+
+    if (!user || records.length === 0) {
+      return; // Not authenticated or no records, skip logging
     }
 
-    // Get user profile for clinic_id and role
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role, clinic_id')
-      .eq('id', user.id)
-      .single();
-
-    // Call the database function to log read access
-    const { error } = await supabase.rpc('log_read_access', {
+    // Call the database function to log read access for all records at once
+    const { error } = await supabase.rpc('log_read_access_batch', {
       resource_type_param: table,
-      resource_id_param: resourceId,
-      resource_name_param: resourceName,
+      records_param: records.map(r => ({
+        resource_id: r.id,
+        resource_name: r.name,
+      })),
       phi_fields_param: phiFields,
     });
 
     if (error) {
-      console.error('Failed to log read access:', error);
-      // Don't throw - audit logging failure shouldn't break the app
+      // Fallback to individual logging if batch RPC doesn't exist
+      if (error.code === 'PGRST202' || error.message.includes('not found')) {
+        // RPC doesn't exist, log individually (but in parallel)
+        await Promise.all(
+          records.map(record =>
+            supabase.rpc('log_read_access', {
+              resource_type_param: table,
+              resource_id_param: record.id,
+              resource_name_param: record.name,
+              phi_fields_param: phiFields,
+            })
+          )
+        );
+      } else {
+        console.error('Failed to log read access:', error);
+      }
     }
   } catch (error) {
     console.error('Error in audit logging:', error);
@@ -114,37 +122,33 @@ export function createAuditedClient(): SupabaseClient<Database> {
 
           // Wrap select to add audit logging
           const originalSelect = query.select.bind(query);
-          
+
           // Create a new select function
           const auditedSelect = async (columns?: string) => {
             const result = await originalSelect(columns);
-            
-            // Log read access if data was retrieved
+
+            // Log read access if data was retrieved (using batch logging)
             if (result.data && !result.error) {
               const phiFields = getPhiFields(table, columns);
-              
-              if (Array.isArray(result.data)) {
-                // Log each row accessed
-                for (const row of result.data) {
-                  await logReadAccess(
-                    table,
-                    row.id || null,
-                    row.name || row.title || row.file_name || null,
-                    phiFields
-                  );
-                }
-              } else if (result.data) {
+
+              if (Array.isArray(result.data) && result.data.length > 0) {
+                // Batch log all rows at once
+                const records = result.data.map((row: any) => ({
+                  id: row.id || null,
+                  name: row.name || row.title || row.file_name || null,
+                }));
+                await logReadAccessBatch(table, records, phiFields);
+              } else if (result.data && !Array.isArray(result.data)) {
                 // Single object
                 const row = result.data as any;
-                await logReadAccess(
+                await logReadAccessBatch(
                   table,
-                  row.id || null,
-                  row.name || row.title || row.file_name || null,
+                  [{ id: row.id || null, name: row.name || row.title || row.file_name || null }],
                   phiFields
                 );
               }
             }
-            
+
             return result;
           };
 

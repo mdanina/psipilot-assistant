@@ -12,6 +12,10 @@ const ALGORITHM = 'AES-GCM';
 const KEY_LENGTH = 256;
 const IV_LENGTH = 12; // 96 bits for GCM
 
+// Cache for imported CryptoKey to avoid repeated imports
+let cachedKey: CryptoKey | null = null;
+let cachedKeyBase64: string | null = null;
+
 /**
  * Get encryption key from environment variable
  * Key should be base64 encoded 32-byte key (256 bits)
@@ -59,12 +63,17 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 }
 
 /**
- * Import encryption key from base64 string
+ * Import encryption key from base64 string with caching
  */
 async function importKey(keyBase64: string): Promise<CryptoKey> {
+  // Return cached key if it matches the current key
+  if (cachedKey && cachedKeyBase64 === keyBase64) {
+    return cachedKey;
+  }
+
   const keyData = base64ToArrayBuffer(keyBase64);
-  
-  return await crypto.subtle.importKey(
+
+  const key = await crypto.subtle.importKey(
     'raw',
     keyData,
     {
@@ -74,6 +83,12 @@ async function importKey(keyBase64: string): Promise<CryptoKey> {
     false,
     ['encrypt', 'decrypt']
   );
+
+  // Cache the imported key
+  cachedKey = key;
+  cachedKeyBase64 = keyBase64;
+
+  return key;
 }
 
 /**

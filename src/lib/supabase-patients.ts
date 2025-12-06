@@ -17,6 +17,35 @@ type PatientUpdate = Database['public']['Tables']['patients']['Update'];
 const PII_FIELDS = ['name', 'email', 'phone', 'address', 'notes'] as const;
 type PIIField = (typeof PII_FIELDS)[number];
 
+// Batch size for parallel crypto operations to avoid blocking UI
+const DECRYPT_BATCH_SIZE = 50;
+// Default pagination settings
+const DEFAULT_PAGE_SIZE = 50;
+
+/**
+ * Process items in batches to avoid overwhelming the browser
+ */
+async function processBatched<T, R>(
+  items: T[],
+  batchSize: number,
+  processor: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = [];
+
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    const batchResults = await Promise.all(batch.map(processor));
+    results.push(...batchResults);
+
+    // Yield to the event loop between batches to prevent UI blocking
+    if (i + batchSize < items.length) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+  }
+
+  return results;
+}
+
 /**
  * Patient with decrypted PII fields
  */
@@ -152,10 +181,100 @@ export async function getPatient(
   }
 }
 
+export interface PaginationOptions {
+  page?: number;
+  pageSize?: number;
+}
+
+export interface PaginatedResult<T> {
+  data: T[] | null;
+  error: Error | null;
+  pagination: {
+    page: number;
+    pageSize: number;
+    totalCount: number;
+    totalPages: number;
+    hasMore: boolean;
+  } | null;
+}
+
 /**
- * Get all patients for the current clinic with decrypted PII
+ * Get patients with pagination and decrypted PII
  */
-export async function getPatients(): Promise<{
+export async function getPatients(
+  options: PaginationOptions = {}
+): Promise<PaginatedResult<DecryptedPatient>> {
+  try {
+    const page = options.page ?? 1;
+    const pageSize = options.pageSize ?? DEFAULT_PAGE_SIZE;
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+
+    // Get total count first
+    const { count, error: countError } = await supabase
+      .from('patients')
+      .select('*', { count: 'exact', head: true })
+      .is('deleted_at', null);
+
+    if (countError) {
+      return {
+        data: null,
+        error: new Error(countError.message),
+        pagination: null,
+      };
+    }
+
+    const totalCount = count ?? 0;
+    const totalPages = Math.ceil(totalCount / pageSize);
+
+    // Get paginated data
+    const { data: patients, error } = await supabase
+      .from('patients')
+      .select('*')
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .range(from, to);
+
+    if (error) {
+      return {
+        data: null,
+        error: new Error(error.message),
+        pagination: null,
+      };
+    }
+
+    // Decrypt in batches to avoid UI blocking
+    const decryptedPatients = await processBatched(
+      patients,
+      DECRYPT_BATCH_SIZE,
+      decryptPatientPII
+    );
+
+    return {
+      data: decryptedPatients,
+      error: null,
+      pagination: {
+        page,
+        pageSize,
+        totalCount,
+        totalPages,
+        hasMore: page < totalPages,
+      },
+    };
+  } catch (error) {
+    return {
+      data: null,
+      error: error as Error,
+      pagination: null,
+    };
+  }
+}
+
+/**
+ * Get all patients (no pagination) - use with caution for large datasets
+ * @deprecated Use getPatients with pagination for better performance
+ */
+export async function getAllPatients(): Promise<{
   data: DecryptedPatient[] | null;
   error: Error | null;
 }> {
@@ -170,8 +289,11 @@ export async function getPatients(): Promise<{
       return { data: null, error: new Error(error.message) };
     }
 
-    const decryptedPatients = await Promise.all(
-      patients.map((p) => decryptPatientPII(p))
+    // Decrypt in batches to avoid UI blocking
+    const decryptedPatients = await processBatched(
+      patients,
+      DECRYPT_BATCH_SIZE,
+      decryptPatientPII
     );
 
     return { data: decryptedPatients, error: null };
@@ -233,13 +355,16 @@ export async function deletePatient(
 /**
  * Search patients by name (searches encrypted data)
  * Note: For encrypted data, search is done client-side after decryption
+ * TODO: Consider implementing server-side search with hashed_name index for better performance
  */
 export async function searchPatients(
   query: string
 ): Promise<{ data: DecryptedPatient[] | null; error: Error | null }> {
   try {
     // Get all patients first (RLS will filter by clinic)
-    const { data: patients, error } = await getPatients();
+    // Note: This is inefficient for large datasets - consider implementing
+    // a hashed search index on the server for production use
+    const { data: patients, error } = await getAllPatients();
 
     if (error || !patients) {
       return { data: null, error };

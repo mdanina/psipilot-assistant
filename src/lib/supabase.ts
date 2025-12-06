@@ -39,28 +39,79 @@ if (supabaseUrl && !supabaseUrl.startsWith('http')) {
 }
 
 /**
+ * Create Supabase client with proper error handling
+ */
+function createSupabaseClient() {
+  if (!isSupabaseConfigured) {
+    // Return a mock client that throws helpful errors
+    // This prevents crashes during development without proper config
+    const mockHandler = {
+      get(_target: any, prop: string) {
+        if (prop === 'auth') {
+          return {
+            getSession: () => Promise.resolve({ data: { session: null }, error: null }),
+            getUser: () => Promise.resolve({ data: { user: null }, error: null }),
+            signInWithPassword: () => Promise.resolve({
+              data: { session: null, user: null },
+              error: new Error('Supabase not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY'),
+            }),
+            signUp: () => Promise.resolve({
+              data: { session: null, user: null },
+              error: new Error('Supabase not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY'),
+            }),
+            signOut: () => Promise.resolve({ error: null }),
+            onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+            mfa: {
+              enroll: () => Promise.resolve({ error: new Error('Supabase not configured') }),
+              verify: () => Promise.resolve({ error: new Error('Supabase not configured') }),
+              listFactors: () => Promise.resolve({ data: { totp: [] }, error: null }),
+              unenroll: () => Promise.resolve({ error: null }),
+            },
+          };
+        }
+        if (prop === 'from') {
+          return () => ({
+            select: () => Promise.resolve({ data: null, error: new Error('Supabase not configured') }),
+            insert: () => Promise.resolve({ data: null, error: new Error('Supabase not configured') }),
+            update: () => Promise.resolve({ data: null, error: new Error('Supabase not configured') }),
+            delete: () => Promise.resolve({ data: null, error: new Error('Supabase not configured') }),
+          });
+        }
+        if (prop === 'rpc') {
+          return () => Promise.resolve({ data: null, error: new Error('Supabase not configured') });
+        }
+        return undefined;
+      },
+    };
+    return new Proxy({}, mockHandler) as ReturnType<typeof createClient<Database>>;
+  }
+
+  return createClient<Database>(
+    supabaseUrl!,
+    supabaseAnonKey!,
+    {
+      auth: {
+        // Persist session in localStorage
+        persistSession: true,
+        // Auto refresh token before expiry
+        autoRefreshToken: true,
+        // Detect session from URL (for OAuth)
+        detectSessionInUrl: true,
+      },
+      // Global options
+      global: {
+        headers: {
+          'x-application-name': 'psipilot-assistant',
+        },
+      },
+    }
+  );
+}
+
+/**
  * Typed Supabase client for the PsiPilot database
  */
-export const supabase = createClient<Database>(
-  supabaseUrl || '',
-  supabaseAnonKey || '',
-  {
-    auth: {
-      // Persist session in localStorage
-      persistSession: true,
-      // Auto refresh token before expiry
-      autoRefreshToken: true,
-      // Detect session from URL (for OAuth)
-      detectSessionInUrl: true,
-    },
-    // Global options
-    global: {
-      headers: {
-        'x-application-name': 'psipilot-assistant',
-      },
-    },
-  }
-);
+export const supabase = createSupabaseClient();
 
 /**
  * Helper to get current authenticated user

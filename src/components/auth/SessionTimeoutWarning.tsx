@@ -15,7 +15,7 @@ const SESSION_TIMEOUT = 15 * 60 * 1000; // 15 minutes
 const WARNING_TIME = 2 * 60 * 1000; // 2 minutes before timeout
 
 export function SessionTimeoutWarning() {
-  const { isAuthenticated, lastActivity, updateActivity, signOut } = useAuth();
+  const { isAuthenticated, getLastActivity, updateActivity, signOut } = useAuth();
   const [showWarning, setShowWarning] = useState(false);
   const [timeRemaining, setTimeRemaining] = useState(0);
 
@@ -28,6 +28,7 @@ export function SessionTimeoutWarning() {
 
     const checkTimeout = () => {
       const now = Date.now();
+      const lastActivity = getLastActivity();
       const timeSinceActivity = now - lastActivity;
       const timeUntilTimeout = SESSION_TIMEOUT - timeSinceActivity;
 
@@ -49,7 +50,7 @@ export function SessionTimeoutWarning() {
     const interval = setInterval(checkTimeout, showWarning ? 1000 : 10000);
 
     return () => clearInterval(interval);
-  }, [isAuthenticated, lastActivity, showWarning]);
+  }, [isAuthenticated, getLastActivity, showWarning]);
 
   const handleContinue = () => {
     updateActivity();

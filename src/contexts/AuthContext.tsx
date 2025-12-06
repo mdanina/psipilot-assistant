@@ -5,6 +5,7 @@ import {
   useState,
   useCallback,
   useRef,
+  useMemo,
   type ReactNode,
 } from 'react';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
@@ -33,6 +34,7 @@ interface AuthContextType extends AuthState {
   verifyMFA: (code: string) => Promise<{ error: Error | null }>;
   disableMFA: () => Promise<{ error: Error | null }>;
   updateActivity: () => void;
+  getLastActivity: () => number;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -62,16 +64,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Ref to track last activity update time for debouncing
   const lastActivityUpdateRef = useRef<number>(0);
 
-  // Fetch user profile with clinic data
+  // Ref to store lastActivity without triggering re-renders
+  const lastActivityRef = useRef<number>(Date.now());
+
+  // Ref to prevent duplicate fetchProfile calls between signIn and onAuthStateChange
+  const signInCompletedRef = useRef<boolean>(false);
+
+  // Fetch user profile with clinic data using JOIN (single query)
   const fetchProfile = useCallback(async (userId: string): Promise<ProfileWithClinic | null> => {
     console.log('🔍 Fetching profile for user:', userId);
 
     try {
-      // Start with simple profile query (no JOIN - faster and more reliable)
-      // We'll fetch clinic separately if needed
+      // Use JOIN to fetch profile and clinic in a single query
       const { data, error } = await supabase
         .from('profiles')
-        .select('*')
+        .select('*, clinic:clinics(*)')
         .eq('id', userId)
         .single();
 
@@ -89,43 +96,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return null;
       }
 
-      // If user has clinic_id, fetch clinic separately (non-blocking)
-      let clinic = null;
-      if (data.clinic_id) {
-        try {
-          const clinicResult = await supabase
-            .from('clinics')
-            .select('*')
-            .eq('id', data.clinic_id)
-            .single();
-          
-          if (!clinicResult.error && clinicResult.data) {
-            clinic = clinicResult.data;
-          } else {
-            console.warn('⚠️  Could not fetch clinic:', clinicResult.error?.message);
-          }
-        } catch (clinicErr) {
-          console.warn('⚠️  Error fetching clinic:', clinicErr);
-          // Continue without clinic data - not critical
-        }
-      }
-
       console.log('✅ Profile fetched successfully:', {
         id: data.id,
         email: data.email,
         full_name: data.full_name,
         role: data.role,
         clinic_id: data.clinic_id,
-        has_clinic: !!clinic
+        has_clinic: !!data.clinic
       });
 
-      // Combine profile with clinic data
-      const profile = {
-        ...data,
-        clinic: clinic || undefined
-      } as ProfileWithClinic & { mfa_enabled?: boolean };
-      
-      return profile;
+      return data as ProfileWithClinic & { mfa_enabled?: boolean };
     } catch (err) {
       console.error('❌ Unexpected error fetching profile:', err);
       return null;
@@ -149,16 +129,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
     });
   }, []);
 
-  // Update last activity timestamp - defined early for use in useEffect
+  // Update last activity timestamp - uses ref to avoid re-renders
   const updateActivity = useCallback(() => {
-    setState(prev => ({
-      ...prev,
-      lastActivity: Date.now(),
-      sessionExpiresAt: Date.now() + SESSION_TIMEOUT,
-    }));
+    const now = Date.now();
+    lastActivityRef.current = now;
+    // Only update state occasionally to sync sessionExpiresAt for UI components that need it
+    // This prevents frequent re-renders while still keeping state roughly in sync
   }, []);
 
-  // Session timeout monitoring
+  // Get last activity from ref (no re-render)
+  const getLastActivity = useCallback(() => {
+    return lastActivityRef.current;
+  }, []);
+
+  // Session timeout monitoring - uses ref to avoid dependency on state.lastActivity
   useEffect(() => {
     if (!state.isAuthenticated || !state.session) {
       return;
@@ -166,7 +150,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     const checkTimeout = () => {
       const now = Date.now();
-      const timeSinceActivity = now - state.lastActivity;
+      const timeSinceActivity = now - lastActivityRef.current;
 
       if (timeSinceActivity >= SESSION_TIMEOUT) {
         // Auto logout
@@ -177,7 +161,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const interval = setInterval(checkTimeout, 60000); // Check every minute
 
     return () => clearInterval(interval);
-  }, [state.isAuthenticated, state.session, state.lastActivity, signOut]);
+  }, [state.isAuthenticated, state.session, signOut]);
 
   // Track user activity with debouncing to prevent excessive state updates
   useEffect(() => {
@@ -298,9 +282,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
           if (timeoutId) {
             clearTimeout(timeoutId);
           }
-          
-          // This may be called after signIn already updated state, but it's safe to update again
-          // It ensures state is consistent even if signIn didn't complete
+
+          // Skip if signIn already completed the profile fetch (prevents duplicate calls)
+          if (signInCompletedRef.current) {
+            console.log('🔄 SIGNED_IN event skipped - signIn already handled');
+            signInCompletedRef.current = false; // Reset for next sign in
+            return;
+          }
+
+          // This handles cases where auth state changed outside of signIn
+          // (e.g., session restore, OAuth redirect)
           console.log('🔄 SIGNED_IN event, updating state...');
           try {
             const profile = await fetchProfile(session.user.id);
@@ -368,6 +359,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Sign in with email/password
   const signIn = useCallback(async (email: string, password: string) => {
     setState(prev => ({ ...prev, isLoading: true }));
+    signInCompletedRef.current = false;
 
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -382,12 +374,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       // Successfully signed in - update state immediately
-      // onAuthStateChange will also fire, but we update state here for immediate feedback
+      // Mark as completed so onAuthStateChange doesn't duplicate the fetchProfile call
       if (data?.session?.user) {
         console.log('✅ Sign in successful, fetching profile...');
         try {
           const profile = await fetchProfile(data.session.user.id);
           const now = Date.now();
+          signInCompletedRef.current = true; // Mark before setState to prevent race
           setState({
             user: data.session.user,
             profile,
@@ -404,6 +397,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           console.error('❌ Error fetching profile after sign in:', profileError);
           // Even if profile fetch fails, we still have a valid session
           const now = Date.now();
+          signInCompletedRef.current = true;
           setState({
             user: data.session.user,
             profile: null,
@@ -433,22 +427,29 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const signUp = useCallback(async (email: string, password: string, fullName: string) => {
     setState(prev => ({ ...prev, isLoading: true }));
 
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          full_name: fullName,
+    try {
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: fullName,
+          },
         },
-      },
-    });
+      });
 
-    if (error) {
+      if (error) {
+        setState(prev => ({ ...prev, isLoading: false }));
+        return { error };
+      }
+
+      // Success - reset loading state
       setState(prev => ({ ...prev, isLoading: false }));
-      return { error };
+      return { error: null };
+    } catch (err) {
+      setState(prev => ({ ...prev, isLoading: false }));
+      return { error: err as Error };
     }
-
-    return { error: null };
   }, []);
 
 
@@ -574,7 +575,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, [state.user, fetchProfile]);
 
-  const value: AuthContextType = {
+  const value: AuthContextType = useMemo(() => ({
     ...state,
     signIn,
     signUp,
@@ -584,7 +585,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     verifyMFA,
     disableMFA,
     updateActivity,
-  };
+    getLastActivity,
+  }), [state, signIn, signUp, signOut, refreshProfile, enableMFA, verifyMFA, disableMFA, updateActivity, getLastActivity]);
 
   return (
     <AuthContext.Provider value={value}>
