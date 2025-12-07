@@ -27,6 +27,16 @@ export function ProtectedRoute({ children, requiredRole, skipOnboardingCheck }: 
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
+  // Wait for profile to load before checking clinic
+  // This prevents access to protected routes before we know if user has a clinic
+  if (!skipOnboardingCheck && profile === null) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
   // Check if user needs onboarding (no clinic assigned)
   if (!skipOnboardingCheck && profile && !profile.clinic_id) {
     return <Navigate to="/onboarding" replace />;

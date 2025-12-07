@@ -110,7 +110,15 @@ export async function createPatient(
   data: PatientInsert
 ): Promise<{ data: DecryptedPatient | null; error: Error | null }> {
   try {
+    // Validate required data before attempting insert
+    if (!data.clinic_id) {
+      console.error('createPatient: clinic_id is required but was not provided');
+      return { data: null, error: new Error('Клиника не указана. Пожалуйста, войдите снова.') };
+    }
+
     const encryptedData = await encryptPatientPII(data);
+
+    console.log('createPatient: Attempting to create patient with clinic_id:', data.clinic_id);
 
     const { data: patient, error } = await supabase
       .from('patients')
@@ -119,12 +127,21 @@ export async function createPatient(
       .single();
 
     if (error) {
+      // Log detailed error for debugging RLS issues
+      console.error('createPatient: Supabase error:', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        clinic_id: data.clinic_id,
+      });
       return { data: null, error: new Error(error.message) };
     }
 
     const decryptedPatient = await decryptPatientPII(patient);
     return { data: decryptedPatient, error: null };
   } catch (error) {
+    console.error('createPatient: Unexpected error:', error);
     return { data: null, error: error as Error };
   }
 }

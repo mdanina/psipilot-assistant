@@ -33,9 +33,19 @@ const PatientCreatePage = () => {
       });
 
       if (error) {
+        // Provide more helpful error messages for common issues
+        let errorMessage = error.message;
+        if (error.message.includes('row-level security') || error.message.includes('violates')) {
+          errorMessage = 'Ошибка доступа. Пожалуйста, выйдите и войдите снова. Если проблема повторится, обратитесь к администратору.';
+          console.error('RLS policy violation during patient creation:', {
+            error: error.message,
+            clinic_id: profile?.clinic_id,
+            user_id: profile?.id,
+          });
+        }
         toast({
           title: "Ошибка",
-          description: `Не удалось создать пациента: ${error.message}`,
+          description: `Не удалось создать пациента: ${errorMessage}`,
           variant: "destructive",
         });
         return;
