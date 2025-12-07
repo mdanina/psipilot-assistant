@@ -7,6 +7,7 @@
 
 import { supabase } from './supabase';
 import { encryptPHI, decryptPHI, isEncryptionConfigured } from './encryption';
+import { format } from 'date-fns';
 import type { Database } from '@/types/database.types';
 
 type Patient = Database['public']['Tables']['patients']['Row'];
@@ -231,8 +232,9 @@ export async function deletePatient(
 }
 
 /**
- * Search patients by name (searches encrypted data)
+ * Search patients by all fields (searches encrypted data)
  * Note: For encrypted data, search is done client-side after decryption
+ * Searches in: name, email, phone, address, notes, tags, date_of_birth, gender
  */
 export async function searchPatients(
   query: string
@@ -245,17 +247,35 @@ export async function searchPatients(
       return { data: null, error };
     }
 
-    // Filter by decrypted name
-    const normalizedQuery = query.toLowerCase();
+    // If query is empty, return all patients
+    if (!query || query.trim() === '') {
+      return { data: patients, error: null };
+    }
+
+    // Filter by all patient fields
+    const normalizedQuery = query.toLowerCase().trim();
     const filtered = patients.filter((p) => {
       const name = p.name?.toLowerCase() || '';
       const email = p.email?.toLowerCase() || '';
       const phone = p.phone?.toLowerCase() || '';
+      const address = p.address?.toLowerCase() || '';
+      const notes = p.notes?.toLowerCase() || '';
+      const gender = p.gender?.toLowerCase() || '';
+      const dateOfBirth = p.date_of_birth 
+        ? format(new Date(p.date_of_birth), 'dd.MM.yyyy') 
+        : '';
+      const tags = (p.tags || []).join(' ').toLowerCase();
 
       return (
         name.includes(normalizedQuery) ||
         email.includes(normalizedQuery) ||
-        phone.includes(normalizedQuery)
+        phone.includes(normalizedQuery) ||
+        address.includes(normalizedQuery) ||
+        notes.includes(normalizedQuery) ||
+        gender.includes(normalizedQuery) ||
+        dateOfBirth.includes(normalizedQuery) ||
+        tags.includes(normalizedQuery) ||
+        p.id.toLowerCase().includes(normalizedQuery)
       );
     });
 
@@ -360,6 +380,68 @@ export async function migrateAllPatientsToEncrypted(): Promise<{
   }
 
   return result;
+}
+
+/**
+ * Get document count for a patient
+ */
+export async function getPatientDocumentCount(
+  patientId: string
+): Promise<{ count: number; error: Error | null }> {
+  try {
+    const { count, error } = await supabase
+      .from('documents')
+      .select('*', { count: 'exact', head: true })
+      .eq('patient_id', patientId);
+
+    if (error) {
+      return { count: 0, error: new Error(error.message) };
+    }
+
+    return { count: count || 0, error: null };
+  } catch (error) {
+    return { count: 0, error: error as Error };
+  }
+}
+
+/**
+ * Get document counts for multiple patients
+ */
+export async function getPatientDocumentCounts(
+  patientIds: string[]
+): Promise<{ [patientId: string]: number }> {
+  if (patientIds.length === 0) {
+    return {};
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('documents')
+      .select('patient_id')
+      .in('patient_id', patientIds);
+
+    if (error) {
+      console.error('Error fetching document counts:', error);
+      return {};
+    }
+
+    // Count documents per patient
+    const counts: { [patientId: string]: number } = {};
+    patientIds.forEach((id) => {
+      counts[id] = 0;
+    });
+
+    data?.forEach((doc) => {
+      if (doc.patient_id) {
+        counts[doc.patient_id] = (counts[doc.patient_id] || 0) + 1;
+      }
+    });
+
+    return counts;
+  } catch (error) {
+    console.error('Error in getPatientDocumentCounts:', error);
+    return {};
+  }
 }
 
 // Re-export encryption utilities for convenience

@@ -180,3 +180,4 @@ ALTER TABLE sessions
 - Полная документация: `docs/AUDIO_RECORDING_TRANSCRIPTION.md`
 - Backend сервис: `backend/transcription-service/README.md`
 
+

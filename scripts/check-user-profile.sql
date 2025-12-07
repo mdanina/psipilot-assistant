@@ -50,3 +50,4 @@ FROM auth.users au
 LEFT JOIN profiles p ON au.id = p.id
 WHERE p.id IS NULL;
 
+

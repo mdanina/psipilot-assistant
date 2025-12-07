@@ -205,3 +205,4 @@ testRecording();
 3. Проверьте Network tab для ошибок HTTP запросов
 4. Проверьте логи Supabase Dashboard
 
+

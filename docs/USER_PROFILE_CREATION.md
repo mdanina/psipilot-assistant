@@ -204,3 +204,4 @@ ON CONFLICT (id) DO NOTHING;
 - [MIGRATION_GUIDE.md](../MIGRATION_GUIDE.md) - Руководство по миграциям
 - [supabase/migrations/006_fix_user_creation_trigger.sql](../supabase/migrations/006_fix_user_creation_trigger.sql) - Миграция с триггером
 
+

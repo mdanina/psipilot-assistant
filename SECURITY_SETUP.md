@@ -214,3 +214,4 @@ const { data } = await secureSupabase
 - [Supabase MFA Documentation](https://supabase.com/docs/guides/auth/mfa)
 
 
+

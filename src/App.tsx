@@ -14,6 +14,8 @@ import LoginPage from "./pages/LoginPage";
 import OnboardingPage from "./pages/OnboardingPage";
 import UnauthorizedPage from "./pages/UnauthorizedPage";
 import PatientsPage from "./pages/PatientsPage";
+import PatientDetailPage from "./pages/PatientDetailPage";
+import PatientCreatePage from "./pages/PatientCreatePage";
 import SessionsPage from "./pages/SessionsPage";
 import ClinicPage from "./pages/ClinicPage";
 import AdministrationPage from "./pages/AdministrationPage";
@@ -63,6 +65,26 @@ const App = () => (
                 <ProtectedRoute requiredRole={['doctor', 'admin']}>
                   <MainLayout>
                     <PatientsPage />
+                  </MainLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/patients/new"
+              element={
+                <ProtectedRoute requiredRole={['doctor', 'admin']}>
+                  <MainLayout>
+                    <PatientCreatePage />
+                  </MainLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/patients/:id"
+              element={
+                <ProtectedRoute requiredRole={['doctor', 'admin']}>
+                  <MainLayout>
+                    <PatientDetailPage />
                   </MainLayout>
                 </ProtectedRoute>
               }

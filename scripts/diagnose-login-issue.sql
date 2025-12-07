@@ -81,3 +81,4 @@ FROM profiles p
 LEFT JOIN clinics c ON p.clinic_id = c.id
 WHERE p.id = 'USER_ID_HERE'; -- ЗАМЕНИТЕ НА UUID ПОЛЬЗОВАТЕЛЯ
 
+

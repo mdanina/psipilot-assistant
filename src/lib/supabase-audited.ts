@@ -179,3 +179,4 @@ export function createSecureClient(): SupabaseClient<Database> {
 export const secureSupabase = createSecureClient();
 
 
+

@@ -289,3 +289,4 @@ COMMENT ON TABLE user_invitations IS
 'Stores user invitations for clinics. Admins can invite users by email. 
 When user registers, they are automatically added to the clinic.';
 
+

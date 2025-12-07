@@ -123,3 +123,4 @@ npm run dev
 - Backend сервис: `backend/transcription-service/README.md`
 - Настройка сервиса: `backend/transcription-service/SETUP.md`
 
+
