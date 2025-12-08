@@ -31,9 +31,10 @@ function getEncryptionKey() {
 
 /**
  * Шифрует данные с использованием AES-GCM 256
- * 
+ * Формат совместим с Web Crypto API (frontend)
+ *
  * @param {string} plaintext - Открытый текст для шифрования
- * @returns {string} Base64-encoded зашифрованные данные (IV + tag + ciphertext)
+ * @returns {string} Base64-encoded зашифрованные данные (IV + ciphertext + tag)
  */
 export function encrypt(plaintext) {
   if (!plaintext) {
@@ -42,28 +43,30 @@ export function encrypt(plaintext) {
 
   try {
     const key = getEncryptionKey();
-    
+
     // Генерируем случайный IV
     const iv = crypto.randomBytes(IV_LENGTH);
-    
+
     // Создаем cipher
     const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
-    
+
     // Шифруем данные
-    let encrypted = cipher.update(plaintext, 'utf8', 'base64');
-    encrypted += cipher.final('base64');
-    
+    const encrypted = Buffer.concat([
+      cipher.update(plaintext, 'utf8'),
+      cipher.final()
+    ]);
+
     // Получаем authentication tag
     const tag = cipher.getAuthTag();
-    
-    // Объединяем IV + tag + encrypted data
-    // Формат: IV (12 bytes) + TAG (16 bytes) + ENCRYPTED (variable)
+
+    // Объединяем IV + ciphertext + tag
+    // Формат совместим с Web Crypto API: IV (12 bytes) + ENCRYPTED + TAG (16 bytes)
     const combined = Buffer.concat([
       iv,
-      tag,
-      Buffer.from(encrypted, 'base64')
+      encrypted,
+      tag
     ]);
-    
+
     // Возвращаем base64-encoded результат
     return combined.toString('base64');
   } catch (error) {
@@ -74,7 +77,8 @@ export function encrypt(plaintext) {
 
 /**
  * Расшифровывает данные с использованием AES-GCM 256
- * 
+ * Формат совместим с Web Crypto API (frontend)
+ *
  * @param {string} encryptedData - Base64-encoded зашифрованные данные
  * @returns {string} Расшифрованный открытый текст
  */
@@ -85,23 +89,23 @@ export function decrypt(encryptedData) {
 
   try {
     const key = getEncryptionKey();
-    
+
     // Декодируем base64
     const combined = Buffer.from(encryptedData, 'base64');
-    
-    // Извлекаем компоненты
+
+    // Извлекаем компоненты (формат Web Crypto API: IV + ciphertext + tag)
     const iv = combined.slice(0, IV_LENGTH);
-    const tag = combined.slice(IV_LENGTH, IV_LENGTH + TAG_LENGTH);
-    const encrypted = combined.slice(IV_LENGTH + TAG_LENGTH);
-    
+    const tag = combined.slice(-TAG_LENGTH); // tag в конце
+    const encrypted = combined.slice(IV_LENGTH, -TAG_LENGTH);
+
     // Создаем decipher
     const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
     decipher.setAuthTag(tag);
-    
+
     // Расшифровываем данные
     let decrypted = decipher.update(encrypted, null, 'utf8');
     decrypted += decipher.final('utf8');
-    
+
     return decrypted;
   } catch (error) {
     console.error('Decryption error:', error);
