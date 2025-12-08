@@ -46,7 +46,7 @@ function getFileIcon(type: PatientFileType) {
       return <File className="w-5 h-5 text-green-500 flex-shrink-0" />;
     case 'document':
     default:
-      return <FileText className="w-5 h-5 text-blue-500 flex-shrink-0" />;
+      return <FileText className="w-5 h-5 text-primary flex-shrink-0" />;
   }
 }
 

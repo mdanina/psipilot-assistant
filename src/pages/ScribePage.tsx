@@ -304,7 +304,7 @@ const ScribePage = () => {
 
   return (
     <>
-      <Header title="Скрайбер" icon={<FileText className="w-5 h-5" />} />
+      <Header title="Запись аудио" icon={<FileText className="w-5 h-5" />} />
       <div className="flex-1 flex flex-col items-center justify-center px-8 py-12">
         {/* Hero section */}
         <div className="text-center mb-10">

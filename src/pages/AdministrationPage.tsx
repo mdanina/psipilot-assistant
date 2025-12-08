@@ -253,7 +253,7 @@ export default function AdministrationPage() {
       case 'admin':
         return <Shield className="w-4 h-4 text-primary" />;
       case 'doctor':
-        return <UserIcon className="w-4 h-4 text-blue-500" />;
+        return <UserIcon className="w-4 h-4 text-primary" />;
       case 'assistant':
         return <UserCog className="w-4 h-4 text-green-500" />;
       default:
@@ -266,7 +266,7 @@ export default function AdministrationPage() {
       case 'admin':
         return 'bg-primary/10 text-primary border-primary/20';
       case 'doctor':
-        return 'bg-blue-500/10 text-blue-500 border-blue-500/20';
+        return 'bg-primary/10 text-primary border-primary/20';
       case 'assistant':
         return 'bg-green-500/10 text-green-500 border-green-500/20';
       default:

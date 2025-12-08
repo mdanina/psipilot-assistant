@@ -50,7 +50,7 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
 
   const getStatusColor = (status: string): string => {
     const colors: Record<string, string> = {
-      scheduled: "text-blue-600 bg-blue-50",
+      scheduled: "text-primary bg-primary/10",
       in_progress: "text-yellow-600 bg-yellow-50",
       completed: "text-green-600 bg-green-50",
       cancelled: "text-red-600 bg-red-50",

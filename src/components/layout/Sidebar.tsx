@@ -1,6 +1,7 @@
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { FileText, Users, Calendar, Building2, Settings, ChevronDown, User, LogOut } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { ShrimpIcon } from "@/components/ShrimpIcon";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,7 +11,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 const navItems = [
-  { name: "Скрайбер", icon: FileText, path: "/" },
+  { name: "Запись аудио", icon: FileText, path: "/" },
   { name: "Пациенты", icon: Users, path: "/patients" },
   { name: "Сессии", icon: Calendar, path: "/sessions" },
   { name: "Клиника", icon: Building2, path: "/clinic" },
@@ -42,7 +43,8 @@ export const Sidebar = () => {
   return (
     <aside className="w-[220px] h-screen bg-sidebar border-r border-sidebar-border flex flex-col">
       {/* Logo */}
-      <div className="px-6 py-5">
+      <div className="px-6 py-5 flex flex-col items-center gap-2">
+        <ShrimpIcon className="w-10 h-10" />
         <h1 className="text-2xl font-bold text-foreground">supershrimp</h1>
       </div>
       
@@ -50,7 +52,7 @@ export const Sidebar = () => {
       <nav className="flex-1 px-3">
         <div className="mb-4">
           <span className="px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            Платформа
+            ИИ копайлот
           </span>
         </div>
         <ul className="space-y-1">

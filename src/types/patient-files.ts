@@ -32,7 +32,7 @@ export function getFileTypeLabel(type: PatientFileType): string {
 
 export function getFileTypeColor(type: PatientFileType): string {
   const colors: Record<PatientFileType, string> = {
-    document: 'bg-blue-100 text-blue-800',
+    document: 'bg-primary/20 text-primary',
     transcript: 'bg-purple-100 text-purple-800',
     note_file: 'bg-green-100 text-green-800',
   };
