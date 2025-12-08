@@ -34,6 +34,7 @@ import { PatientForm } from "@/components/patients/PatientForm";
 import { PatientActivitiesTab } from "@/components/patients/PatientActivitiesTab";
 import { PatientDocumentsTab } from "@/components/patients/PatientDocumentsTab";
 import { PatientConversationInvitationsTab } from "@/components/patients/PatientConversationInvitationsTab";
+import { CaseSummaryBlock } from "@/components/patients/CaseSummaryBlock";
 
 const PatientDetailPage = () => {
   const { id } = useParams<{ id: string }>();
@@ -271,28 +272,8 @@ const PatientDetailPage = () => {
             <div className="flex-1 overflow-auto p-6">
               {/* Info Tab */}
               <TabsContent value="info" className="mt-0 space-y-6">
-                {/* AI Case Summary - placeholder for future AI generation */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Sparkles className="w-5 h-5" />
-                      Сводка по случаю
-                    </CardTitle>
-                    <CardDescription>
-                      AI-анализ на основе всех документов и сессий пациента
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {/* TODO: AI-generated case summary will be rendered here */}
-                    {/* Structure will include multiple sections based on prompt */}
-                    <div className="text-center py-8 text-muted-foreground">
-                      <Sparkles className="w-8 h-8 mx-auto mb-3 opacity-50" />
-                      <p className="text-sm">
-                        Сводка будет сгенерирована после добавления документов и сессий
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
+                {/* AI Case Summary */}
+                <CaseSummaryBlock patientId={id!} patient={patient} />
 
                 {/* Notes Card */}
                 {patient.notes && (

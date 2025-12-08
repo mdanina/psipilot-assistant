@@ -4,6 +4,8 @@ import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import { transcribeRoute } from './routes/transcribe.js';
 import { webhookRoute } from './routes/webhook.js';
+import { aiRoute } from './routes/ai.js';
+import { verifyAuthToken } from './middleware/auth.js';
 
 dotenv.config();
 
@@ -25,7 +27,15 @@ app.get('/', (req, res) => {
       transcribe: 'POST /api/transcribe',
       status: 'GET /api/transcribe/:recordingId/status',
       sync: 'POST /api/transcribe/:recordingId/sync',
-      webhook: 'POST /api/webhook/assemblyai'
+      webhook: 'POST /api/webhook/assemblyai',
+      ai: {
+        blockTemplates: 'GET /api/ai/block-templates',
+        noteTemplates: 'GET /api/ai/note-templates',
+        generate: 'POST /api/ai/generate',
+        status: 'GET /api/ai/generate/:clinicalNoteId/status',
+        regenerateSection: 'POST /api/ai/regenerate-section/:sectionId',
+        caseSummary: 'POST /api/ai/case-summary'
+      }
     },
     timestamp: new Date().toISOString()
   });
@@ -39,6 +49,8 @@ app.get('/health', (req, res) => {
 // Routes
 app.use('/api', transcribeRoute);
 app.use('/api', webhookRoute);
+// AI routes с аутентификацией
+app.use('/api/ai', verifyAuthToken, aiRoute);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

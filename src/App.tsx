@@ -17,6 +17,7 @@ import PatientsPage from "./pages/PatientsPage";
 import PatientDetailPage from "./pages/PatientDetailPage";
 import PatientCreatePage from "./pages/PatientCreatePage";
 import SessionsPage from "./pages/SessionsPage";
+import SessionAnalysisPage from "./pages/SessionAnalysisPage";
 import ClinicPage from "./pages/ClinicPage";
 import AdministrationPage from "./pages/AdministrationPage";
 import ProfilePage from "./pages/ProfilePage";
@@ -95,6 +96,16 @@ const App = () => (
                 <ProtectedRoute requiredRole={['doctor', 'admin']}>
                   <MainLayout>
                     <SessionsPage />
+                  </MainLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/sessions/:sessionId/analysis"
+              element={
+                <ProtectedRoute requiredRole={['doctor', 'admin']}>
+                  <MainLayout>
+                    <SessionAnalysisPage />
                   </MainLayout>
                 </ProtectedRoute>
               }

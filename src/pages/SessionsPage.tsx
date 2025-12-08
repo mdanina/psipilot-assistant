@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Calendar, Plus, FileText, Circle, User, Link2, Loader2, Mic, Pause, Play, Square, Sparkles, ChevronDown, RefreshCw, Trash2, X, File, Upload, Search } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Header } from "@/components/layout/Header";
@@ -23,11 +23,17 @@ import { linkSessionToPatient, getSession, createSession, deleteSession } from "
 import { getSessionRecordings, getRecordingStatus, createRecording, uploadAudioFile, updateRecording, startTranscription, syncTranscriptionStatus, deleteRecording } from "@/lib/supabase-recordings";
 import { getPatients } from "@/lib/supabase-patients";
 import { getSessionNotes, createSessionNote, deleteSessionNote, getCombinedTranscriptWithNotes } from "@/lib/supabase-session-notes";
+import { getClinicalNotesForSession, generateClinicalNote } from "@/lib/supabase-ai";
 import { SessionNotesDialog } from "@/components/sessions/SessionNotesDialog";
 import { CreateSessionDialog } from "@/components/sessions/CreateSessionDialog";
+import { TemplatesLibrary } from "@/components/analysis/TemplatesLibrary";
+import { ClinicalNotesOutput } from "@/components/analysis/output-panel/ClinicalNotesOutput";
+import { GenerationProgress } from "@/components/analysis/GenerationProgress";
 import { useToast } from "@/hooks/use-toast";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import type { Database } from "@/types/database.types";
+import type { GeneratedClinicalNote } from "@/types/ai.types";
 
 type Session = Database['public']['Tables']['sessions']['Row'];
 type Recording = Database['public']['Tables']['recordings']['Row'];
@@ -57,6 +63,11 @@ const SessionsPage = () => {
   // Session notes state
   const [sessionNotes, setSessionNotes] = useState<SessionNote[]>([]);
   const [notesDialogOpen, setNotesDialogOpen] = useState(false);
+
+  // AI Analysis state
+  const [clinicalNotes, setClinicalNotes] = useState<GeneratedClinicalNote[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   // Create session dialog state
   const [createSessionDialogOpen, setCreateSessionDialogOpen] = useState(false);
@@ -116,10 +127,21 @@ const SessionsPage = () => {
   }, [location.state, navigate, location.pathname]);
 
   // Load recordings and notes when session changes
+  // Load clinical notes for active session
+  const loadClinicalNotes = async (sessionId: string) => {
+    try {
+      const notes = await getClinicalNotesForSession(sessionId);
+      setClinicalNotes(notes);
+    } catch (error) {
+      console.error('Error loading clinical notes:', error);
+    }
+  };
+
   useEffect(() => {
     if (activeSession) {
       loadRecordings(activeSession);
       loadSessionNotes(activeSession);
+      loadClinicalNotes(activeSession);
     }
   }, [activeSession]);
 
@@ -991,10 +1013,12 @@ const SessionsPage = () => {
           )}
         </div>
         
-        {/* Main content */}
-        <div className="flex-1 flex overflow-hidden">
-          {/* Left panel - Patient information input */}
-          <div className="flex-1 border-r border-border flex flex-col">
+        {/* Main content - 3 колонки: исходники, библиотека шаблонов, результат */}
+        <div className="flex-1 overflow-hidden">
+          <ResizablePanelGroup direction="horizontal" className="h-full">
+            {/* Левая колонка - Исходники (транскрипт, заметки) */}
+            <ResizablePanel defaultSize={35} minSize={25} maxSize={50}>
+              <div className="h-full border-r border-border flex flex-col">
             <div className="p-6 border-b border-border">
               <div className="flex items-center justify-between mb-3">
               <h2 className="text-lg font-semibold text-foreground">Ввод информации о пациенте</h2>
@@ -1415,30 +1439,140 @@ const SessionsPage = () => {
               
               <div className="flex-1" />
               
-                  <Button size="sm" variant="default" className="gap-2">
-                <Sparkles className="w-4 h-4" />
-                Создать резюме
+                  <Button 
+                    size="sm" 
+                    variant="default" 
+                    className="gap-2"
+                    onClick={async () => {
+                      if (!activeSession) {
+                        toast({
+                          title: 'Ошибка',
+                          description: 'Выберите сессию для анализа',
+                          variant: 'destructive',
+                        });
+                        return;
+                      }
+
+                      const session = sessions.find(s => s.id === activeSession);
+                      if (!session?.patient_id) {
+                        toast({
+                          title: 'Ошибка',
+                          description: 'Сессия должна быть привязана к пациенту',
+                          variant: 'destructive',
+                        });
+                        return;
+                      }
+
+                      if (!selectedTemplateId) {
+                        toast({
+                          title: 'Ошибка',
+                          description: 'Выберите шаблон для генерации',
+                          variant: 'destructive',
+                        });
+                        return;
+                      }
+
+                      try {
+                        setIsGenerating(true);
+                        const result = await generateClinicalNote({
+                          session_id: activeSession,
+                          template_id: selectedTemplateId,
+                          source_type: 'combined',
+                        });
+
+                        toast({
+                          title: 'Генерация запущена',
+                          description: `Создано ${result.sections_count} секций. Генерация выполняется в фоне.`,
+                        });
+
+                        // Обновляем список заметок
+                        await loadClinicalNotes(activeSession);
+                      } catch (error) {
+                        console.error('Error generating clinical note:', error);
+                        toast({
+                          title: 'Ошибка генерации',
+                          description: error instanceof Error ? error.message : 'Не удалось запустить генерацию',
+                          variant: 'destructive',
+                        });
+                      } finally {
+                        setIsGenerating(false);
+                      }
+                    }}
+                    disabled={!activeSession || !sessions.find(s => s.id === activeSession)?.patient_id || !selectedTemplateId || isGenerating}
+                    title={
+                      !activeSession 
+                        ? 'Выберите сессию' 
+                        : !sessions.find(s => s.id === activeSession)?.patient_id 
+                        ? 'Сессия должна быть привязана к пациенту' 
+                        : !selectedTemplateId
+                        ? 'Выберите шаблон'
+                        : 'Запустить генерацию клинической заметки'
+                    }
+                  >
+                    {isGenerating ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Генерация...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4" />
+                        Создать резюме
+                      </>
+                    )}
               </Button>
                 </>
               )}
             </div>
-          </div>
-          
-          {/* Right panel - Clinical notes output */}
-          <div className="w-[400px] flex flex-col">
-            <div className="p-6 border-b border-border">
-              <h2 className="text-lg font-semibold text-foreground">Клинические заметки</h2>
-            </div>
-            
-            <div className="flex-1 p-6 overflow-auto">
-              <div className="text-center mt-12">
-                <h4 className="font-semibold text-foreground mb-2">Заметок пока нет</h4>
-                <p className="text-sm text-muted-foreground">
-                  Функционал создания клинических заметок будет добавлен позже.
-                </p>
               </div>
-            </div>
-          </div>
+            </ResizablePanel>
+
+            <ResizableHandle withHandle />
+
+            {/* Средняя колонка - Библиотека шаблонов */}
+            <ResizablePanel defaultSize={30} minSize={20} maxSize={40}>
+              {activeSession && currentSession?.patient_id ? (
+                <TemplatesLibrary
+                  selectedTemplateId={selectedTemplateId}
+                  onTemplateSelect={setSelectedTemplateId}
+                />
+              ) : (
+                <div className="h-full flex items-center justify-center p-8 text-center border-r border-border bg-muted/30">
+                  <div>
+                    <p className="text-sm text-muted-foreground">
+                      Выберите сессию с привязанным пациентом для доступа к библиотеке шаблонов
+                    </p>
+                  </div>
+                </div>
+              )}
+            </ResizablePanel>
+
+            <ResizableHandle withHandle />
+
+            {/* Правая колонка - Результат генерации */}
+            <ResizablePanel defaultSize={35} minSize={25}>
+              <div className="h-full flex flex-col bg-background">
+                {activeSession && clinicalNotes.length > 0 && clinicalNotes[0] && (
+                  <GenerationProgress 
+                    clinicalNoteId={clinicalNotes[0].id}
+                    onComplete={() => {
+                      if (activeSession) {
+                        loadClinicalNotes(activeSession);
+                      }
+                    }}
+                  />
+                )}
+                <ClinicalNotesOutput
+                  clinicalNote={activeSession && clinicalNotes.length > 0 ? clinicalNotes[0] : null}
+                  onUpdate={() => {
+                    if (activeSession) {
+                      loadClinicalNotes(activeSession);
+                    }
+                  }}
+                />
+              </div>
+            </ResizablePanel>
+          </ResizablePanelGroup>
         </div>
       </div>
 

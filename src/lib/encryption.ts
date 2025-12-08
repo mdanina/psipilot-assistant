@@ -16,19 +16,30 @@ const IV_LENGTH = 12; // 96 bits for GCM
  * Get encryption key from environment variable
  * Key should be base64 encoded 32-byte key (256 bits)
  */
+// Кэш для проверки, чтобы не логировать предупреждение постоянно
+let hasWarnedAboutMissingKey = false;
+
 function getEncryptionKey(): string {
   const key = import.meta.env.VITE_ENCRYPTION_KEY;
   
   if (!key) {
-    // Don't throw error immediately - allow app to load
-    // Error will be thrown when encryption is actually attempted
-    console.warn(
-      'VITE_ENCRYPTION_KEY environment variable is not set. ' +
-      'Encryption features will not work. ' +
-      'Generate a key using: openssl rand -base64 32'
-    );
+    // Логируем предупреждение только один раз, чтобы не засорять консоль
+    if (!hasWarnedAboutMissingKey) {
+      hasWarnedAboutMissingKey = true;
+      console.warn(
+        'VITE_ENCRYPTION_KEY environment variable is not set. ' +
+        'Encryption features will not work. ' +
+        'Generate a key using: openssl rand -base64 32\n' +
+        'After adding the key to .env.local, RESTART the dev server!'
+      );
+    }
     // Return empty string - will fail gracefully when encryption is attempted
     return '';
+  }
+  
+  // Сбрасываем флаг, если ключ найден
+  if (hasWarnedAboutMissingKey && key) {
+    hasWarnedAboutMissingKey = false;
   }
   
   return key;
