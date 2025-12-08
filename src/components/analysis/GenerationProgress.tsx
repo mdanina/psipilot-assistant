@@ -24,11 +24,19 @@ export function GenerationProgress({
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const mountedRef = useRef(true);
   const onCompleteRef = useRef(onComplete);
+  const hasCalledCompleteRef = useRef(false); // Защита от повторного вызова
+  const lastStatusRef = useRef<string | null>(null); // Отслеживаем предыдущий статус
 
   // Обновляем ref при изменении callback
   useEffect(() => {
     onCompleteRef.current = onComplete;
   }, [onComplete]);
+
+  // Сбрасываем флаги при смене clinicalNoteId
+  useEffect(() => {
+    hasCalledCompleteRef.current = false;
+    lastStatusRef.current = null;
+  }, [clinicalNoteId]);
 
   // Функция polling с последовательными запросами
   const poll = useCallback(async () => {
@@ -45,11 +53,21 @@ export function GenerationProgress({
       if (status.status === 'generating') {
         // Планируем следующий запрос ПОСЛЕ завершения текущего
         timeoutRef.current = setTimeout(poll, 2000);
-      } else if (status.status === 'completed') {
-        // Генерация завершена - вызываем callback
-        onCompleteRef.current?.();
+      } else if (status.status === 'completed' || status.status === 'failed') {
+        // Вызываем callback только ОДИН РАЗ при переходе в completed
+        // и только если предыдущий статус был 'generating'
+        if (
+          !hasCalledCompleteRef.current &&
+          lastStatusRef.current === 'generating' &&
+          status.status === 'completed'
+        ) {
+          hasCalledCompleteRef.current = true;
+          onCompleteRef.current?.();
+        }
+        // Polling останавливается
       }
-      // При 'failed' или 'draft' polling останавливается автоматически
+      // Сохраняем текущий статус для следующей итерации
+      lastStatusRef.current = status.status;
     } catch (error) {
       console.error('Error fetching generation status:', error);
 

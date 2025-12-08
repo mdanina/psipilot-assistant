@@ -103,7 +103,10 @@ export function OutputPanel({
 
       {activeNote && (
         <>
-          <GenerationProgress clinicalNoteId={activeNote.id} />
+          <GenerationProgress
+            clinicalNoteId={activeNote.id}
+            onComplete={onNotesUpdate}
+          />
           <div className="flex-1 overflow-hidden">
             <SectionsList
               clinicalNote={activeNote}
