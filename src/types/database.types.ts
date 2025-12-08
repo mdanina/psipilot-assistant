@@ -543,6 +543,52 @@ export type Database = {
           }
         ];
       };
+      session_notes: {
+        Row: {
+          id: string;
+          session_id: string;
+          user_id: string;
+          content: string;
+          source: 'manual' | 'file';
+          original_filename: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          session_id: string;
+          user_id: string;
+          content: string;
+          source?: 'manual' | 'file';
+          original_filename?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          session_id?: string;
+          user_id?: string;
+          content?: string;
+          source?: 'manual' | 'file';
+          original_filename?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'session_notes_session_id_fkey';
+            columns: ['session_id'];
+            referencedRelation: 'sessions';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'session_notes_user_id_fkey';
+            columns: ['user_id'];
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          }
+        ];
+      };
     };
     Views: {};
     Functions: {
@@ -582,6 +628,7 @@ export type Section = Database['public']['Tables']['sections']['Row'];
 export type SectionTemplate = Database['public']['Tables']['section_templates']['Row'];
 export type Recording = Database['public']['Tables']['recordings']['Row'];
 export type Document = Database['public']['Tables']['documents']['Row'];
+export type SessionNote = Database['public']['Tables']['session_notes']['Row'];
 
 // Insert types
 export type ClinicInsert = Database['public']['Tables']['clinics']['Insert'];
@@ -593,6 +640,7 @@ export type SectionInsert = Database['public']['Tables']['sections']['Insert'];
 export type SectionTemplateInsert = Database['public']['Tables']['section_templates']['Insert'];
 export type RecordingInsert = Database['public']['Tables']['recordings']['Insert'];
 export type DocumentInsert = Database['public']['Tables']['documents']['Insert'];
+export type SessionNoteInsert = Database['public']['Tables']['session_notes']['Insert'];
 
 // Update types
 export type ClinicUpdate = Database['public']['Tables']['clinics']['Update'];
@@ -604,6 +652,7 @@ export type SectionUpdate = Database['public']['Tables']['sections']['Update'];
 export type SectionTemplateUpdate = Database['public']['Tables']['section_templates']['Update'];
 export type RecordingUpdate = Database['public']['Tables']['recordings']['Update'];
 export type DocumentUpdate = Database['public']['Tables']['documents']['Update'];
+export type SessionNoteUpdate = Database['public']['Tables']['session_notes']['Update'];
 
 // Enums
 export type UserRole = Profile['role'];
@@ -613,6 +662,7 @@ export type NoteType = ClinicalNote['note_type'];
 export type NoteStatus = ClinicalNote['status'];
 export type TranscriptionStatus = Recording['transcription_status'];
 export type DocumentType = Document['document_type'];
+export type SessionNoteSource = SessionNote['source'];
 
 // ============================================
 // EXTENDED TYPES (with relations)
