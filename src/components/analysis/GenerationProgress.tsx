@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { CheckCircle2, XCircle, Loader2, Clock } from 'lucide-react';
@@ -12,55 +12,73 @@ interface GenerationProgressProps {
 
 /**
  * Компонент для отображения прогресса генерации клинической заметки
+ * Использует последовательный polling с setTimeout для избежания утечек
  */
 export function GenerationProgress({
   clinicalNoteId,
   onComplete,
 }: GenerationProgressProps) {
   const [progress, setProgress] = useState<GenerationProgressType | null>(null);
-  const [isPolling, setIsPolling] = useState(false);
+
+  // Refs для управления polling без перезапуска useEffect
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const mountedRef = useRef(true);
+  const onCompleteRef = useRef(onComplete);
+
+  // Обновляем ref при изменении callback
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
+
+  // Функция polling с последовательными запросами
+  const poll = useCallback(async () => {
+    if (!mountedRef.current || !clinicalNoteId) return;
+
+    try {
+      const status = await getGenerationStatus(clinicalNoteId);
+
+      if (!mountedRef.current) return;
+
+      setProgress(status);
+
+      // Продолжаем polling только если генерация в процессе
+      if (status.status === 'generating') {
+        // Планируем следующий запрос ПОСЛЕ завершения текущего
+        timeoutRef.current = setTimeout(poll, 2000);
+      } else if (status.status === 'completed') {
+        // Генерация завершена - вызываем callback
+        onCompleteRef.current?.();
+      }
+      // При 'failed' или 'draft' polling останавливается автоматически
+    } catch (error) {
+      console.error('Error fetching generation status:', error);
+
+      if (!mountedRef.current) return;
+
+      // При ошибке сети - пробуем ещё раз через 3 секунды
+      const errorMessage = error instanceof Error ? error.message : '';
+      if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
+        timeoutRef.current = setTimeout(poll, 3000);
+      }
+      // При других ошибках - останавливаем polling
+    }
+  }, [clinicalNoteId]);
 
   useEffect(() => {
-    if (!clinicalNoteId) return;
+    mountedRef.current = true;
 
-    // Начинаем polling, если статус "generating"
-    const pollStatus = async () => {
-      try {
-        const status = await getGenerationStatus(clinicalNoteId);
-        setProgress(status);
+    // Запускаем первый poll
+    poll();
 
-        // Если генерация завершена, останавливаем polling
-        if (status.status === 'completed' || status.status === 'failed') {
-          setIsPolling(false);
-          if (status.status === 'completed' && onComplete) {
-            onComplete();
-          }
-        } else {
-          // Продолжаем polling
-          setIsPolling(true);
-        }
-      } catch (error) {
-        console.error('Error fetching generation status:', error);
-        // Не останавливаем polling при временных ошибках сети
-        const errorMessage = error instanceof Error ? error.message : '';
-        if (!errorMessage.includes('network') && !errorMessage.includes('fetch')) {
-          setIsPolling(false);
-        }
+    // Cleanup при размонтировании или изменении clinicalNoteId
+    return () => {
+      mountedRef.current = false;
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
       }
     };
-
-    // Первоначальная загрузка
-    pollStatus();
-
-    // Polling каждые 2 секунды, если генерация в процессе
-    const interval = setInterval(() => {
-      if (isPolling || progress?.status === 'generating') {
-        pollStatus();
-      }
-    }, 2000);
-
-    return () => clearInterval(interval);
-  }, [clinicalNoteId, isPolling, progress?.status, onComplete]);
+  }, [clinicalNoteId, poll]);
 
   if (!progress || progress.status === 'draft') {
     return null;
@@ -124,9 +142,9 @@ export function GenerationProgress({
         )}
       </div>
       <div className="space-y-1">
-        <Progress 
-          value={progressPercent} 
-          className="h-2 transition-all duration-500 ease-out" 
+        <Progress
+          value={progressPercent}
+          className="h-2 transition-all duration-500 ease-out"
         />
         {progress.status === 'generating' && (
           <p className="text-xs text-muted-foreground animate-pulse">
@@ -134,7 +152,7 @@ export function GenerationProgress({
           </p>
         )}
       </div>
-      
+
       {/* Детали по секциям (если есть ошибки) */}
       {progress.progress.failed > 0 && progress.sections && (
         <div className="mt-3 pt-3 border-t border-border">
