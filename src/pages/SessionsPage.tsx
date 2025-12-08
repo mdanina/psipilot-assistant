@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Calendar, Plus, FileText, Circle, User, Link2, Loader2, Mic, Pause, Play, Square, Sparkles, ChevronDown, RefreshCw, Trash2, X } from "lucide-react";
+import { Calendar, Plus, FileText, Circle, User, Link2, Loader2, Mic, Pause, Play, Square, Sparkles, ChevronDown, RefreshCw, Trash2, X, File } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,8 @@ import { supabase } from "@/lib/supabase";
 import { linkSessionToPatient, getSession, createSession, deleteSession } from "@/lib/supabase-sessions";
 import { getSessionRecordings, getRecordingStatus, createRecording, uploadAudioFile, updateRecording, startTranscription, syncTranscriptionStatus, deleteRecording } from "@/lib/supabase-recordings";
 import { getPatients } from "@/lib/supabase-patients";
+import { getSessionNotes, createSessionNote, deleteSessionNote, getCombinedTranscriptWithNotes } from "@/lib/supabase-session-notes";
+import { SessionNotesDialog } from "@/components/sessions/SessionNotesDialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import type { Database } from "@/types/database.types";
@@ -28,6 +30,7 @@ import type { Database } from "@/types/database.types";
 type Session = Database['public']['Tables']['sessions']['Row'];
 type Recording = Database['public']['Tables']['recordings']['Row'];
 type Patient = Database['public']['Tables']['patients']['Row'];
+type SessionNote = Database['public']['Tables']['session_notes']['Row'];
 
 const SessionsPage = () => {
   const { user, profile } = useAuth();
@@ -47,6 +50,10 @@ const SessionsPage = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [closingSessionId, setClosingSessionId] = useState<string | null>(null);
   const [closeSessionDialogOpen, setCloseSessionDialogOpen] = useState(false);
+
+  // Session notes state
+  const [sessionNotes, setSessionNotes] = useState<SessionNote[]>([]);
+  const [notesDialogOpen, setNotesDialogOpen] = useState(false);
   
   // Recording state
   const [isRecordingInSession, setIsRecordingInSession] = useState(false);
@@ -100,10 +107,11 @@ const SessionsPage = () => {
     }
   }, [location.state, navigate, location.pathname]);
 
-  // Load recordings when session changes
+  // Load recordings and notes when session changes
   useEffect(() => {
     if (activeSession) {
       loadRecordings(activeSession);
+      loadSessionNotes(activeSession);
     }
   }, [activeSession]);
 
@@ -207,6 +215,53 @@ const SessionsPage = () => {
       });
     } catch (error) {
       console.error('Error loading recordings:', error);
+    }
+  };
+
+  const loadSessionNotes = async (sessionId: string) => {
+    try {
+      const notesData = await getSessionNotes(sessionId);
+      setSessionNotes(notesData);
+    } catch (error) {
+      console.error('Error loading session notes:', error);
+    }
+  };
+
+  const handleCreateNote = async (content: string, source: 'manual' | 'file', filename?: string) => {
+    if (!activeSession || !user) {
+      throw new Error('Необходимо выбрать сессию');
+    }
+
+    await createSessionNote({
+      sessionId: activeSession,
+      userId: user.id,
+      content,
+      source,
+      originalFilename: filename,
+    });
+
+    // Reload notes
+    await loadSessionNotes(activeSession);
+  };
+
+  const handleDeleteNote = async (noteId: string) => {
+    try {
+      await deleteSessionNote(noteId);
+      toast({
+        title: "Успешно",
+        description: "Заметка удалена",
+      });
+      // Reload notes
+      if (activeSession) {
+        await loadSessionNotes(activeSession);
+      }
+    } catch (error) {
+      console.error('Error deleting note:', error);
+      toast({
+        title: "Ошибка",
+        description: "Не удалось удалить заметку",
+        variant: "destructive",
+      });
     }
   };
 
@@ -467,12 +522,16 @@ const SessionsPage = () => {
 
   const currentSession = sessions.find(s => s.id === activeSession);
   const currentRecordings = recordings.filter(r => r.session_id === activeSession);
+  const currentNotes = sessionNotes.filter(n => n.session_id === activeSession);
 
   // Get transcript text from recordings
-  const transcriptText = currentRecordings
+  const rawTranscriptText = currentRecordings
     .filter(r => r.transcription_status === 'completed' && r.transcription_text)
     .map(r => r.transcription_text)
     .join('\n\n');
+
+  // Combined transcript with specialist notes
+  const transcriptText = getCombinedTranscriptWithNotes(rawTranscriptText, currentNotes);
 
   // Handle start recording in session context
   const handleStartRecordingInSession = async () => {
@@ -852,6 +911,43 @@ const SessionsPage = () => {
                   </p>
                 )}
               </div>
+
+              {/* Session notes section */}
+              {currentNotes.length > 0 && (
+                <div className="space-y-4 mt-6">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-semibold">Заметки специалиста</h3>
+                  </div>
+                  {currentNotes.map((note) => (
+                    <div key={note.id} className="border rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <File className="w-4 h-4 text-muted-foreground" />
+                          <span className="text-sm font-medium">
+                            {note.original_filename || 'Заметка'}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {new Date(note.created_at).toLocaleString('ru-RU')}
+                          </span>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteNote(note.id)}
+                          className="h-7 px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+                          title="Удалить"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                      <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+                        {note.content.substring(0, 300)}
+                        {note.content.length > 300 && '...'}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Delete confirmation dialog */}
@@ -1042,7 +1138,14 @@ const SessionsPage = () => {
                 <Button size="sm" variant="outline" className="gap-1">
                   <ChevronDown className="w-4 h-4" />
                 </Button>
-                    <Button size="sm" variant="ghost" className="gap-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="gap-1"
+                      onClick={() => setNotesDialogOpen(true)}
+                      disabled={!activeSession}
+                      title="Добавить заметку специалиста"
+                    >
                       <FileText className="w-4 h-4" />
                 </Button>
               </div>
@@ -1075,6 +1178,13 @@ const SessionsPage = () => {
           </div>
         </div>
       </div>
+
+      {/* Session Notes Dialog */}
+      <SessionNotesDialog
+        open={notesDialogOpen}
+        onOpenChange={setNotesDialogOpen}
+        onSave={handleCreateNote}
+      />
     </>
   );
 };
