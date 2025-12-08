@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import type { Database } from '@/types/database.types';
+import { hasActiveConsent } from './security';
 
 type Session = Database['public']['Tables']['sessions']['Row'];
 type SessionInsert = Database['public']['Tables']['sessions']['Insert'];
@@ -96,11 +97,71 @@ export async function getSession(sessionId: string): Promise<Session> {
 
 /**
  * Link session to patient
+ * Automatically creates consent if patient doesn't have active consent
  */
 export async function linkSessionToPatient(
   sessionId: string,
   patientId: string
 ): Promise<Session> {
+  // Check if patient has active consent for data_processing
+  const { hasConsent, error: consentCheckError } = await hasActiveConsent(
+    patientId,
+    'data_processing'
+  );
+
+  if (consentCheckError) {
+    console.error('Error checking consent:', consentCheckError);
+    // Continue anyway - consent creation will be attempted
+  }
+
+  // If no active consent, create one automatically using RPC function
+  // This bypasses RLS circular dependency (consent needed to see patient, but patient needed to create consent)
+  if (!hasConsent) {
+    try {
+      console.log('[linkSessionToPatient] Creating consent via RPC function...');
+      const { data: consentId, error: consentError } = await supabase.rpc(
+        'create_consent_for_patient',
+        {
+          p_patient_id: patientId,
+          p_consent_type: 'data_processing',
+          p_consent_purpose:
+            'Обработка персональных данных для оказания медицинских услуг в соответствии с договором',
+          p_legal_basis: 'contract',
+          p_notes:
+            'Автоматически создано при привязке сессии к пациенту. Требует подтверждения.',
+        }
+      );
+
+      if (consentError) {
+        console.error('[linkSessionToPatient] Error creating consent via RPC:', consentError);
+        throw new Error(
+          `Failed to create consent: ${consentError.message}. This is required for linking session to patient.`
+        );
+      }
+
+      console.log('[linkSessionToPatient] Consent created successfully:', consentId);
+
+      // Verify consent was created by checking again
+      const { hasConsent: verifyConsent } = await hasActiveConsent(patientId, 'data_processing');
+      if (!verifyConsent) {
+        console.warn(
+          '[linkSessionToPatient] Warning: Consent was created but verification failed. Waiting and retrying...'
+        );
+        // Wait a bit for database to update
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        const { hasConsent: retryVerify } = await hasActiveConsent(patientId, 'data_processing');
+        if (!retryVerify) {
+          console.error(
+            '[linkSessionToPatient] Consent verification failed after retry. Session linking may fail.'
+          );
+        }
+      }
+    } catch (error) {
+      console.error('[linkSessionToPatient] Error in consent creation:', error);
+      throw error; // Re-throw to prevent session update without consent
+    }
+  }
+
   return updateSession(sessionId, {
     patient_id: patientId,
   });

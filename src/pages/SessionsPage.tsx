@@ -130,8 +130,8 @@ const SessionsPage = () => {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [activeSession]);
 
-  const loadSessions = async () => {
-    if (!profile?.clinic_id) return;
+  const loadSessions = async (): Promise<Session[]> => {
+    if (!profile?.clinic_id) return [];
 
     try {
       const { data, error } = await supabase
@@ -144,10 +144,12 @@ const SessionsPage = () => {
 
       if (error) throw error;
 
-      setSessions(data || []);
-      if (data && data.length > 0 && !activeSession) {
-        setActiveSession(data[0].id);
+      const sessionsData = data || [];
+      setSessions(sessionsData);
+      if (sessionsData.length > 0 && !activeSession) {
+        setActiveSession(sessionsData[0].id);
       }
+      return sessionsData;
     } catch (error) {
       console.error('Error loading sessions:', error);
       toast({
@@ -155,6 +157,7 @@ const SessionsPage = () => {
         description: "Не удалось загрузить сессии",
         variant: "destructive",
       });
+      return [];
     } finally {
       setIsLoading(false);
     }
@@ -429,6 +432,8 @@ const SessionsPage = () => {
     if (!activeSession || !selectedPatientId) return;
 
     setIsLinking(true);
+    // Save current session ID before reloading
+    const savedSessionId = activeSession;
     try {
       await linkSessionToPatient(activeSession, selectedPatientId);
       toast({
@@ -437,7 +442,17 @@ const SessionsPage = () => {
       });
       setLinkDialogOpen(false);
       setSelectedPatientId("");
-      loadSessions();
+      // Reload sessions and restore active session
+      const updatedSessions = await loadSessions();
+      // Restore active session if it still exists, otherwise select the first one
+      const sessionToSelect = updatedSessions.find(s => s.id === savedSessionId) || updatedSessions[0];
+      if (sessionToSelect) {
+        setActiveSession(sessionToSelect.id);
+      } else if (updatedSessions.length > 0) {
+        setActiveSession(updatedSessions[0].id);
+      } else {
+        setActiveSession(null);
+      }
     } catch (error) {
       console.error('Error linking session to patient:', error);
       toast({
@@ -721,6 +736,18 @@ const SessionsPage = () => {
                     <User className="w-3 h-3" />
                     Привязано к пациенту
                 </Badge>
+                {(() => {
+                  const linkedPatient = patients.find(p => p.id === currentSession.patient_id);
+                  return linkedPatient ? (
+                    <span className="text-sm text-foreground font-medium">
+                      {linkedPatient.name}
+                    </span>
+                  ) : (
+                    <span className="text-sm text-muted-foreground">
+                      Загрузка...
+                    </span>
+                  );
+                })()}
               </div>
               )}
             </div>
