@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from "react";
-import { Calendar, Plus, FileText, Circle, User, Link2, Loader2, Mic, Pause, Play, Square, Sparkles, ChevronDown, RefreshCw, Trash2, X, File, Upload } from "lucide-react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { Calendar, Plus, FileText, Circle, User, Link2, Loader2, Mic, Pause, Play, Square, Sparkles, ChevronDown, RefreshCw, Trash2, X, File, Upload, Search } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { linkSessionToPatient, getSession, createSession, deleteSession } from "@/lib/supabase-sessions";
@@ -50,6 +51,7 @@ const SessionsPage = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [closingSessionId, setClosingSessionId] = useState<string | null>(null);
   const [closeSessionDialogOpen, setCloseSessionDialogOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Session notes state
   const [sessionNotes, setSessionNotes] = useState<SessionNote[]>([]);
@@ -522,7 +524,54 @@ const SessionsPage = () => {
     }
   };
 
-  const currentSession = sessions.find(s => s.id === activeSession);
+  // Filter sessions by search query
+  const filteredSessions = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return sessions;
+    }
+
+    const query = searchQuery.toLowerCase().trim();
+    return sessions.filter((session) => {
+      // Search by title
+      if (session.title && session.title.toLowerCase().includes(query)) {
+        return true;
+      }
+
+      // Search by patient name
+      if (session.patient_id) {
+        const patient = patients.find((p) => p.id === session.patient_id);
+        if (patient && patient.name && patient.name.toLowerCase().includes(query)) {
+          return true;
+        }
+      }
+
+      // Search by date (formatted date string)
+      const sessionDate = new Date(session.created_at);
+      const dateStr = sessionDate.toLocaleDateString('ru-RU', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      });
+      if (dateStr.includes(query)) {
+        return true;
+      }
+
+      // Search by status
+      const statusMap: Record<string, string> = {
+        scheduled: 'запланировано',
+        in_progress: 'в процессе',
+        completed: 'завершено',
+        cancelled: 'отменено',
+      };
+      if (statusMap[session.status]?.includes(query)) {
+        return true;
+      }
+
+      return false;
+    });
+  }, [sessions, patients, searchQuery]);
+
+  const currentSession = filteredSessions.find(s => s.id === activeSession) || sessions.find(s => s.id === activeSession);
   const currentRecordings = recordings.filter(r => r.session_id === activeSession);
   const currentNotes = sessionNotes.filter(n => n.session_id === activeSession);
 
@@ -826,6 +875,19 @@ const SessionsPage = () => {
     <>
       <Header title="Сессии" icon={<Calendar className="w-5 h-5" />} />
       <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Search */}
+        <div className="px-6 py-3 border-b border-border">
+          <div className="relative max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Поиск по сессиям (название, пациент, дата, статус)..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+        </div>
+        
         {/* Session tabs */}
         <div className="border-b border-border px-6 py-3 flex items-center gap-2 overflow-x-auto">
           {isLoading ? (
@@ -835,7 +897,7 @@ const SessionsPage = () => {
             </div>
           ) : (
             <>
-          {sessions.map((session) => (
+          {filteredSessions.map((session) => (
             <div
               key={session.id}
               className={`px-4 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors whitespace-nowrap group ${
