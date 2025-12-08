@@ -81,3 +81,4 @@ JOIN auth.users au ON p.email = au.email
 WHERE au.email = 'mdanina@yandex.ru';
 
 
+

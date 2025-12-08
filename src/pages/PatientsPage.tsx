@@ -28,6 +28,7 @@ import { getPatientDocumentCounts } from "@/lib/supabase-patients";
 import { formatRelativeTime } from "@/lib/date-utils";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { PatientDetailModal } from "@/components/patients/PatientDetailModal";
 
 interface PatientWithDocuments extends DecryptedPatient {
   documentCount: number;
@@ -45,6 +46,7 @@ const PatientsPage = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [deletingPatientId, setDeletingPatientId] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
 
   // Load patients from database
   const loadPatients = useCallback(async () => {
@@ -162,9 +164,9 @@ const PatientsPage = () => {
     });
   };
 
-  // Handle row click - navigate to patient detail
+  // Handle row click - open patient detail modal
   const handleRowClick = (patientId: string) => {
-    navigate(`/patients/${patientId}`);
+    setSelectedPatientId(patientId);
   };
 
   // Handle delete
@@ -368,6 +370,23 @@ const PatientsPage = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Patient detail modal */}
+      {selectedPatientId && (
+        <PatientDetailModal
+          patientId={selectedPatientId}
+          open={!!selectedPatientId}
+          onOpenChange={(open) => {
+            if (!open) {
+              setSelectedPatientId(null);
+            }
+          }}
+          onEdit={(patientId) => {
+            setSelectedPatientId(null);
+            navigate(`/patients/${patientId}?edit=true`);
+          }}
+        />
+      )}
     </>
   );
 };

@@ -369,3 +369,4 @@ const combinedTranscript = getCombinedTranscriptWithNotes(
 - `src/lib/supabase-session-notes.ts` - API для работы с заметками
 - `src/lib/file-parser.ts` - парсер файлов
 - `supabase/migrations/022_session_notes.sql` - миграция базы данных
+

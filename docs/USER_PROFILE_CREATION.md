@@ -205,3 +205,4 @@ ON CONFLICT (id) DO NOTHING;
 - [supabase/migrations/006_fix_user_creation_trigger.sql](../supabase/migrations/006_fix_user_creation_trigger.sql) - Миграция с триггером
 
 
+

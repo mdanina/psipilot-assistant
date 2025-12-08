@@ -290,3 +290,4 @@ COMMENT ON TABLE user_invitations IS
 When user registers, they are automatically added to the clinic.';
 
 
+

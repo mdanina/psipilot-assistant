@@ -298,3 +298,4 @@ const PatientDetailPage = () => {
 };
 
 export default PatientDetailPage;
+

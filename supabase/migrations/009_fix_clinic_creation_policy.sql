@@ -98,3 +98,4 @@ CREATE POLICY "Users without clinic can create clinic"
         )
     );
 
+

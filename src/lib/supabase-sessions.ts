@@ -226,3 +226,28 @@ export async function deleteSession(sessionId: string): Promise<void> {
   }
 }
 
+/**
+ * Get all sessions for a patient
+ */
+export async function getPatientSessions(patientId: string): Promise<{
+  data: Session[] | null;
+  error: Error | null;
+}> {
+  try {
+    const { data, error } = await supabase
+      .from('sessions')
+      .select('*')
+      .eq('patient_id', patientId)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      return { data: null, error: new Error(error.message) };
+    }
+
+    return { data: data || [], error: null };
+  } catch (error) {
+    return { data: null, error: error as Error };
+  }
+}
+

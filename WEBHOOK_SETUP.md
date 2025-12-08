@@ -124,3 +124,4 @@ npm run dev
 - Настройка сервиса: `backend/transcription-service/SETUP.md`
 
 
+

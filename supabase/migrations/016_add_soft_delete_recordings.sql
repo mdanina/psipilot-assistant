@@ -10,3 +10,4 @@ CREATE INDEX idx_recordings_deleted_at ON recordings(deleted_at);
 COMMENT ON COLUMN recordings.deleted_at IS 'Timestamp when recording was soft deleted (NULL = not deleted)';
 
 
+

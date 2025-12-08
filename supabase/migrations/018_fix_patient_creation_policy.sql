@@ -118,3 +118,4 @@ COMMENT ON POLICY "Users can create patients" ON patients IS
 'Allows authenticated users to create patients in their clinic.
 Requires that the clinic_id of the new patient matches the user''s clinic_id from their profile.
 Uses get_user_clinic_id() function which has SECURITY DEFINER to bypass RLS.';
+
