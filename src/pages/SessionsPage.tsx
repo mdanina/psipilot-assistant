@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Calendar, Plus, FileText, Circle, User, Link2, Loader2, Mic, Pause, Play, Square, Sparkles, ChevronDown, RefreshCw, Trash2, X, File } from "lucide-react";
+import { Calendar, Plus, FileText, Circle, User, Link2, Loader2, Mic, Pause, Play, Square, Sparkles, ChevronDown, RefreshCw, Trash2, X, File, Upload } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
@@ -58,7 +58,9 @@ const SessionsPage = () => {
   // Recording state
   const [isRecordingInSession, setIsRecordingInSession] = useState(false);
   const [isSavingRecording, setIsSavingRecording] = useState(false);
+  const [isUploadingAudio, setIsUploadingAudio] = useState(false);
   const currentRecordingSessionIdRef = useRef<string | null>(null);
+  const audioFileInputRef = useRef<HTMLInputElement>(null);
   const transcriptionApiUrl = import.meta.env.VITE_TRANSCRIPTION_API_URL || 'http://localhost:3001';
 
   // Audio recorder hook
@@ -677,6 +679,149 @@ const SessionsPage = () => {
     return `${mins.toString().padStart(2, "0")} : ${secs.toString().padStart(2, "0")}`;
   };
 
+  // Get audio duration from file
+  const getAudioDuration = (file: File): Promise<number> => {
+    return new Promise((resolve, reject) => {
+      const audio = new Audio();
+      const url = URL.createObjectURL(file);
+      
+      audio.addEventListener('loadedmetadata', () => {
+        URL.revokeObjectURL(url);
+        resolve(Math.floor(audio.duration));
+      });
+      
+      audio.addEventListener('error', (e) => {
+        URL.revokeObjectURL(url);
+        reject(new Error('Не удалось определить длительность аудио'));
+      });
+      
+      audio.src = url;
+    });
+  };
+
+  // Handle audio file upload
+  const handleUploadAudioFile = async (file: File) => {
+    if (!user || !profile?.clinic_id) {
+      toast({
+        title: "Ошибка",
+        description: "Необходима авторизация и привязка к клинике",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!activeSession) {
+      toast({
+        title: "Ошибка",
+        description: "Выберите сессию для загрузки аудио",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validate file type
+    const allowedTypes = ['audio/webm', 'audio/mp3', 'audio/wav', 'audio/ogg', 'audio/mpeg', 'audio/mp4'];
+    if (!allowedTypes.includes(file.type)) {
+      toast({
+        title: "Ошибка",
+        description: `Неподдерживаемый формат файла. Поддерживаемые форматы: ${allowedTypes.join(', ')}`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsUploadingAudio(true);
+
+    try {
+      // Get audio duration
+      let duration: number | null = null;
+      try {
+        duration = await getAudioDuration(file);
+      } catch (error) {
+        console.warn('Could not determine audio duration:', error);
+        // Continue without duration
+      }
+
+      // Read file as Blob
+      const audioBlob = file;
+
+      // Create recording record
+      const recording = await createRecording({
+        sessionId: activeSession,
+        userId: user.id,
+        fileName: file.name,
+      });
+
+      // Upload audio file
+      await uploadAudioFile({
+        recordingId: recording.id,
+        audioBlob,
+        fileName: file.name,
+        mimeType: file.type,
+      });
+
+      // Update recording with duration if available
+      if (duration !== null) {
+        await updateRecording(recording.id, {
+          duration_seconds: duration,
+        });
+      }
+
+      // Start transcription
+      try {
+        await startTranscription(recording.id, transcriptionApiUrl);
+        toast({
+          title: "Успешно",
+          description: "Аудио файл загружен. Транскрипция запущена.",
+        });
+      } catch (transcriptionError) {
+        console.error('Error starting transcription:', transcriptionError);
+        toast({
+          title: "Предупреждение",
+          description: "Аудио файл загружен, но транскрипция не запущена",
+          variant: "default",
+        });
+      }
+
+      // Reload recordings
+      await loadRecordings(activeSession);
+    } catch (error) {
+      console.error('Error uploading audio file:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Неизвестная ошибка';
+
+      let userFriendlyMessage = errorMessage;
+      if (errorMessage.includes('Failed to create recording')) {
+        userFriendlyMessage = 'Не удалось создать запись в базе данных. Проверьте подключение к Supabase.';
+      } else if (errorMessage.includes('Failed to upload audio file')) {
+        userFriendlyMessage = 'Не удалось загрузить аудио файл. Проверьте, что bucket "recordings" создан в Supabase Storage.';
+      } else if (errorMessage.includes('row-level security')) {
+        userFriendlyMessage = 'Ошибка прав доступа. Убедитесь, что вы авторизованы и имеете права на создание записей.';
+      }
+
+      toast({
+        title: "Ошибка",
+        description: userFriendlyMessage,
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploadingAudio(false);
+      // Reset file input
+      if (audioFileInputRef.current) {
+        audioFileInputRef.current.value = '';
+      }
+    }
+  };
+
+  // Handle file input change
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handleUploadAudioFile(file);
+    }
+    // Reset input value to allow selecting the same file again
+    e.target.value = '';
+  };
+
   return (
     <>
       <Header title="Сессии" icon={<Calendar className="w-5 h-5" />} />
@@ -1130,14 +1275,28 @@ const SessionsPage = () => {
                       size="sm"
                       variant="default"
                       onClick={handleStartRecordingInSession}
-                      disabled={!activeSession}
+                      disabled={!activeSession || isUploadingAudio}
                       className="gap-1"
                     >
                   <Mic className="w-4 h-4" />
                 </Button>
-                <Button size="sm" variant="outline" className="gap-1">
-                  <ChevronDown className="w-4 h-4" />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => audioFileInputRef.current?.click()}
+                  disabled={!activeSession || isUploadingAudio}
+                  className="gap-1"
+                  title="Загрузить аудио файл"
+                >
+                  <Upload className="w-4 h-4" />
                 </Button>
+                <input
+                  ref={audioFileInputRef}
+                  type="file"
+                  accept="audio/webm,audio/mp3,audio/wav,audio/ogg,audio/mpeg,audio/mp4"
+                  onChange={handleFileInputChange}
+                  className="hidden"
+                />
                     <Button
                       size="sm"
                       variant="ghost"
