@@ -80,8 +80,8 @@ async function parseJsonFile(file: File): Promise<string> {
  */
 async function parseWordDocument(file: File): Promise<string> {
   try {
-    // @ts-expect-error - mammoth types are bundled
-    const mammoth = await import('mammoth/mammoth.browser');
+    // @ts-expect-error - mammoth is aliased to browser version in vite.config.ts
+    const mammoth = await import('mammoth');
     const arrayBuffer = await file.arrayBuffer();
     const result = await mammoth.extractRawText({ arrayBuffer });
     return result.value;
