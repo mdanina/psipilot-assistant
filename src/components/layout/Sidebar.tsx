@@ -43,7 +43,7 @@ export const Sidebar = () => {
     <aside className="w-[220px] h-screen bg-sidebar border-r border-sidebar-border flex flex-col">
       {/* Logo */}
       <div className="px-6 py-5">
-        <h1 className="text-2xl font-bold text-foreground">aisel</h1>
+        <h1 className="text-2xl font-bold text-foreground">Пу-пу-пуу</h1>
       </div>
       
       {/* Navigation */}
