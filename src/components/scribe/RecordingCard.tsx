@@ -300,7 +300,7 @@ export const RecordingCard = ({
             variant={completedRecording ? "outline" : "default"}
           >
             <Mic className="w-4 h-4" />
-            {completedRecording ? "Записать ещё" : "Включите запись"}
+            {completedRecording ? "Записать ещё" : "Включить запись"}
           </Button>
           <Button
             variant={completedRecording ? "default" : "outline"}
