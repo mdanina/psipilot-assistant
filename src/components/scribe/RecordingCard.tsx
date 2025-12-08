@@ -309,7 +309,7 @@ export const RecordingCard = ({
             disabled={isProcessing}
           >
             <FileText className="w-4 h-4" />
-            Создать заметку ИИ
+            Транскрибировать
           </Button>
         </div>
 
