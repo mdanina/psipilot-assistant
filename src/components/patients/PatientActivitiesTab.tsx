@@ -91,7 +91,7 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
             <div className="flex-1">
               <div className="flex items-center gap-2 mb-2">
                 <h3 className="font-medium">
-                  {session.title || "Сессия без названия"}
+                  {session.title?.replace(/^Запись\s/, 'Сессия ') || "Сессия без названия"}
                 </h3>
                 <span
                   className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(

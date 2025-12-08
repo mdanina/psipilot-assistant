@@ -207,7 +207,7 @@ const ScribePage = () => {
         userId: user.id,
         clinicId: profile.clinic_id,
         patientId: null, // Will be linked later on Sessions page
-        title: `Запись ${new Date().toLocaleString('ru-RU')}`,
+        title: `Сессия ${new Date().toLocaleString('ru-RU')}`,
       });
 
       currentSessionId = session.id;
@@ -237,7 +237,7 @@ const ScribePage = () => {
 
       toast({
         title: "Успешно",
-        description: "Запись сохранена. Транскрипция запущена в фоне.",
+        description: "Сессия сохранена. Транскрипция запущена в фоне.",
       });
 
       // Start transcription
@@ -267,7 +267,7 @@ const ScribePage = () => {
         setIsProcessing(false); // Все равно сбросить, чтобы вернуть интерфейс
         toast({
           title: "Предупреждение",
-          description: "Запись сохранена, но транскрипция не запущена. Вы можете запустить её позже в разделе 'Сессии'.",
+          description: "Сессия сохранена, но транскрипция не запущена. Вы можете запустить её позже в разделе 'Сессии'.",
           variant: "default",
         });
       }
@@ -278,7 +278,7 @@ const ScribePage = () => {
       // More detailed error messages
       let userFriendlyMessage = errorMessage;
       if (errorMessage.includes('Failed to create recording')) {
-        userFriendlyMessage = 'Не удалось создать запись в базе данных. Проверьте подключение к Supabase.';
+        userFriendlyMessage = 'Не удалось создать сессию в базе данных. Проверьте подключение к Supabase.';
       } else if (errorMessage.includes('Failed to upload audio file')) {
         userFriendlyMessage = 'Не удалось загрузить аудио файл. Проверьте, что bucket "recordings" создан в Supabase Storage.';
       } else if (errorMessage.includes('row-level security')) {

@@ -469,7 +469,7 @@ const SessionsPage = () => {
       await deleteRecording(recordingId);
       toast({
         title: "Успешно",
-        description: "Запись скрыта",
+        description: "Сессия скрыта",
       });
       // Reload recordings
       if (activeSession) {
@@ -481,7 +481,7 @@ const SessionsPage = () => {
       console.error('Error deleting recording:', error);
       toast({
         title: "Ошибка",
-        description: "Не удалось удалить запись",
+        description: "Не удалось удалить сессию",
         variant: "destructive",
       });
     }
@@ -612,7 +612,7 @@ const SessionsPage = () => {
       console.error('Error starting recording:', error);
       toast({
         title: "Ошибка",
-        description: "Не удалось начать запись",
+        description: "Не удалось начать сессию",
         variant: "destructive",
       });
     }
@@ -668,13 +668,13 @@ const SessionsPage = () => {
         await startTranscription(recording.id, transcriptionApiUrl);
         toast({
           title: "Успешно",
-          description: "Запись сохранена. Транскрипция запущена.",
+          description: "Сессия сохранена. Транскрипция запущена.",
         });
       } catch (transcriptionError) {
         console.error('Error starting transcription:', transcriptionError);
         toast({
           title: "Предупреждение",
-          description: "Запись сохранена, но транскрипция не запущена",
+          description: "Сессия сохранена, но транскрипция не запущена",
           variant: "default",
         });
       }
@@ -692,7 +692,7 @@ const SessionsPage = () => {
       // More detailed error messages
       let userFriendlyMessage = errorMessage;
       if (errorMessage.includes('Failed to create recording')) {
-        userFriendlyMessage = 'Не удалось создать запись в базе данных. Проверьте подключение к Supabase.';
+        userFriendlyMessage = 'Не удалось создать сессию в базе данных. Проверьте подключение к Supabase.';
       } else if (errorMessage.includes('Failed to upload audio file')) {
         userFriendlyMessage = 'Не удалось загрузить аудио файл. Проверьте, что bucket "recordings" создан в Supabase Storage.';
       } else if (errorMessage.includes('row-level security')) {
@@ -840,7 +840,7 @@ const SessionsPage = () => {
 
       let userFriendlyMessage = errorMessage;
       if (errorMessage.includes('Failed to create recording')) {
-        userFriendlyMessage = 'Не удалось создать запись в базе данных. Проверьте подключение к Supabase.';
+        userFriendlyMessage = 'Не удалось создать сессию в базе данных. Проверьте подключение к Supabase.';
       } else if (errorMessage.includes('Failed to upload audio file')) {
         userFriendlyMessage = 'Не удалось загрузить аудио файл. Проверьте, что bucket "recordings" создан в Supabase Storage.';
       } else if (errorMessage.includes('row-level security')) {
@@ -911,7 +911,7 @@ const SessionsPage = () => {
                 className="flex items-center gap-2 flex-1"
               >
                 <Circle className={`w-2 h-2 ${!session.patient_id ? "text-destructive" : "text-success"} fill-current`} />
-                {session.title || `Сессия ${new Date(session.created_at).toLocaleDateString('ru-RU')}`}
+                {(session.title?.replace(/^Запись\s/, 'Сессия ') || `Сессия ${new Date(session.created_at).toLocaleDateString('ru-RU')}`)}
                 {!session.patient_id && (
                   <Badge variant="outline" className="ml-1 text-xs">
                     Не привязано
@@ -1032,14 +1032,14 @@ const SessionsPage = () => {
               {/* Always show list of recordings with delete buttons */}
               <div className="space-y-4">
                 <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-sm font-semibold">Записи</h3>
+                  <h3 className="text-sm font-semibold">Сессии</h3>
                 </div>
                 {currentRecordings.length > 0 ? (
                   currentRecordings.map((recording) => (
                     <div key={recording.id} className="border rounded-lg p-4">
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-sm font-medium">
-                            {recording.file_name || 'Запись'}
+                            {(recording.file_name?.replace(/^Запись\s/, 'Сессия ') || 'Сессия')}
                           </span>
                           <div className="flex items-center gap-2">
                             {(recording.transcription_status === 'processing' || recording.transcription_status === 'pending') && recording.transcript_id && (
@@ -1114,7 +1114,7 @@ const SessionsPage = () => {
                     ))
                 ) : (
                   <p className="text-muted-foreground text-sm">
-                    Нет записей для этой сессии. Начните запись ниже.
+                    Нет сессий для этой встречи. Начните запись ниже.
                   </p>
                 )}
               </div>
@@ -1161,9 +1161,9 @@ const SessionsPage = () => {
             <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Скрыть запись?</AlertDialogTitle>
+                  <AlertDialogTitle>Скрыть сессию?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Запись будет скрыта из списка, но останется в базе данных. Вы больше не сможете её видеть, но данные будут сохранены.
+                    Сессия будет скрыта из списка, но останется в базе данных. Вы больше не сможете её видеть, но данные будут сохранены.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -1248,7 +1248,7 @@ const SessionsPage = () => {
               <div className="flex items-center gap-2">
                 <span className={`w-2 h-2 rounded-full ${isRecording ? "bg-recording animate-pulse-recording" : "bg-success"}`} />
                     <span className="text-sm text-muted-foreground">
-                      {isSavingRecording ? "Сохранение..." : isRecording ? "Идет запись" : "Готов"}
+                      {isSavingRecording ? "Сохранение..." : isRecording ? "Идет сессия" : "Готов"}
                     </span>
                   </div>
                   

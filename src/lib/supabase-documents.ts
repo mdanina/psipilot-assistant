@@ -10,23 +10,65 @@ type DocumentInsert = Database['public']['Tables']['documents']['Insert'];
 
 /**
  * Get all documents for a patient
+ * Includes documents directly attached to patient and documents attached to patient's sessions
  */
 export async function getPatientDocuments(patientId: string): Promise<{
   data: Document[] | null;
   error: Error | null;
 }> {
   try {
-    const { data, error } = await supabase
+    // Get documents directly attached to patient
+    const { data: directDocs, error: directError } = await supabase
       .from('documents')
       .select('*')
-      .eq('patient_id', patientId)
-      .order('created_at', { ascending: false });
+      .eq('patient_id', patientId);
 
-    if (error) {
-      return { data: null, error: new Error(error.message) };
+    if (directError) {
+      return { data: null, error: new Error(directError.message) };
     }
 
-    return { data: data || [], error: null };
+    // Get all session IDs for this patient
+    const { data: sessions, error: sessionsError } = await supabase
+      .from('sessions')
+      .select('id')
+      .eq('patient_id', patientId)
+      .is('deleted_at', null);
+
+    if (sessionsError) {
+      return { data: null, error: new Error(sessionsError.message) };
+    }
+
+    const sessionIds = sessions?.map(s => s.id) || [];
+
+    // Get documents attached to patient's sessions
+    let sessionDocs: Document[] = [];
+    if (sessionIds.length > 0) {
+      const { data: docs, error: sessionDocsError } = await supabase
+        .from('documents')
+        .select('*')
+        .in('session_id', sessionIds);
+
+      if (sessionDocsError) {
+        return { data: null, error: new Error(sessionDocsError.message) };
+      }
+
+      sessionDocs = docs || [];
+    }
+
+    // Combine and deduplicate documents
+    const allDocs = [...(directDocs || []), ...sessionDocs];
+    const uniqueDocs = Array.from(
+      new Map(allDocs.map(doc => [doc.id, doc])).values()
+    );
+
+    // Sort by created_at descending
+    uniqueDocs.sort((a, b) => {
+      const dateA = new Date(a.created_at).getTime();
+      const dateB = new Date(b.created_at).getTime();
+      return dateB - dateA;
+    });
+
+    return { data: uniqueDocs, error: null };
   } catch (error) {
     return { data: null, error: error as Error };
   }

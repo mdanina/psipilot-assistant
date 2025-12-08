@@ -64,7 +64,7 @@ export const RecordingCard = ({
       console.error('Error starting recording:', error);
       toast({
         title: "Ошибка",
-        description: "Не удалось начать запись",
+        description: "Не удалось начать сессию",
         variant: "destructive",
       });
     }
@@ -86,7 +86,7 @@ export const RecordingCard = ({
       console.error('Error stopping recording:', error);
       toast({
         title: "Ошибка",
-        description: "Не удалось остановить запись",
+        description: "Не удалось остановить сессию",
         variant: "destructive",
       });
     } finally {
@@ -116,7 +116,7 @@ export const RecordingCard = ({
         console.error('Error processing recording:', error);
         toast({
           title: "Ошибка",
-          description: "Не удалось обработать запись",
+          description: "Не удалось обработать сессию",
           variant: "destructive",
         });
       }
@@ -157,7 +157,7 @@ export const RecordingCard = ({
             </>
           ) : (
             <>
-              <h3 className="text-xl font-semibold text-primary">Идет запись</h3>
+              <h3 className="text-xl font-semibold text-primary">Идет сессия</h3>
               <p className="text-success text-sm">Захват вашего голоса с высокой точностью</p>
 
               <div className="py-4">
@@ -300,7 +300,7 @@ export const RecordingCard = ({
             variant={completedRecording ? "outline" : "default"}
           >
             <Mic className="w-4 h-4" />
-            {completedRecording ? "Записать ещё" : "Начать запись"}
+            {completedRecording ? "Записать ещё" : "Начать сессию"}
           </Button>
           <Button
             variant={completedRecording ? "default" : "outline"}
