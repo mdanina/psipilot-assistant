@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
-import { Header } from '@/components/layout/Header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -77,7 +76,6 @@ const ClinicPage = () => {
 
   return (
     <>
-      <Header title="Клиника" icon={<Building2 className="w-5 h-5" />} />
       <div className="flex-1 p-6 overflow-auto">
         <div className="max-w-3xl mx-auto">
           {error && (

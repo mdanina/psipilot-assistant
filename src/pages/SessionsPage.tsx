@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { Calendar, Plus, FileText, Circle, User, Link2, Loader2, Mic, Pause, Play, Square, Sparkles, ChevronDown, RefreshCw, Trash2, X, File, Upload, Search } from "lucide-react";
+import { Plus, FileText, Circle, User, Link2, Loader2, Mic, Pause, Play, Square, Sparkles, ChevronDown, RefreshCw, Trash2, X, File, Upload, Search } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -48,6 +47,7 @@ const SessionsPage = () => {
   
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSession, setActiveSession] = useState<string | null>(null);
+  const [openTabs, setOpenTabs] = useState<Set<string>>(new Set());
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -119,6 +119,12 @@ const SessionsPage = () => {
       const sessionId = location.state.sessionId;
       // Wait for sessions to load, then select the session
       setTimeout(() => {
+        // Add to open tabs
+        setOpenTabs(prev => {
+          const newTabs = new Set(prev);
+          newTabs.add(sessionId);
+          return newTabs;
+        });
         setActiveSession(sessionId);
         // Clear location state
         navigate(location.pathname, { replace: true, state: {} });
@@ -193,6 +199,18 @@ const SessionsPage = () => {
 
       const sessionsData = data || [];
       setSessions(sessionsData);
+      
+      // Add new sessions to open tabs
+      setOpenTabs(prev => {
+        const newTabs = new Set(prev);
+        sessionsData.forEach(session => {
+          if (!newTabs.has(session.id)) {
+            newTabs.add(session.id);
+          }
+        });
+        return newTabs;
+      });
+      
       if (sessionsData.length > 0 && !activeSession) {
         setActiveSession(sessionsData[0].id);
       }
@@ -380,43 +398,34 @@ const SessionsPage = () => {
     pollingIntervalsRef.current.set(recordingId, interval);
   };
 
-  // Cleanup polling on unmount
-  const handleCloseSession = async (sessionId: string, e?: React.MouseEvent) => {
+  // Close tab (just hide it, don't delete session)
+  // But if session is not linked to patient, show dialog to link or delete
+  const handleCloseSession = (sessionId: string, e?: React.MouseEvent) => {
     e?.stopPropagation(); // Prevent session selection
     
     const session = sessions.find(s => s.id === sessionId);
     if (!session) return;
 
-    // If session is linked to patient, close directly
+    // If session is linked to patient, close directly (just hide tab)
     if (session.patient_id) {
-      try {
-        await deleteSession(sessionId);
-        toast({
-          title: "Успешно",
-          description: "Сессия закрыта",
-        });
-        
-        // If closed session was active, select another one
-        if (activeSession === sessionId) {
-          const remainingSessions = sessions.filter(s => s.id !== sessionId);
-          if (remainingSessions.length > 0) {
-            setActiveSession(remainingSessions[0].id);
-          } else {
-            setActiveSession(null);
-          }
+      // Remove from open tabs
+      setOpenTabs(prev => {
+        const newTabs = new Set(prev);
+        newTabs.delete(sessionId);
+        return newTabs;
+      });
+      
+      // If closed session was active, select another one
+      if (activeSession === sessionId) {
+        const remainingSessions = sessions.filter(s => s.id !== sessionId && openTabs.has(s.id));
+        if (remainingSessions.length > 0) {
+          setActiveSession(remainingSessions[0].id);
+        } else {
+          setActiveSession(null);
         }
-        
-        await loadSessions();
-      } catch (error) {
-        console.error('Error closing session:', error);
-        toast({
-          title: "Ошибка",
-          description: "Не удалось закрыть сессию",
-          variant: "destructive",
-        });
       }
     } else {
-      // If not linked, show dialog
+      // If not linked, show dialog - user must link or delete
       setClosingSessionId(sessionId);
       setCloseSessionDialogOpen(true);
     }
@@ -427,16 +436,22 @@ const SessionsPage = () => {
     
     try {
       await linkSessionToPatient(closingSessionId, selectedPatientId);
-      await deleteSession(closingSessionId);
       
       toast({
         title: "Успешно",
-        description: "Сессия привязана к пациенту и закрыта",
+        description: "Сессия привязана к пациенту",
+      });
+      
+      // Remove from open tabs (close the tab)
+      setOpenTabs(prev => {
+        const newTabs = new Set(prev);
+        newTabs.delete(closingSessionId);
+        return newTabs;
       });
       
       // If closed session was active, select another one
       if (activeSession === closingSessionId) {
-        const remainingSessions = sessions.filter(s => s.id !== closingSessionId);
+        const remainingSessions = sessions.filter(s => s.id !== closingSessionId && openTabs.has(s.id));
         if (remainingSessions.length > 0) {
           setActiveSession(remainingSessions[0].id);
         } else {
@@ -452,7 +467,7 @@ const SessionsPage = () => {
       console.error('Error linking and closing session:', error);
       toast({
         title: "Ошибка",
-        description: "Не удалось привязать и закрыть сессию",
+        description: "Не удалось привязать сессию",
         variant: "destructive",
       });
     }
@@ -594,6 +609,9 @@ const SessionsPage = () => {
           : "Сессия создана. Не забудьте привязать её к пациенту.",
       });
 
+      // Add new session to open tabs
+      setOpenTabs(prev => new Set(prev).add(newSession.id));
+      
       // Reload sessions and select the new one
       await loadSessions();
       setActiveSession(newSession.id);
@@ -608,52 +626,56 @@ const SessionsPage = () => {
     }
   };
 
-  // Filter sessions by search query
+  // Filter sessions by search query and open tabs
   const filteredSessions = useMemo(() => {
-    if (!searchQuery.trim()) {
-      return sessions;
-    }
-
-    const query = searchQuery.toLowerCase().trim();
-    return sessions.filter((session) => {
-      // Search by title
-      if (session.title && session.title.toLowerCase().includes(query)) {
-        return true;
-      }
-
-      // Search by patient name
-      if (session.patient_id) {
-        const patient = patients.find((p) => p.id === session.patient_id);
-        if (patient && patient.name && patient.name.toLowerCase().includes(query)) {
+    // First filter by open tabs
+    let result = sessions.filter(session => openTabs.has(session.id));
+    
+    // Then filter by search query if provided
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      result = result.filter((session) => {
+        // Search by title
+        if (session.title && session.title.toLowerCase().includes(query)) {
           return true;
         }
-      }
 
-      // Search by date (formatted date string)
-      const sessionDate = new Date(session.created_at);
-      const dateStr = sessionDate.toLocaleDateString('ru-RU', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
+        // Search by patient name
+        if (session.patient_id) {
+          const patient = patients.find((p) => p.id === session.patient_id);
+          if (patient && patient.name && patient.name.toLowerCase().includes(query)) {
+            return true;
+          }
+        }
+
+        // Search by date (formatted date string)
+        const sessionDate = new Date(session.created_at);
+        const dateStr = sessionDate.toLocaleDateString('ru-RU', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+        });
+        if (dateStr.includes(query)) {
+          return true;
+        }
+
+        // Search by status
+        const statusMap: Record<string, string> = {
+          scheduled: 'запланировано',
+          in_progress: 'в процессе',
+          completed: 'завершено',
+          cancelled: 'отменено',
+        };
+        if (statusMap[session.status]?.includes(query)) {
+          return true;
+        }
+
+        return false;
       });
-      if (dateStr.includes(query)) {
-        return true;
-      }
-
-      // Search by status
-      const statusMap: Record<string, string> = {
-        scheduled: 'запланировано',
-        in_progress: 'в процессе',
-        completed: 'завершено',
-        cancelled: 'отменено',
-      };
-      if (statusMap[session.status]?.includes(query)) {
-        return true;
-      }
-
-      return false;
-    });
-  }, [sessions, patients, searchQuery]);
+    }
+    
+    return result;
+  }, [sessions, patients, searchQuery, openTabs]);
 
   const currentSession = filteredSessions.find(s => s.id === activeSession) || sessions.find(s => s.id === activeSession);
   const currentRecordings = recordings.filter(r => r.session_id === activeSession);
@@ -957,7 +979,6 @@ const SessionsPage = () => {
 
   return (
     <>
-      <Header title="Сессии" icon={<Calendar className="w-5 h-5" />} />
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Search */}
         <div className="px-6 py-3 border-b border-border">
@@ -991,7 +1012,15 @@ const SessionsPage = () => {
               }`}
             >
               <button
-                onClick={() => setActiveSession(session.id)}
+                onClick={() => {
+                  // Add to open tabs if not already there
+                  setOpenTabs(prev => {
+                    const newTabs = new Set(prev);
+                    newTabs.add(session.id);
+                    return newTabs;
+                  });
+                  setActiveSession(session.id);
+                }}
                 className="flex items-center gap-2 flex-1"
               >
                 <Circle className={`w-2 h-2 ${!session.patient_id ? "text-destructive" : "text-success"} fill-current`} />
@@ -1112,9 +1141,6 @@ const SessionsPage = () => {
               
               {/* Always show list of recordings with delete buttons */}
               <div className="space-y-4">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-sm font-semibold">Сессии</h3>
-                </div>
                 {currentRecordings.length > 0 ? (
                   currentRecordings.map((recording) => (
                     <div key={recording.id} className="border rounded-lg p-4">
@@ -1268,13 +1294,13 @@ const SessionsPage = () => {
               </AlertDialogContent>
             </AlertDialog>
 
-            {/* Close session dialog for unlinked sessions */}
+            {/* Close session dialog for unlinked sessions - must link or delete */}
             <AlertDialog open={closeSessionDialogOpen} onOpenChange={setCloseSessionDialogOpen}>
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>Сессия не привязана к пациенту</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Чтобы закрыть сессию, необходимо сначала привязать её к пациенту. Выберите действие:
+                    Чтобы закрыть вкладку, необходимо сначала привязать сессию к пациенту. Иначе вы не сможете найти её позже. Выберите действие:
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <div className="py-4">

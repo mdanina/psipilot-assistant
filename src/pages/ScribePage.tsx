@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { FileText, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { Header } from "@/components/layout/Header";
 import { RecordingCard } from "@/components/scribe/RecordingCard";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
@@ -304,7 +303,6 @@ const ScribePage = () => {
 
   return (
     <>
-      <Header title="Запись аудио" icon={<FileText className="w-5 h-5" />} />
       <div className="flex-1 flex flex-col items-center justify-center px-8 py-12">
         {/* Hero section */}
         <div className="text-center mb-10">

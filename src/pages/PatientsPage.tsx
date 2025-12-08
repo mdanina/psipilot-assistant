@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Users, Plus, RefreshCw, Search, Mail, Phone, FileText, Pencil, Trash2, Loader2 } from "lucide-react";
-import { Header } from "@/components/layout/Header";
+import { Plus, RefreshCw, Search, Mail, Phone, FileText, Pencil, Trash2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -217,12 +216,10 @@ const PatientsPage = () => {
 
   return (
     <>
-      <Header title="Пациенты" icon={<Users className="w-5 h-5" />} />
       <div className="flex-1 p-6 overflow-auto">
         {/* Page header */}
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-foreground">Пациенты</h1>
             <p className="text-muted-foreground">Управление пациентами</p>
           </div>
           <div className="flex items-center gap-3">

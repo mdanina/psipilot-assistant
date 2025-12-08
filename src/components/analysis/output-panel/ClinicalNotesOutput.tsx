@@ -128,7 +128,7 @@ function SectionCard({
   };
 
   return (
-    <Card className="w-full max-w-full overflow-hidden">
+    <Card className="w-full overflow-hidden">
       <CardHeader className="pb-3">
         <CardTitle className="text-base font-semibold">{section.name}</CardTitle>
         {section.generation_error && (
@@ -138,7 +138,7 @@ function SectionCard({
           </div>
         )}
       </CardHeader>
-      <CardContent className="w-full max-w-full overflow-hidden">
+      <CardContent className="w-full overflow-hidden">
         {isDecrypting ? (
           <div className="flex items-center justify-center py-8">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -157,7 +157,7 @@ function SectionCard({
           />
         ) : (
           <div 
-            className="w-full max-w-full overflow-hidden"
+            className="w-full overflow-hidden"
             onDoubleClick={handleDoubleClick}
             style={{ 
               cursor: section.generation_status === 'completed' ? 'text' : 'default',
@@ -166,10 +166,10 @@ function SectionCard({
             title={section.generation_status === 'completed' ? 'Двойной клик для редактирования' : ''}
           >
             <div 
-              className="whitespace-pre-wrap font-sans text-sm leading-relaxed break-words overflow-wrap-anywhere word-break-break-word"
+              className="whitespace-pre-wrap font-sans text-sm leading-relaxed break-words"
               style={{ 
                 wordBreak: 'break-word',
-                overflowWrap: 'anywhere',
+                overflowWrap: 'break-word',
                 maxWidth: '100%'
               }}
             >
@@ -299,9 +299,9 @@ export function ClinicalNotesOutput({ clinicalNote, onUpdate }: ClinicalNotesOut
   }
 
   return (
-    <div className="h-full flex flex-col bg-background">
+    <div className="h-full flex flex-col bg-background overflow-hidden">
       {/* Header */}
-      <div className="p-4 border-b border-border">
+      <div className="flex-shrink-0 p-4 border-b border-border">
         <Button
           onClick={handleSaveSummary}
           disabled={clinicalNote.status === 'finalized' || isSavingSummary}
@@ -332,15 +332,15 @@ export function ClinicalNotesOutput({ clinicalNote, onUpdate }: ClinicalNotesOut
       </div>
 
       {/* Sections list - все секции как карточки */}
-      <ScrollArea className="flex-1 w-full">
-        <div className="p-4 space-y-4 w-full max-w-full">
+      <ScrollArea className="flex-1 min-h-0">
+        <div className="p-4 space-y-4">
           {sortedSections.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8">
               Нет секций в этой заметке
             </p>
           ) : (
             sortedSections.map((section) => (
-              <div key={section.id} className="w-full max-w-full">
+              <div key={section.id} className="w-full">
                 <SectionCard
                   section={section}
                   onSave={handleSave}
