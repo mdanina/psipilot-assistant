@@ -61,9 +61,10 @@
 - **005_mfa_and_security.sql** - MFA и расширенные функции безопасности
 - **013_make_sessions_patient_nullable.sql** - Поддержка сессий без пациента
   - **[docs/MIGRATION_013.md](MIGRATION_013.md)** - Документация миграции 013
+- **022_session_notes.sql** - Таблица заметок специалиста для сессий
 
 ### Структура БД
-- **Таблицы:** clinics, profiles, patients, sessions, clinical_notes, sections, recordings, documents
+- **Таблицы:** clinics, profiles, patients, sessions, clinical_notes, sections, recordings, documents, session_notes
 - **Безопасность:** audit_logs, consent_records, mfa_factors, user_sessions
 - **Типы:** См. `src/types/database.types.ts`
 
@@ -71,6 +72,9 @@
 - **[docs/AUDIO_RECORDING_TRANSCRIPTION.md](AUDIO_RECORDING_TRANSCRIPTION.md)** - Полная документация функционала записи аудио и транскрипции
 - **[docs/MIGRATION_013.md](MIGRATION_013.md)** - Документация миграции для поддержки сессий без пациента
 - **Backend сервис:** `backend/transcription-service/` - Сервис транскрипции через AssemblyAI
+
+### Заметки и файлы в сессиях
+- **[docs/SESSION_NOTES_AND_FILES.md](SESSION_NOTES_AND_FILES.md)** - Документация функционала добавления заметок специалиста и файлов к сессиям
 
 ## 💻 Разработка
 
@@ -81,7 +85,8 @@ src/
 │   ├── ui/         # shadcn/ui components (50+ компонентов)
 │   ├── layout/     # Header, Sidebar, MainLayout
 │   ├── auth/       # ProtectedRoute, SessionTimeoutWarning
-│   └── scribe/     # RecordingCard - компонент записи аудио
+│   ├── scribe/     # RecordingCard - компонент записи аудио
+│   └── sessions/   # SessionNotesDialog - диалог добавления заметок
 ├── pages/          # Страницы приложения
 ├── contexts/       # AuthContext (MFA, session management)
 ├── hooks/          # Custom React hooks
@@ -92,6 +97,8 @@ src/
 │   ├── supabase-audited.ts   # Клиент с аудитом
 │   ├── supabase-recordings.ts # Работа с записями аудио
 │   ├── supabase-sessions.ts  # Работа с сессиями
+│   ├── supabase-session-notes.ts # Работа с заметками сессий
+│   ├── file-parser.ts        # Парсер файлов (TXT, MD, JSON, DOC, DOCX, PDF)
 │   └── encryption.ts         # Утилиты шифрования
 └── types/          # TypeScript типы
 ```
@@ -147,6 +154,9 @@ src/
 1. [docs/AUDIO_RECORDING_TRANSCRIPTION.md](AUDIO_RECORDING_TRANSCRIPTION.md) - Полная документация
 2. [backend/transcription-service/README.md](../backend/transcription-service/README.md) - Backend сервис
 3. [backend/transcription-service/SETUP.md](../backend/transcription-service/SETUP.md) - Настройка сервиса
+
+### Заметки и файлы
+1. [docs/SESSION_NOTES_AND_FILES.md](SESSION_NOTES_AND_FILES.md) - Документация функционала заметок и файлов
 
 ### Troubleshooting
 1. [TROUBLESHOOTING_LOADING.md](../TROUBLESHOOTING_LOADING.md) - Решение проблем с загрузкой приложения
