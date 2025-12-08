@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, User, Loader2 } from "lucide-react";
+import { Plus, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -9,13 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { PatientCombobox } from "@/components/ui/patient-combobox";
 import { Checkbox } from "@/components/ui/checkbox";
 import type { Database } from "@/types/database.types";
 
@@ -84,25 +78,13 @@ export function CreateSessionDialog({
           {/* Patient selection */}
           <div className="space-y-2">
             <Label htmlFor="patient">Пациент</Label>
-            <Select
+            <PatientCombobox
+              patients={patients}
               value={selectedPatientId}
               onValueChange={setSelectedPatientId}
+              placeholder="Выберите пациента"
               disabled={linkLater}
-            >
-              <SelectTrigger id="patient">
-                <SelectValue placeholder="Выберите пациента" />
-              </SelectTrigger>
-              <SelectContent>
-                {patients.map((patient) => (
-                  <SelectItem key={patient.id} value={patient.id}>
-                    <div className="flex items-center gap-2">
-                      <User className="w-4 h-4 text-muted-foreground" />
-                      {patient.name}
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            />
           </div>
 
           {/* Link later checkbox */}

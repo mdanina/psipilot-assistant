@@ -352,7 +352,7 @@ const PatientsPage = () => {
           <AlertDialogHeader>
             <AlertDialogTitle>Удалить пациента?</AlertDialogTitle>
             <AlertDialogDescription>
-              Это действие нельзя отменить. Все данные пациента будут удалены.
+              Это действие нельзя отменить. Пациент будет удален.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

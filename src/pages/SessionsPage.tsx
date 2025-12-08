@@ -15,7 +15,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PatientCombobox } from "@/components/ui/patient-combobox";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
@@ -473,7 +473,7 @@ const SessionsPage = () => {
       await deleteRecording(recordingId);
       toast({
         title: "Успешно",
-        description: "Сессия скрыта",
+        description: "Запись удалена",
       });
       // Reload recordings
       if (activeSession) {
@@ -1011,18 +1011,12 @@ const SessionsPage = () => {
                         <DialogTitle>Привязать сессию к пациенту</DialogTitle>
                       </DialogHeader>
                       <div className="space-y-4 py-4">
-                        <Select value={selectedPatientId} onValueChange={setSelectedPatientId}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Выберите пациента" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {patients.map((patient) => (
-                              <SelectItem key={patient.id} value={patient.id}>
-                                {patient.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <PatientCombobox
+                          patients={patients}
+                          value={selectedPatientId}
+                          onValueChange={setSelectedPatientId}
+                          placeholder="Выберите пациента"
+                        />
                         <div className="flex justify-end gap-2">
                           <Button
                             variant="outline"
@@ -1215,9 +1209,9 @@ const SessionsPage = () => {
             <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Скрыть сессию?</AlertDialogTitle>
+                  <AlertDialogTitle>Удалить запись?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Сессия будет скрыта из списка, но останется в базе данных. Вы больше не сможете её видеть, но данные будут сохранены.
+                    Это действие нельзя отменить. Запись будет удалена.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -1235,7 +1229,7 @@ const SessionsPage = () => {
                     }}
                     className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                   >
-                    Скрыть
+                    Удалить
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -1254,18 +1248,12 @@ const SessionsPage = () => {
                   <div className="space-y-3">
                     <div>
                       <label className="text-sm font-medium mb-2 block">Привязать к пациенту:</label>
-                      <Select value={selectedPatientId} onValueChange={setSelectedPatientId}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Выберите пациента" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {patients.map((patient) => (
-                            <SelectItem key={patient.id} value={patient.id}>
-                              {patient.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <PatientCombobox
+                        patients={patients}
+                        value={selectedPatientId}
+                        onValueChange={setSelectedPatientId}
+                        placeholder="Выберите пациента"
+                      />
                     </div>
                   </div>
                 </div>
