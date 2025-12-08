@@ -1,7 +1,7 @@
 /**
  * Field-level encryption utilities for PHI data
  * Uses Web Crypto API with AES-GCM 256-bit encryption
- * 
+ *
  * Security requirements:
  * - Encryption key must be stored securely (environment variable)
  * - Never log encryption keys
@@ -21,7 +21,7 @@ let hasWarnedAboutMissingKey = false;
 
 function getEncryptionKey(): string {
   const key = import.meta.env.VITE_ENCRYPTION_KEY;
-  
+
   if (!key) {
     // Логируем предупреждение только один раз, чтобы не засорять консоль
     if (!hasWarnedAboutMissingKey) {
@@ -36,12 +36,12 @@ function getEncryptionKey(): string {
     // Return empty string - will fail gracefully when encryption is attempted
     return '';
   }
-  
+
   // Сбрасываем флаг, если ключ найден
   if (hasWarnedAboutMissingKey && key) {
     hasWarnedAboutMissingKey = false;
   }
-  
+
   return key;
 }
 
@@ -74,7 +74,7 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
  */
 async function importKey(keyBase64: string): Promise<CryptoKey> {
   const keyData = base64ToArrayBuffer(keyBase64);
-  
+
   return await crypto.subtle.importKey(
     'raw',
     keyData,
@@ -97,11 +97,11 @@ function generateIV(): Uint8Array {
 /**
  * Encrypt PHI data
  *
- * Output format matches backend (Node.js): IV (12) + TAG (16) + CIPHERTEXT
- * This ensures compatibility between frontend and backend encryption.
+ * Output format: IV (12 bytes) + CIPHERTEXT + TAG (16 bytes)
+ * This matches the backend format and Web Crypto API natural output.
  *
  * @param plaintext - Plain text data to encrypt
- * @returns Base64 encoded encrypted data (IV + TAG + CIPHERTEXT)
+ * @returns Base64 encoded encrypted data (IV + CIPHERTEXT + TAG)
  */
 export async function encryptPHI(plaintext: string): Promise<string> {
   if (!plaintext) {
@@ -120,7 +120,7 @@ export async function encryptPHI(plaintext: string): Promise<string> {
     const data = encoder.encode(plaintext);
 
     // Web Crypto returns: ciphertext + tag (tag at the end)
-    const encryptedWithTag = await crypto.subtle.encrypt(
+    const encrypted = await crypto.subtle.encrypt(
       {
         name: ALGORITHM,
         iv: iv,
@@ -130,20 +130,11 @@ export async function encryptPHI(plaintext: string): Promise<string> {
       data
     );
 
-    const encryptedArray = new Uint8Array(encryptedWithTag);
-
-    // Web Crypto format: CIPHERTEXT (variable) + TAG (16 bytes at the end)
-    // Backend format: IV (12) + TAG (16) + CIPHERTEXT
-    // We need to reorder to match backend
-
-    const ciphertext = encryptedArray.slice(0, encryptedArray.length - 16);
-    const tag = encryptedArray.slice(encryptedArray.length - 16);
-
-    // Combine: IV + TAG + CIPHERTEXT (backend format)
-    const combined = new Uint8Array(IV_LENGTH + 16 + ciphertext.length);
+    // Combine IV and encrypted data (which already has tag at the end)
+    // Format: IV (12 bytes) + CIPHERTEXT + TAG (16 bytes)
+    const combined = new Uint8Array(iv.length + encrypted.byteLength);
     combined.set(iv, 0);
-    combined.set(tag, IV_LENGTH);
-    combined.set(ciphertext, IV_LENGTH + 16);
+    combined.set(new Uint8Array(encrypted), iv.length);
 
     // Convert to base64 for storage
     return arrayBufferToBase64(combined.buffer);
@@ -156,15 +147,12 @@ export async function encryptPHI(plaintext: string): Promise<string> {
 /**
  * Decrypt PHI data
  *
- * Supports two formats:
- * 1. Backend format (Node.js): IV (12) + TAG (16) + CIPHERTEXT
- * 2. Frontend format (Web Crypto): IV (12) + CIPHERTEXT+TAG
+ * Expected format: IV (12 bytes) + CIPHERTEXT + TAG (16 bytes)
+ * This matches the backend format and Web Crypto API expectation.
  *
  * @param encryptedData - Base64 encoded encrypted data with IV
  * @returns Decrypted plain text
  */
-const TAG_LENGTH = 16; // 128-bit authentication tag
-
 export async function decryptPHI(encryptedData: string): Promise<string> {
   if (!encryptedData) {
     return '';
@@ -180,18 +168,16 @@ export async function decryptPHI(encryptedData: string): Promise<string> {
     const combined = base64ToArrayBuffer(encryptedData);
     const combinedArray = new Uint8Array(combined);
 
-    // Backend format: IV (12) + TAG (16) + CIPHERTEXT
-    // Web Crypto expects: IV + CIPHERTEXT+TAG (tag at the end)
-    // We need to reorder: move TAG from position 12-28 to the end
+    // Debug logging
+    console.log('[Decrypt] Total length:', combinedArray.length);
+    console.log('[Decrypt] Key length:', encryptionKey.length);
 
-    const iv = combinedArray.slice(0, IV_LENGTH);
-    const tag = combinedArray.slice(IV_LENGTH, IV_LENGTH + TAG_LENGTH);
-    const ciphertext = combinedArray.slice(IV_LENGTH + TAG_LENGTH);
-
+    // Format: IV (12 bytes) + CIPHERTEXT + TAG (16 bytes)
     // Web Crypto API expects ciphertext with tag appended at the end
-    const ciphertextWithTag = new Uint8Array(ciphertext.length + TAG_LENGTH);
-    ciphertextWithTag.set(ciphertext, 0);
-    ciphertextWithTag.set(tag, ciphertext.length);
+    const iv = combinedArray.slice(0, IV_LENGTH);
+    const encrypted = combinedArray.slice(IV_LENGTH); // ciphertext + tag
+
+    console.log('[Decrypt] Encrypted data length (ciphertext+tag):', encrypted.length);
 
     const decrypted = await crypto.subtle.decrypt(
       {
@@ -200,7 +186,7 @@ export async function decryptPHI(encryptedData: string): Promise<string> {
         tagLength: 128,
       },
       key,
-      ciphertextWithTag
+      encrypted
     );
 
     const decoder = new TextDecoder();
@@ -226,11 +212,10 @@ export function isEncryptionConfigured(): boolean {
 /**
  * Generate a new encryption key (for setup/rotation)
  * Returns base64 encoded 32-byte key
- * 
+ *
  * WARNING: Only use this for key generation, not in production code
  */
 export async function generateEncryptionKey(): Promise<string> {
   const key = crypto.getRandomValues(new Uint8Array(32));
   return arrayBufferToBase64(key.buffer);
 }
-

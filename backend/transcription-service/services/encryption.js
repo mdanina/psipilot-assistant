@@ -67,6 +67,12 @@ export function encrypt(plaintext) {
       tag
     ]);
 
+    // Debug logging
+    console.log('[Encrypt] IV length:', iv.length);
+    console.log('[Encrypt] Ciphertext length:', encrypted.length);
+    console.log('[Encrypt] Tag length:', tag.length);
+    console.log('[Encrypt] Total combined length:', combined.length);
+
     // Возвращаем base64-encoded результат
     return combined.toString('base64');
   } catch (error) {
