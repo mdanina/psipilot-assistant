@@ -4,12 +4,6 @@
  * Supported formats: .txt, .md, .json, .doc, .docx, .pdf
  */
 
-import mammoth from 'mammoth';
-import * as pdfjsLib from 'pdfjs-dist';
-
-// Set PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
-
 // Supported file extensions
 export const SUPPORTED_EXTENSIONS = ['txt', 'md', 'json', 'doc', 'docx', 'pdf'] as const;
 export type SupportedExtension = (typeof SUPPORTED_EXTENSIONS)[number];
@@ -82,9 +76,12 @@ async function parseJsonFile(file: File): Promise<string> {
 
 /**
  * Parse Word documents (.doc, .docx) using mammoth
+ * Uses dynamic import for code splitting
  */
 async function parseWordDocument(file: File): Promise<string> {
   try {
+    // @ts-expect-error - mammoth types are bundled
+    const mammoth = await import('mammoth/mammoth.browser');
     const arrayBuffer = await file.arrayBuffer();
     const result = await mammoth.extractRawText({ arrayBuffer });
     return result.value;
@@ -96,9 +93,15 @@ async function parseWordDocument(file: File): Promise<string> {
 
 /**
  * Parse PDF documents using pdf.js
+ * Uses dynamic import for code splitting
  */
 async function parsePdfDocument(file: File): Promise<string> {
   try {
+    const pdfjsLib = await import('pdfjs-dist');
+
+    // Set worker source
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 
