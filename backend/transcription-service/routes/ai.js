@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { generateBlockContent, generateCaseSummaryContent } from '../services/openai.js';
 import { anonymize, deanonymize } from '../services/anonymization.js';
 import { encrypt, decrypt } from '../services/encryption.js';
+import { extractTranscriptsFromRecordings } from '../services/transcriptHelper.js';
 
 const router = express.Router();
 
@@ -165,7 +166,7 @@ router.post('/generate', async (req, res) => {
       console.log(`[AI Generate] Fetching recordings for session ${session_id}`);
       const { data: recordings, error: recordingsError } = await supabase
         .from('recordings')
-        .select('id, transcription_text, transcription_status, file_name')
+        .select('id, transcription_text, transcription_encrypted, transcription_status, file_name')
         .eq('session_id', session_id)
         .eq('transcription_status', 'completed');
 
@@ -177,44 +178,13 @@ router.post('/generate', async (req, res) => {
       console.log(`[AI Generate] Found ${recordings?.length || 0} completed recordings`);
 
       if (recordings?.length) {
-        const transcripts = recordings
-          .map(r => {
-            if (!r.transcription_text) {
-              console.warn(`[AI Generate] Recording ${r.id} (${r.file_name || 'unnamed'}) has no transcription_text`);
-              return '';
-            }
-            
-            // Проверяем, зашифрован ли транскрипт
-            // Зашифрованные данные обычно длиннее и содержат base64 символы
-            // Простая эвристика: если это валидный base64 и длиннее 100 символов, пробуем расшифровать
-            const isLikelyEncrypted = r.transcription_text.length > 100 && 
-                                     /^[A-Za-z0-9+/=]+$/.test(r.transcription_text) &&
-                                     !r.transcription_text.includes(':') && // Транскрипты обычно содержат "Врач:", "Пациент:"
-                                     !r.transcription_text.includes('\n'); // Зашифрованные данные обычно в одну строку
-            
-            if (isLikelyEncrypted) {
-              try {
-                const decrypted = decrypt(r.transcription_text);
-                console.log(`[AI Generate] Successfully decrypted transcript for recording ${r.id}, length: ${decrypted.length}`);
-                return decrypted;
-              } catch (err) {
-                console.warn(`[AI Generate] Failed to decrypt transcript for recording ${r.id}, using as plaintext:`, err.message);
-                // Если расшифровка не удалась, используем как есть
-                return r.transcription_text;
-              }
-            } else {
-              // Транскрипт не зашифрован, используем как есть
-              console.log(`[AI Generate] Using transcription_text as plaintext for recording ${r.id}, length: ${r.transcription_text.length}`);
-              return r.transcription_text;
-            }
-          })
-          .filter(Boolean);
-        
-        if (transcripts.length > 0) {
-          sourceText += transcripts.join('\n\n');
+        // Используем унифицированный helper для расшифровки транскриптов
+        const transcriptText = extractTranscriptsFromRecordings(recordings);
+        if (transcriptText) {
+          sourceText += transcriptText;
           console.log(`[AI Generate] Combined transcript length: ${sourceText.length} characters`);
         } else {
-          console.warn('[AI Generate] No valid transcripts after decryption');
+          console.warn('[AI Generate] No valid transcripts after processing');
         }
       } else {
         console.warn(`[AI Generate] No completed recordings found for session ${session_id}`);
@@ -540,24 +510,14 @@ router.post('/regenerate-section/:sectionId', async (req, res) => {
 
     if (error) throw error;
 
-    // Получаем исходный текст
+    // Получаем исходный текст - используем унифицированный helper
     const { data: recordings } = await supabase
       .from('recordings')
-      .select('transcription_text')
+      .select('id, transcription_text, transcription_encrypted, file_name')
       .eq('session_id', section.clinical_note.session_id)
       .eq('transcription_status', 'completed');
 
-    let sourceText = recordings
-      ?.map(r => {
-        try {
-          return decrypt(r.transcription_text);
-        } catch (err) {
-          console.error('Error decrypting transcript:', err);
-          return '';
-        }
-      })
-      .filter(Boolean)
-      .join('\n\n') || '';
+    const sourceText = extractTranscriptsFromRecordings(recordings || []);
 
     if (!sourceText) {
       return res.status(400).json({
