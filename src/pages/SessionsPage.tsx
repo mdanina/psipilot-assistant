@@ -24,6 +24,7 @@ import { getSessionRecordings, getRecordingStatus, createRecording, uploadAudioF
 import { getPatients } from "@/lib/supabase-patients";
 import { getSessionNotes, createSessionNote, deleteSessionNote, getCombinedTranscriptWithNotes } from "@/lib/supabase-session-notes";
 import { SessionNotesDialog } from "@/components/sessions/SessionNotesDialog";
+import { CreateSessionDialog } from "@/components/sessions/CreateSessionDialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import type { Database } from "@/types/database.types";
@@ -56,6 +57,9 @@ const SessionsPage = () => {
   // Session notes state
   const [sessionNotes, setSessionNotes] = useState<SessionNote[]>([]);
   const [notesDialogOpen, setNotesDialogOpen] = useState(false);
+
+  // Create session dialog state
+  const [createSessionDialogOpen, setCreateSessionDialogOpen] = useState(false);
   
   // Recording state
   const [isRecordingInSession, setIsRecordingInSession] = useState(false);
@@ -524,6 +528,55 @@ const SessionsPage = () => {
     }
   };
 
+  // Handle create new session
+  const handleCreateNewSession = async (patientId: string | null, title?: string) => {
+    if (!user || !profile?.clinic_id) {
+      toast({
+        title: "Ошибка",
+        description: "Необходима авторизация и привязка к клинике",
+        variant: "destructive",
+      });
+      throw new Error("Not authenticated");
+    }
+
+    try {
+      // Generate default title if not provided
+      const sessionTitle = title || `Сессия ${new Date().toLocaleString('ru-RU')}`;
+
+      // Create session
+      const newSession = await createSession({
+        userId: user.id,
+        clinicId: profile.clinic_id,
+        patientId: patientId || undefined,
+        title: sessionTitle,
+      });
+
+      // If patient is selected, link session to patient (creates consents)
+      if (patientId) {
+        await linkSessionToPatient(newSession.id, patientId);
+      }
+
+      toast({
+        title: "Успешно",
+        description: patientId
+          ? "Сессия создана и привязана к пациенту"
+          : "Сессия создана. Не забудьте привязать её к пациенту.",
+      });
+
+      // Reload sessions and select the new one
+      await loadSessions();
+      setActiveSession(newSession.id);
+    } catch (error) {
+      console.error('Error creating session:', error);
+      toast({
+        title: "Ошибка",
+        description: "Не удалось создать сессию",
+        variant: "destructive",
+      });
+      throw error;
+    }
+  };
+
   // Filter sessions by search query
   const filteredSessions = useMemo(() => {
     if (!searchQuery.trim()) {
@@ -927,9 +980,10 @@ const SessionsPage = () => {
               </button>
             </div>
           ))}
-              <button 
+              <button
                 className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg"
-                onClick={() => navigate('/scribe')}
+                onClick={() => setCreateSessionDialogOpen(true)}
+                title="Создать новую сессию"
               >
             <Plus className="w-4 h-4" />
           </button>
@@ -1405,6 +1459,14 @@ const SessionsPage = () => {
         open={notesDialogOpen}
         onOpenChange={setNotesDialogOpen}
         onSave={handleCreateNote}
+      />
+
+      {/* Create Session Dialog */}
+      <CreateSessionDialog
+        open={createSessionDialogOpen}
+        onOpenChange={setCreateSessionDialogOpen}
+        patients={patients}
+        onCreateSession={handleCreateNewSession}
       />
     </>
   );
