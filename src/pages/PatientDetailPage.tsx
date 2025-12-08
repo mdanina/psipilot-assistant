@@ -12,6 +12,7 @@ import {
   StickyNote,
   Sparkles,
 } from "lucide-react";
+import { ShrimpIcon } from "@/components/ShrimpIcon";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import {
@@ -191,8 +192,8 @@ const PatientDetailPage = () => {
 
           {/* Patient header info */}
           <div className="flex items-start gap-4">
-            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-              <User className="w-6 h-6 text-primary" />
+            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 overflow-hidden">
+              <ShrimpIcon className="w-8 h-8" />
             </div>
             <div className="flex-1 min-w-0">
               <h1 className="text-2xl font-bold truncate">
