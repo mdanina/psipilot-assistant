@@ -262,7 +262,7 @@ export const RecordingCard = ({
         </div>
 
         <div>
-          <h3 className="text-xl font-semibold text-foreground mb-2">Создать с помощью ИИ</h3>
+          <h3 className="text-xl font-semibold text-foreground mb-2">Начать сессию</h3>
           <p className="text-sm text-muted-foreground leading-relaxed">
             Начните запись встречи с пациентом или создайте клинические заметки. Наш ИИ поможет интеллектуально структурировать вашу документацию.
           </p>
@@ -300,7 +300,7 @@ export const RecordingCard = ({
             variant={completedRecording ? "outline" : "default"}
           >
             <Mic className="w-4 h-4" />
-            {completedRecording ? "Записать ещё" : "Начать сессию"}
+            {completedRecording ? "Записать ещё" : "Включите запись"}
           </Button>
           <Button
             variant={completedRecording ? "default" : "outline"}
