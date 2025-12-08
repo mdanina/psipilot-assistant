@@ -49,10 +49,20 @@ Requires that:
 -- ============================================
 
 -- Fix UPDATE policy
+-- Note: We don't require consent check for UPDATE because:
+-- 1. We need to be able to soft-delete patients even without consent
+-- 2. We need to update patients even if consent was withdrawn
+-- Consent check is only required for SELECT (viewing) operations
 DROP POLICY IF EXISTS "Users can update clinic patients" ON patients;
 CREATE POLICY "Users can update clinic patients"
     ON patients FOR UPDATE
     USING (
+        auth.uid() IS NOT NULL
+        AND get_user_clinic_id() IS NOT NULL
+        AND clinic_id IS NOT NULL
+        AND clinic_id = get_user_clinic_id()
+    )
+    WITH CHECK (
         auth.uid() IS NOT NULL
         AND get_user_clinic_id() IS NOT NULL
         AND clinic_id IS NOT NULL

@@ -263,22 +263,28 @@ export async function updatePatient(
 
 /**
  * Soft delete a patient
+ * Uses RPC function to bypass RLS circular dependency (consent needed to see patient,
+ * but patient needed to delete)
  */
 export async function deletePatient(
   id: string
 ): Promise<{ success: boolean; error: Error | null }> {
   try {
-    const { error } = await supabase
-      .from('patients')
-      .update({ deleted_at: new Date().toISOString() })
-      .eq('id', id);
+    console.log('[deletePatient] Soft deleting patient via RPC function:', id);
+    
+    const { data, error } = await supabase.rpc('soft_delete_patient', {
+      p_patient_id: id,
+    });
 
     if (error) {
+      console.error('[deletePatient] Error soft deleting patient via RPC:', error);
       return { success: false, error: new Error(error.message) };
     }
 
+    console.log('[deletePatient] Patient soft deleted successfully');
     return { success: true, error: null };
   } catch (error) {
+    console.error('[deletePatient] Unexpected error:', error);
     return { success: false, error: error as Error };
   }
 }

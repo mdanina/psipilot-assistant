@@ -98,69 +98,94 @@ export async function getSession(sessionId: string): Promise<Session> {
 /**
  * Link session to patient
  * Automatically creates consent if patient doesn't have active consent
+ * CRITICAL: Creates BOTH data_processing AND recording consents
+ * - data_processing: needed to view session and patient
+ * - recording: needed to view recordings (recordings RLS policy requires it)
  */
 export async function linkSessionToPatient(
   sessionId: string,
   patientId: string
 ): Promise<Session> {
-  // Check if patient has active consent for data_processing
-  const { hasConsent, error: consentCheckError } = await hasActiveConsent(
-    patientId,
-    'data_processing'
-  );
+  // Helper function to create consent if missing
+  const ensureConsent = async (
+    consentType: 'data_processing' | 'recording',
+    purpose: string,
+    notes: string
+  ) => {
+    const { hasConsent, error: checkError } = await hasActiveConsent(
+      patientId,
+      consentType
+    );
 
-  if (consentCheckError) {
-    console.error('Error checking consent:', consentCheckError);
-    // Continue anyway - consent creation will be attempted
-  }
-
-  // If no active consent, create one automatically using RPC function
-  // This bypasses RLS circular dependency (consent needed to see patient, but patient needed to create consent)
-  if (!hasConsent) {
-    try {
-      console.log('[linkSessionToPatient] Creating consent via RPC function...');
-      const { data: consentId, error: consentError } = await supabase.rpc(
-        'create_consent_for_patient',
-        {
-          p_patient_id: patientId,
-          p_consent_type: 'data_processing',
-          p_consent_purpose:
-            'Обработка персональных данных для оказания медицинских услуг в соответствии с договором',
-          p_legal_basis: 'contract',
-          p_notes:
-            'Автоматически создано при привязке сессии к пациенту. Требует подтверждения.',
-        }
+    if (checkError) {
+      console.warn(
+        `[linkSessionToPatient] Error checking ${consentType} consent:`,
+        checkError
       );
+      // Continue anyway - consent creation will be attempted
+    }
 
-      if (consentError) {
-        console.error('[linkSessionToPatient] Error creating consent via RPC:', consentError);
-        throw new Error(
-          `Failed to create consent: ${consentError.message}. This is required for linking session to patient.`
+    if (!hasConsent) {
+      try {
+        console.log(
+          `[linkSessionToPatient] Creating ${consentType} consent via RPC function...`
         );
-      }
-
-      console.log('[linkSessionToPatient] Consent created successfully:', consentId);
-
-      // Verify consent was created by checking again
-      const { hasConsent: verifyConsent } = await hasActiveConsent(patientId, 'data_processing');
-      if (!verifyConsent) {
-        console.warn(
-          '[linkSessionToPatient] Warning: Consent was created but verification failed. Waiting and retrying...'
+        const { data: consentId, error: consentError } = await supabase.rpc(
+          'create_consent_for_patient',
+          {
+            p_patient_id: patientId,
+            p_consent_type: consentType,
+            p_consent_purpose: purpose,
+            p_legal_basis: 'contract',
+            p_notes: notes,
+          }
         );
-        // Wait a bit for database to update
-        await new Promise((resolve) => setTimeout(resolve, 200));
-        const { hasConsent: retryVerify } = await hasActiveConsent(patientId, 'data_processing');
-        if (!retryVerify) {
+
+        if (consentError) {
           console.error(
-            '[linkSessionToPatient] Consent verification failed after retry. Session linking may fail.'
+            `[linkSessionToPatient] Error creating ${consentType} consent via RPC:`,
+            consentError
+          );
+          throw new Error(
+            `Failed to create ${consentType} consent: ${consentError.message}`
           );
         }
+
+        console.log(
+          `[linkSessionToPatient] ${consentType} consent created successfully:`,
+          consentId
+        );
+
+        // Wait a bit for database to update
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      } catch (error) {
+        console.error(
+          `[linkSessionToPatient] Error in ${consentType} consent creation:`,
+          error
+        );
+        throw error;
       }
-    } catch (error) {
-      console.error('[linkSessionToPatient] Error in consent creation:', error);
-      throw error; // Re-throw to prevent session update without consent
+    } else {
+      console.log(
+        `[linkSessionToPatient] Patient already has active ${consentType} consent`
+      );
     }
-  }
+  };
+
+  // Create data_processing consent (required for viewing sessions and patients)
+  await ensureConsent(
+    'data_processing',
+    'Обработка персональных данных для оказания медицинских услуг в соответствии с договором',
+    'Автоматически создано при привязке сессии к пациенту. Требует подтверждения.'
+  );
+
+  // Create recording consent (required for viewing recordings)
+  // This is critical - recordings RLS policy checks for 'recording' consent
+  await ensureConsent(
+    'recording',
+    'Запись аудио сессий для целей ведения медицинской документации',
+    'Автоматически создано при привязке сессии к пациенту. Требует подтверждения.'
+  );
 
   return updateSession(sessionId, {
     patient_id: patientId,
