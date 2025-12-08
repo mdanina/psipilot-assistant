@@ -10,6 +10,7 @@ import {
   MapPin,
   Calendar,
   StickyNote,
+  Sparkles,
 } from "lucide-react";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,7 @@ import {
   updatePatient,
   type DecryptedPatient,
 } from "@/lib/supabase-patients";
-import { formatDate, formatDateTime } from "@/lib/date-utils";
+import { formatDate } from "@/lib/date-utils";
 import { useToast } from "@/hooks/use-toast";
 import { PatientForm } from "@/components/patients/PatientForm";
 import { PatientActivitiesTab } from "@/components/patients/PatientActivitiesTab";
@@ -197,7 +198,7 @@ const PatientDetailPage = () => {
               <h1 className="text-2xl font-bold truncate">
                 {patient.name || "Без имени"}
               </h1>
-              <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground mt-1">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground mt-1">
                 {patient.email && (
                   <div className="flex items-center gap-1.5">
                     <Mail className="w-4 h-4" />
@@ -213,6 +214,24 @@ const PatientDetailPage = () => {
                   <div className="flex items-center gap-1.5">
                     <Phone className="w-4 h-4" />
                     <span>{patient.phone}</span>
+                  </div>
+                )}
+                {patient.address && (
+                  <div className="flex items-center gap-1.5">
+                    <MapPin className="w-4 h-4" />
+                    <span>{patient.address}</span>
+                  </div>
+                )}
+                {patient.date_of_birth && (
+                  <div className="flex items-center gap-1.5">
+                    <Calendar className="w-4 h-4" />
+                    <span>{formatDate(patient.date_of_birth)}</span>
+                  </div>
+                )}
+                {patient.gender && (
+                  <div className="flex items-center gap-1.5">
+                    <User className="w-4 h-4" />
+                    <span>{patient.gender}</span>
                   </div>
                 )}
               </div>
@@ -251,67 +270,25 @@ const PatientDetailPage = () => {
             <div className="flex-1 overflow-auto p-6">
               {/* Info Tab */}
               <TabsContent value="info" className="mt-0 space-y-6">
-                {/* Patient Info Card */}
+                {/* AI Case Summary - placeholder for future AI generation */}
                 <Card>
                   <CardHeader>
-                    <CardTitle>Основная информация</CardTitle>
+                    <CardTitle className="flex items-center gap-2">
+                      <Sparkles className="w-5 h-5" />
+                      Сводка по случаю
+                    </CardTitle>
                     <CardDescription>
-                      Контактные данные и личная информация
+                      AI-анализ на основе всех документов и сессий пациента
                     </CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="flex items-start gap-3">
-                        <Mail className="w-5 h-5 text-muted-foreground mt-0.5" />
-                        <div>
-                          <p className="text-sm font-medium">Email</p>
-                          <p className="text-sm text-muted-foreground">
-                            {patient.email || "—"}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-start gap-3">
-                        <Phone className="w-5 h-5 text-muted-foreground mt-0.5" />
-                        <div>
-                          <p className="text-sm font-medium">Телефон</p>
-                          <p className="text-sm text-muted-foreground">
-                            {patient.phone || "—"}
-                          </p>
-                        </div>
-                      </div>
-                      {patient.date_of_birth && (
-                        <div className="flex items-start gap-3">
-                          <Calendar className="w-5 h-5 text-muted-foreground mt-0.5" />
-                          <div>
-                            <p className="text-sm font-medium">Дата рождения</p>
-                            <p className="text-sm text-muted-foreground">
-                              {formatDate(patient.date_of_birth)}
-                            </p>
-                          </div>
-                        </div>
-                      )}
-                      {patient.gender && (
-                        <div className="flex items-start gap-3">
-                          <User className="w-5 h-5 text-muted-foreground mt-0.5" />
-                          <div>
-                            <p className="text-sm font-medium">Пол</p>
-                            <p className="text-sm text-muted-foreground">
-                              {patient.gender}
-                            </p>
-                          </div>
-                        </div>
-                      )}
-                      {patient.address && (
-                        <div className="flex items-start gap-3 md:col-span-2">
-                          <MapPin className="w-5 h-5 text-muted-foreground mt-0.5" />
-                          <div>
-                            <p className="text-sm font-medium">Адрес</p>
-                            <p className="text-sm text-muted-foreground">
-                              {patient.address}
-                            </p>
-                          </div>
-                        </div>
-                      )}
+                  <CardContent>
+                    {/* TODO: AI-generated case summary will be rendered here */}
+                    {/* Structure will include multiple sections based on prompt */}
+                    <div className="text-center py-8 text-muted-foreground">
+                      <Sparkles className="w-8 h-8 mx-auto mb-3 opacity-50" />
+                      <p className="text-sm">
+                        Сводка будет сгенерирована после добавления документов и сессий
+                      </p>
                     </div>
                   </CardContent>
                 </Card>
@@ -353,31 +330,6 @@ const PatientDetailPage = () => {
                     </CardContent>
                   </Card>
                 )}
-
-                {/* Metadata */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Метаданные</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Создан:</span>
-                      <span>{formatDateTime(patient.created_at)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Обновлен:</span>
-                      <span>{formatDateTime(patient.updated_at)}</span>
-                    </div>
-                    {patient.last_activity_at && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">
-                          Последняя активность:
-                        </span>
-                        <span>{formatDateTime(patient.last_activity_at)}</span>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
               </TabsContent>
 
               {/* Activities Tab */}
