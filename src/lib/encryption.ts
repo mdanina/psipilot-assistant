@@ -96,9 +96,12 @@ function generateIV(): Uint8Array {
 
 /**
  * Encrypt PHI data
- * 
+ *
+ * Output format matches backend (Node.js): IV (12) + TAG (16) + CIPHERTEXT
+ * This ensures compatibility between frontend and backend encryption.
+ *
  * @param plaintext - Plain text data to encrypt
- * @returns Base64 encoded encrypted data with IV prepended
+ * @returns Base64 encoded encrypted data (IV + TAG + CIPHERTEXT)
  */
 export async function encryptPHI(plaintext: string): Promise<string> {
   if (!plaintext) {
@@ -116,20 +119,31 @@ export async function encryptPHI(plaintext: string): Promise<string> {
     const encoder = new TextEncoder();
     const data = encoder.encode(plaintext);
 
-    const encrypted = await crypto.subtle.encrypt(
+    // Web Crypto returns: ciphertext + tag (tag at the end)
+    const encryptedWithTag = await crypto.subtle.encrypt(
       {
         name: ALGORITHM,
         iv: iv,
-        tagLength: 128, // 128-bit authentication tag
+        tagLength: 128, // 128-bit authentication tag = 16 bytes
       },
       key,
       data
     );
 
-    // Combine IV and encrypted data
-    const combined = new Uint8Array(iv.length + encrypted.byteLength);
+    const encryptedArray = new Uint8Array(encryptedWithTag);
+
+    // Web Crypto format: CIPHERTEXT (variable) + TAG (16 bytes at the end)
+    // Backend format: IV (12) + TAG (16) + CIPHERTEXT
+    // We need to reorder to match backend
+
+    const ciphertext = encryptedArray.slice(0, encryptedArray.length - 16);
+    const tag = encryptedArray.slice(encryptedArray.length - 16);
+
+    // Combine: IV + TAG + CIPHERTEXT (backend format)
+    const combined = new Uint8Array(IV_LENGTH + 16 + ciphertext.length);
     combined.set(iv, 0);
-    combined.set(new Uint8Array(encrypted), iv.length);
+    combined.set(tag, IV_LENGTH);
+    combined.set(ciphertext, IV_LENGTH + 16);
 
     // Convert to base64 for storage
     return arrayBufferToBase64(combined.buffer);
@@ -141,10 +155,16 @@ export async function encryptPHI(plaintext: string): Promise<string> {
 
 /**
  * Decrypt PHI data
- * 
+ *
+ * Supports two formats:
+ * 1. Backend format (Node.js): IV (12) + TAG (16) + CIPHERTEXT
+ * 2. Frontend format (Web Crypto): IV (12) + CIPHERTEXT+TAG
+ *
  * @param encryptedData - Base64 encoded encrypted data with IV
  * @returns Decrypted plain text
  */
+const TAG_LENGTH = 16; // 128-bit authentication tag
+
 export async function decryptPHI(encryptedData: string): Promise<string> {
   if (!encryptedData) {
     return '';
@@ -160,9 +180,18 @@ export async function decryptPHI(encryptedData: string): Promise<string> {
     const combined = base64ToArrayBuffer(encryptedData);
     const combinedArray = new Uint8Array(combined);
 
-    // Extract IV and encrypted data
+    // Backend format: IV (12) + TAG (16) + CIPHERTEXT
+    // Web Crypto expects: IV + CIPHERTEXT+TAG (tag at the end)
+    // We need to reorder: move TAG from position 12-28 to the end
+
     const iv = combinedArray.slice(0, IV_LENGTH);
-    const encrypted = combinedArray.slice(IV_LENGTH);
+    const tag = combinedArray.slice(IV_LENGTH, IV_LENGTH + TAG_LENGTH);
+    const ciphertext = combinedArray.slice(IV_LENGTH + TAG_LENGTH);
+
+    // Web Crypto API expects ciphertext with tag appended at the end
+    const ciphertextWithTag = new Uint8Array(ciphertext.length + TAG_LENGTH);
+    ciphertextWithTag.set(ciphertext, 0);
+    ciphertextWithTag.set(tag, ciphertext.length);
 
     const decrypted = await crypto.subtle.decrypt(
       {
@@ -171,7 +200,7 @@ export async function decryptPHI(encryptedData: string): Promise<string> {
         tagLength: 128,
       },
       key,
-      encrypted
+      ciphertextWithTag
     );
 
     const decoder = new TextDecoder();
