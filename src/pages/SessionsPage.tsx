@@ -145,16 +145,25 @@ const SessionsPage = () => {
     }
   }, [activeSession]);
 
-  // Auto-refresh recordings periodically for active session
+  // Auto-refresh recordings ONLY if there are pending/processing transcriptions
   useEffect(() => {
     if (!activeSession) return;
 
+    // Check if there are any recordings that need polling
+    const hasPendingTranscriptions = recordings.some(
+      r => r.session_id === activeSession &&
+           (r.transcription_status === 'pending' || r.transcription_status === 'processing')
+    );
+
+    // Only set up interval if there are pending transcriptions
+    if (!hasPendingTranscriptions) return;
+
     const refreshInterval = setInterval(() => {
       loadRecordings(activeSession);
-    }, 5000); // Refresh every 5 seconds
+    }, 5000);
 
     return () => clearInterval(refreshInterval);
-  }, [activeSession]);
+  }, [activeSession, recordings]);
 
   // Refresh recordings when page becomes visible
   useEffect(() => {
