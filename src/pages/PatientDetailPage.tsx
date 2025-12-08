@@ -1,36 +1,65 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Edit, Save, X, Loader2, User, Mail, Phone, MapPin, Calendar, FileText, StickyNote } from "lucide-react";
+import {
+  ArrowLeft,
+  Edit,
+  Loader2,
+  User,
+  Mail,
+  Phone,
+  MapPin,
+  Calendar,
+  StickyNote,
+} from "lucide-react";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { getPatient, updatePatient, type DecryptedPatient } from "@/lib/supabase-patients";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  getPatient,
+  updatePatient,
+  type DecryptedPatient,
+} from "@/lib/supabase-patients";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
 import { useToast } from "@/hooks/use-toast";
 import { PatientForm } from "@/components/patients/PatientForm";
+import { PatientActivitiesTab } from "@/components/patients/PatientActivitiesTab";
+import { PatientDocumentsTab } from "@/components/patients/PatientDocumentsTab";
+import { PatientConversationInvitationsTab } from "@/components/patients/PatientConversationInvitationsTab";
 
 const PatientDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { toast } = useToast();
-  
+
   const [patient, setPatient] = useState<DecryptedPatient | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState("info");
 
-  const shouldEdit = searchParams.get('edit') === 'true';
+  const shouldEdit = searchParams.get("edit") === "true";
+  const initialTab = searchParams.get("tab");
 
   useEffect(() => {
     if (shouldEdit) {
       setIsEditing(true);
     }
-  }, [shouldEdit]);
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [shouldEdit, initialTab]);
 
   useEffect(() => {
     if (!id) {
-      navigate('/patients');
+      navigate("/patients");
       return;
     }
 
@@ -50,7 +79,7 @@ const PatientDetailPage = () => {
           description: `Не удалось загрузить данные пациента: ${error.message}`,
           variant: "destructive",
         });
-        navigate('/patients');
+        navigate("/patients");
         return;
       }
 
@@ -60,7 +89,7 @@ const PatientDetailPage = () => {
           description: "Пациент с указанным ID не существует",
           variant: "destructive",
         });
-        navigate('/patients');
+        navigate("/patients");
         return;
       }
 
@@ -72,7 +101,7 @@ const PatientDetailPage = () => {
         description: "Произошла ошибка при загрузке данных пациента",
         variant: "destructive",
       });
-      navigate('/patients');
+      navigate("/patients");
     } finally {
       setIsLoading(false);
     }
@@ -101,7 +130,6 @@ const PatientDetailPage = () => {
           title: "Успешно",
           description: "Данные пациента обновлены",
         });
-        // Remove edit query param
         navigate(`/patients/${id}`, { replace: true });
       }
     } catch (error) {
@@ -134,163 +162,240 @@ const PatientDetailPage = () => {
   return (
     <>
       <Header title="Пациент" icon={<User className="w-5 h-5" />} />
-      <div className="flex-1 p-6 overflow-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <Button
-            variant="ghost"
-            className="gap-2"
-            onClick={() => navigate('/patients')}
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Назад к списку
-          </Button>
-          {!isEditing && (
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Top bar with back button and patient info */}
+        <div className="px-6 py-4 border-b border-border bg-background">
+          <div className="flex items-center justify-between mb-3">
             <Button
-              variant="outline"
+              variant="ghost"
+              size="sm"
               className="gap-2"
-              onClick={() => setIsEditing(true)}
+              onClick={() => navigate("/patients")}
             >
-              <Edit className="w-4 h-4" />
-              Редактировать
+              <ArrowLeft className="w-4 h-4" />
+              Назад к списку
             </Button>
-          )}
-        </div>
-
-        {isEditing ? (
-          <PatientForm
-            patient={patient}
-            onSave={handleSave}
-            onCancel={() => {
-              setIsEditing(false);
-              navigate(`/patients/${id}`, { replace: true });
-            }}
-            isSaving={isSaving}
-          />
-        ) : (
-          <div className="space-y-6">
-            {/* Patient Info Card */}
-            <Card>
-              <CardHeader>
-                <CardTitle>{patient.name || "Без имени"}</CardTitle>
-                <CardDescription>Основная информация о пациенте</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="flex items-start gap-3">
-                    <Mail className="w-5 h-5 text-muted-foreground mt-0.5" />
-                    <div>
-                      <p className="text-sm font-medium">Email</p>
-                      <p className="text-sm text-muted-foreground">
-                        {patient.email || "—"}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-3">
-                    <Phone className="w-5 h-5 text-muted-foreground mt-0.5" />
-                    <div>
-                      <p className="text-sm font-medium">Телефон</p>
-                      <p className="text-sm text-muted-foreground">
-                        {patient.phone || "—"}
-                      </p>
-                    </div>
-                  </div>
-                  {patient.date_of_birth && (
-                    <div className="flex items-start gap-3">
-                      <Calendar className="w-5 h-5 text-muted-foreground mt-0.5" />
-                      <div>
-                        <p className="text-sm font-medium">Дата рождения</p>
-                        <p className="text-sm text-muted-foreground">
-                          {formatDate(patient.date_of_birth)}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                  {patient.gender && (
-                    <div className="flex items-start gap-3">
-                      <User className="w-5 h-5 text-muted-foreground mt-0.5" />
-                      <div>
-                        <p className="text-sm font-medium">Пол</p>
-                        <p className="text-sm text-muted-foreground">
-                          {patient.gender}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                  {patient.address && (
-                    <div className="flex items-start gap-3 md:col-span-2">
-                      <MapPin className="w-5 h-5 text-muted-foreground mt-0.5" />
-                      <div>
-                        <p className="text-sm font-medium">Адрес</p>
-                        <p className="text-sm text-muted-foreground">
-                          {patient.address}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Notes Card */}
-            {patient.notes && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <StickyNote className="w-5 h-5" />
-                    Заметки
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm whitespace-pre-wrap">{patient.notes}</p>
-                </CardContent>
-              </Card>
+            {!isEditing && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => setIsEditing(true)}
+              >
+                <Edit className="w-4 h-4" />
+                Редактировать
+              </Button>
             )}
+          </div>
 
-            {/* Tags */}
-            {patient.tags && patient.tags.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Теги</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-wrap gap-2">
-                    {patient.tags.map((tag, index) => (
-                      <span
-                        key={index}
-                        className="px-2 py-1 bg-muted rounded-md text-sm"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Metadata */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Метаданные</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Создан:</span>
-                  <span>{formatDateTime(patient.created_at)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Обновлен:</span>
-                  <span>{formatDateTime(patient.updated_at)}</span>
-                </div>
-                {patient.last_activity_at && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Последняя активность:</span>
-                    <span>{formatDateTime(patient.last_activity_at)}</span>
+          {/* Patient header info */}
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+              <User className="w-6 h-6 text-primary" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h1 className="text-2xl font-bold truncate">
+                {patient.name || "Без имени"}
+              </h1>
+              <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground mt-1">
+                {patient.email && (
+                  <div className="flex items-center gap-1.5">
+                    <Mail className="w-4 h-4" />
+                    <a
+                      href={`mailto:${patient.email}`}
+                      className="hover:text-foreground hover:underline"
+                    >
+                      {patient.email}
+                    </a>
                   </div>
                 )}
-              </CardContent>
-            </Card>
+                {patient.phone && (
+                  <div className="flex items-center gap-1.5">
+                    <Phone className="w-4 h-4" />
+                    <span>{patient.phone}</span>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
+        </div>
+
+        {/* Content area */}
+        {isEditing ? (
+          <div className="flex-1 overflow-auto p-6">
+            <PatientForm
+              patient={patient}
+              onSave={handleSave}
+              onCancel={() => {
+                setIsEditing(false);
+                navigate(`/patients/${id}`, { replace: true });
+              }}
+              isSaving={isSaving}
+            />
+          </div>
+        ) : (
+          <Tabs
+            value={activeTab}
+            onValueChange={setActiveTab}
+            className="flex-1 flex flex-col overflow-hidden"
+          >
+            <div className="px-6 pt-4 border-b border-border">
+              <TabsList>
+                <TabsTrigger value="info">Информация</TabsTrigger>
+                <TabsTrigger value="activities">Активности</TabsTrigger>
+                <TabsTrigger value="documents">Документы</TabsTrigger>
+                <TabsTrigger value="invitations">Приглашения</TabsTrigger>
+              </TabsList>
+            </div>
+
+            <div className="flex-1 overflow-auto p-6">
+              {/* Info Tab */}
+              <TabsContent value="info" className="mt-0 space-y-6">
+                {/* Patient Info Card */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Основная информация</CardTitle>
+                    <CardDescription>
+                      Контактные данные и личная информация
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="flex items-start gap-3">
+                        <Mail className="w-5 h-5 text-muted-foreground mt-0.5" />
+                        <div>
+                          <p className="text-sm font-medium">Email</p>
+                          <p className="text-sm text-muted-foreground">
+                            {patient.email || "—"}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <Phone className="w-5 h-5 text-muted-foreground mt-0.5" />
+                        <div>
+                          <p className="text-sm font-medium">Телефон</p>
+                          <p className="text-sm text-muted-foreground">
+                            {patient.phone || "—"}
+                          </p>
+                        </div>
+                      </div>
+                      {patient.date_of_birth && (
+                        <div className="flex items-start gap-3">
+                          <Calendar className="w-5 h-5 text-muted-foreground mt-0.5" />
+                          <div>
+                            <p className="text-sm font-medium">Дата рождения</p>
+                            <p className="text-sm text-muted-foreground">
+                              {formatDate(patient.date_of_birth)}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      {patient.gender && (
+                        <div className="flex items-start gap-3">
+                          <User className="w-5 h-5 text-muted-foreground mt-0.5" />
+                          <div>
+                            <p className="text-sm font-medium">Пол</p>
+                            <p className="text-sm text-muted-foreground">
+                              {patient.gender}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      {patient.address && (
+                        <div className="flex items-start gap-3 md:col-span-2">
+                          <MapPin className="w-5 h-5 text-muted-foreground mt-0.5" />
+                          <div>
+                            <p className="text-sm font-medium">Адрес</p>
+                            <p className="text-sm text-muted-foreground">
+                              {patient.address}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Notes Card */}
+                {patient.notes && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <StickyNote className="w-5 h-5" />
+                        Заметки
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm whitespace-pre-wrap">
+                        {patient.notes}
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Tags */}
+                {patient.tags && patient.tags.length > 0 && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Теги</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex flex-wrap gap-2">
+                        {patient.tags.map((tag, index) => (
+                          <span
+                            key={index}
+                            className="px-2 py-1 bg-muted rounded-md text-sm"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Metadata */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Метаданные</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Создан:</span>
+                      <span>{formatDateTime(patient.created_at)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Обновлен:</span>
+                      <span>{formatDateTime(patient.updated_at)}</span>
+                    </div>
+                    {patient.last_activity_at && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">
+                          Последняя активность:
+                        </span>
+                        <span>{formatDateTime(patient.last_activity_at)}</span>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* Activities Tab */}
+              <TabsContent value="activities" className="mt-0">
+                <PatientActivitiesTab patientId={id!} />
+              </TabsContent>
+
+              {/* Documents Tab */}
+              <TabsContent value="documents" className="mt-0">
+                <PatientDocumentsTab patientId={id!} />
+              </TabsContent>
+
+              {/* Invitations Tab */}
+              <TabsContent value="invitations" className="mt-0">
+                <PatientConversationInvitationsTab patientId={id!} />
+              </TabsContent>
+            </div>
+          </Tabs>
         )}
       </div>
     </>
@@ -298,4 +403,3 @@ const PatientDetailPage = () => {
 };
 
 export default PatientDetailPage;
-

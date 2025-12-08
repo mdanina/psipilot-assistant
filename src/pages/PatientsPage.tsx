@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Users, Plus, RefreshCw, Search, Mail, Phone, FileText, Pencil, Trash2, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { Users, Plus, RefreshCw, Search, Mail, Phone, FileText, Pencil, Trash2, Loader2 } from "lucide-react";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,7 +28,6 @@ import { getPatientDocumentCounts } from "@/lib/supabase-patients";
 import { formatRelativeTime } from "@/lib/date-utils";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { PatientDetailModal } from "@/components/patients/PatientDetailModal";
 
 interface PatientWithDocuments extends DecryptedPatient {
   documentCount: number;
@@ -38,7 +37,7 @@ const PatientsPage = () => {
   const { profile } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
-  
+
   const [patients, setPatients] = useState<PatientWithDocuments[]>([]);
   const [filteredPatients, setFilteredPatients] = useState<PatientWithDocuments[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -46,7 +45,6 @@ const PatientsPage = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [deletingPatientId, setDeletingPatientId] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
 
   // Load patients from database
   const loadPatients = useCallback(async () => {
@@ -164,9 +162,9 @@ const PatientsPage = () => {
     });
   };
 
-  // Handle row click - open patient detail modal
+  // Handle row click - navigate to patient detail page
   const handleRowClick = (patientId: string) => {
-    setSelectedPatientId(patientId);
+    navigate(`/patients/${patientId}`);
   };
 
   // Handle delete
@@ -228,15 +226,15 @@ const PatientsPage = () => {
             <p className="text-muted-foreground">Управление пациентами</p>
           </div>
           <div className="flex items-center gap-3">
-            <Button 
+            <Button
               className="gap-2"
               onClick={() => navigate("/patients/new")}
             >
               <Plus className="w-4 h-4" />
               Новый пациент
             </Button>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               className="gap-2"
               onClick={handleRefresh}
               disabled={isRefreshing}
@@ -246,7 +244,7 @@ const PatientsPage = () => {
             </Button>
           </div>
         </div>
-        
+
         {/* Search */}
         <div className="relative mb-6">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -257,7 +255,7 @@ const PatientsPage = () => {
             className="pl-9 max-w-md"
           />
         </div>
-        
+
         {/* Table */}
         <div className="bg-card rounded-lg border border-border">
           {isLoading && filteredPatients.length === 0 ? (
@@ -337,10 +335,10 @@ const PatientsPage = () => {
               </Table>
             </>
           )}
-          
+
           {/* Table footer */}
           <div className="p-4 border-t border-border text-center text-sm text-muted-foreground">
-            {searchQuery 
+            {searchQuery
               ? `Найдено: ${filteredPatients.length} ${filteredPatients.length === 1 ? 'пациент' : filteredPatients.length < 5 ? 'пациента' : 'пациентов'}`
               : `Всего: ${patients.length} ${patients.length === 1 ? 'пациент' : patients.length < 5 ? 'пациента' : 'пациентов'}`
             }
@@ -370,23 +368,6 @@ const PatientsPage = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* Patient detail modal */}
-      {selectedPatientId && (
-        <PatientDetailModal
-          patientId={selectedPatientId}
-          open={!!selectedPatientId}
-          onOpenChange={(open) => {
-            if (!open) {
-              setSelectedPatientId(null);
-            }
-          }}
-          onEdit={(patientId) => {
-            setSelectedPatientId(null);
-            navigate(`/patients/${patientId}?edit=true`);
-          }}
-        />
-      )}
     </>
   );
 };
