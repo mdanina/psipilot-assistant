@@ -241,6 +241,43 @@ export type Database = {
           }
         ];
       };
+      user_session_tabs: {
+        Row: {
+          id: string;
+          user_id: string;
+          session_id: string;
+          opened_at: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          session_id: string;
+          opened_at?: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          session_id?: string;
+          opened_at?: string;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'user_session_tabs_user_id_fkey';
+            columns: ['user_id'];
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'user_session_tabs_session_id_fkey';
+            columns: ['session_id'];
+            referencedRelation: 'sessions';
+            referencedColumns: ['id'];
+          }
+        ];
+      };
       clinical_notes: {
         Row: {
           id: string;

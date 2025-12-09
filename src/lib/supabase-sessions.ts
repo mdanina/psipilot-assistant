@@ -96,16 +96,86 @@ export async function getSession(sessionId: string): Promise<Session> {
 }
 
 /**
+ * Check if session has clinical notes and their statuses
+ */
+export async function checkSessionClinicalNotes(
+  sessionId: string
+): Promise<{
+  hasNotes: boolean;
+  notesCount: number;
+  hasFinalizedNotes: boolean;
+  finalizedCount: number;
+  hasSignedNotes: boolean;
+  signedCount: number;
+}> {
+  const { data, error } = await supabase
+    .from('clinical_notes')
+    .select('id, status')
+    .eq('session_id', sessionId);
+
+  if (error) {
+    console.error('Error checking clinical notes:', error);
+    throw new Error(`Failed to check clinical notes: ${error.message}`);
+  }
+
+  const notes = data || [];
+  const finalizedNotes = notes.filter(n => n.status === 'finalized');
+  const signedNotes = notes.filter(n => n.status === 'signed');
+
+  return {
+    hasNotes: notes.length > 0,
+    notesCount: notes.length,
+    hasFinalizedNotes: finalizedNotes.length > 0,
+    finalizedCount: finalizedNotes.length,
+    hasSignedNotes: signedNotes.length > 0,
+    signedCount: signedNotes.length,
+  };
+}
+
+/**
  * Link session to patient
  * Automatically creates consent if patient doesn't have active consent
  * CRITICAL: Creates BOTH data_processing AND recording consents
  * - data_processing: needed to view session and patient
  * - recording: needed to view recordings (recordings RLS policy requires it)
+ * 
+ * If session already has a patient, this will RE-LINK to a new patient.
+ * All clinical notes will be updated to the new patient_id.
+ * 
+ * WARNING: Re-linking finalized or signed notes may have compliance implications.
  */
 export async function linkSessionToPatient(
   sessionId: string,
-  patientId: string
+  patientId: string,
+  options?: {
+    allowRelinkFinalized?: boolean; // Allow re-linking even if notes are finalized
+    allowRelinkSigned?: boolean; // Allow re-linking even if notes are signed
+  }
 ): Promise<Session> {
+  // Get current session to check if it's already linked
+  const currentSession = await getSession(sessionId);
+  const isRelinking = currentSession.patient_id !== null && currentSession.patient_id !== patientId;
+
+  // Check for existing clinical notes
+  const notesCheck = await checkSessionClinicalNotes(sessionId);
+
+  // Validate re-linking restrictions
+  if (isRelinking) {
+    if (notesCheck.hasSignedNotes && !options?.allowRelinkSigned) {
+      throw new Error(
+        `Невозможно перепривязать сессию: есть ${notesCheck.signedCount} подписанных клинических заметок. ` +
+        `Перепривязка подписанных заметок запрещена из соображений соответствия требованиям.`
+      );
+    }
+
+    if (notesCheck.hasFinalizedNotes && !options?.allowRelinkFinalized && !options?.allowRelinkSigned) {
+      throw new Error(
+        `Невозможно перепривязать сессию: есть ${notesCheck.finalizedCount} финализированных клинических заметок. ` +
+        `Перепривязка финализированных заметок может нарушить целостность данных.`
+      );
+    }
+  }
+
   // Helper function to create consent if missing
   const ensureConsent = async (
     consentType: 'data_processing' | 'recording',
@@ -131,7 +201,7 @@ export async function linkSessionToPatient(
           `[linkSessionToPatient] Creating ${consentType} consent via RPC function...`
         );
         const { data: consentId, error: consentError } = await supabase.rpc(
-          'create_consent_for_patient',
+          'create_consent_for_patient' as any,
           {
             p_patient_id: patientId,
             p_consent_type: consentType,
@@ -175,21 +245,62 @@ export async function linkSessionToPatient(
   // Create data_processing consent (required for viewing sessions and patients)
   await ensureConsent(
     'data_processing',
-    'Обработка персональных данных для оказания медицинских услуг в соответствии с договором',
-    'Автоматически создано при привязке сессии к пациенту. Требует подтверждения.'
+    isRelinking
+      ? 'Обработка персональных данных для оказания медицинских услуг в соответствии с договором (перепривязка сессии)'
+      : 'Обработка персональных данных для оказания медицинских услуг в соответствии с договором',
+    isRelinking
+      ? 'Автоматически создано при перепривязке сессии к пациенту. Требует подтверждения.'
+      : 'Автоматически создано при привязке сессии к пациенту. Требует подтверждения.'
   );
 
   // Create recording consent (required for viewing recordings)
   // This is critical - recordings RLS policy checks for 'recording' consent
   await ensureConsent(
     'recording',
-    'Запись аудио сессий для целей ведения медицинской документации',
-    'Автоматически создано при привязке сессии к пациенту. Требует подтверждения.'
+    isRelinking
+      ? 'Запись аудио сессий для целей ведения медицинской документации (перепривязка сессии)'
+      : 'Запись аудио сессий для целей ведения медицинской документации',
+    isRelinking
+      ? 'Автоматически создано при перепривязке сессии к пациенту. Требует подтверждения.'
+      : 'Автоматически создано при привязке сессии к пациенту. Требует подтверждения.'
   );
 
-  return updateSession(sessionId, {
+  // Update session patient_id
+  const updatedSession = await updateSession(sessionId, {
     patient_id: patientId,
   });
+
+  // Update all clinical notes to match the new patient_id
+  if (notesCheck.hasNotes) {
+    console.log(
+      `[linkSessionToPatient] Updating ${notesCheck.notesCount} clinical notes to new patient_id`
+    );
+    
+    const { error: updateNotesError } = await supabase
+      .from('clinical_notes')
+      .update({ patient_id: patientId })
+      .eq('session_id', sessionId);
+
+    if (updateNotesError) {
+      console.error(
+        '[linkSessionToPatient] Error updating clinical notes:',
+        updateNotesError
+      );
+      // This is critical - rollback session update if notes update fails
+      await updateSession(sessionId, {
+        patient_id: currentSession.patient_id,
+      });
+      throw new Error(
+        `Failed to update clinical notes: ${updateNotesError.message}. Session update rolled back.`
+      );
+    }
+
+    console.log(
+      `[linkSessionToPatient] Successfully updated ${notesCheck.notesCount} clinical notes`
+    );
+  }
+
+  return updatedSession;
 }
 
 /**
@@ -217,7 +328,7 @@ export async function deleteSession(sessionId: string): Promise<void> {
     .from('sessions')
     .update({
       deleted_at: new Date().toISOString(),
-    })
+    } as any)
     .eq('id', sessionId);
 
   if (error) {

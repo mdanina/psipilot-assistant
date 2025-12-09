@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { Plus, FileText, Circle, User, Link2, Loader2, Mic, Pause, Play, Square, Sparkles, ChevronDown, RefreshCw, Trash2, X, File, Upload, Search } from "lucide-react";
+import { Plus, FileText, Circle, User, Link2, Loader2, Mic, Pause, Play, Square, Sparkles, ChevronDown, RefreshCw, Trash2, X, File, Upload, Search, AlertTriangle } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,7 +19,7 @@ import { PatientCombobox } from "@/components/ui/patient-combobox";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
-import { linkSessionToPatient, getSession, createSession, deleteSession, completeSession } from "@/lib/supabase-sessions";
+import { linkSessionToPatient, getSession, createSession, deleteSession, completeSession, checkSessionClinicalNotes } from "@/lib/supabase-sessions";
 import { getSessionRecordings, getRecordingStatus, createRecording, uploadAudioFile, updateRecording, startTranscription, syncTranscriptionStatus, deleteRecording } from "@/lib/supabase-recordings";
 import { getPatients } from "@/lib/supabase-patients";
 import { getSessionNotes, createSessionNote, deleteSessionNote, getCombinedTranscriptWithNotes } from "@/lib/supabase-session-notes";
@@ -54,6 +55,12 @@ const SessionsPage = () => {
   const [isLinking, setIsLinking] = useState(false);
   const [selectedPatientId, setSelectedPatientId] = useState<string>("");
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [relinkWarning, setRelinkWarning] = useState<{
+    show: boolean;
+    notesCount: number;
+    finalizedCount: number;
+    signedCount: number;
+  } | null>(null);
   const [deletingRecordingId, setDeletingRecordingId] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [closingSessionId, setClosingSessionId] = useState<string | null>(null);
@@ -106,6 +113,129 @@ const SessionsPage = () => {
       });
     }
   }, [recorderError, toast]);
+
+  // Load open tabs from database
+  const loadOpenTabs = async (): Promise<Set<string>> => {
+    if (!user?.id) return new Set();
+    
+    try {
+      const { data, error } = await supabase
+        .from('user_session_tabs')
+        .select('session_id')
+        .eq('user_id', user.id);
+      
+      if (error) throw error;
+      
+      return new Set(data?.map(row => row.session_id) || []);
+    } catch (error) {
+      console.error('Error loading open tabs:', error);
+      return new Set();
+    }
+  };
+
+  // Save open tabs to database
+  const saveOpenTabs = async (sessionIds: Set<string>) => {
+    if (!user?.id) return;
+    
+    try {
+      // Get current open tabs from DB
+      const { data: currentTabs } = await supabase
+        .from('user_session_tabs')
+        .select('session_id')
+        .eq('user_id', user.id);
+      
+      const currentTabIds = new Set(currentTabs?.map(row => row.session_id) || []);
+      const newTabIds = Array.from(sessionIds);
+      
+      // Find tabs to add
+      const toAdd = newTabIds.filter(id => !currentTabIds.has(id));
+      // Find tabs to remove
+      const toRemove = Array.from(currentTabIds).filter(id => !sessionIds.has(id));
+      
+      // Add new tabs
+      if (toAdd.length > 0) {
+        const { error: insertError } = await supabase
+          .from('user_session_tabs')
+          .insert(toAdd.map(sessionId => ({
+            user_id: user.id,
+            session_id: sessionId
+          })));
+        
+        if (insertError) throw insertError;
+      }
+      
+      // Remove closed tabs
+      if (toRemove.length > 0) {
+        const { error: deleteError } = await supabase
+          .from('user_session_tabs')
+          .delete()
+          .eq('user_id', user.id)
+          .in('session_id', toRemove);
+        
+        if (deleteError) throw deleteError;
+      }
+    } catch (error) {
+      console.error('Error saving open tabs:', error);
+    }
+  };
+
+  // Load open tabs on mount
+  useEffect(() => {
+    if (user?.id) {
+      loadOpenTabs().then(tabs => {
+        setOpenTabs(tabs);
+      });
+    }
+  }, [user?.id]);
+
+  // Save open tabs when they change (debounced)
+  const saveTabsTimeoutRef = useRef<NodeJS.Timeout>();
+  useEffect(() => {
+    if (!user?.id) return;
+    
+    // Debounce saves to avoid too many DB calls
+    if (saveTabsTimeoutRef.current) {
+      clearTimeout(saveTabsTimeoutRef.current);
+    }
+    
+    saveTabsTimeoutRef.current = setTimeout(() => {
+      saveOpenTabs(openTabs);
+    }, 500);
+    
+    return () => {
+      if (saveTabsTimeoutRef.current) {
+        clearTimeout(saveTabsTimeoutRef.current);
+      }
+    };
+  }, [openTabs, user?.id]);
+
+  // Set active session when sessions and openTabs are loaded
+  useEffect(() => {
+    // Если все вкладки закрыты - сбросить активную сессию
+    if (openTabs.size === 0) {
+      setActiveSession(null);
+      return;
+    }
+    
+    // Если активная сессия больше не в открытых вкладках - выбрать первую открытую
+    if (activeSession && !openTabs.has(activeSession)) {
+      const firstOpenTab = Array.from(openTabs).find(id => 
+        sessions.some(s => s.id === id)
+      );
+      setActiveSession(firstOpenTab || null);
+      return;
+    }
+    
+    // Если нет активной сессии, но есть открытые вкладки - выбрать первую
+    if (sessions.length > 0 && !activeSession && openTabs.size > 0) {
+      const firstOpenTab = Array.from(openTabs).find(id => 
+        sessions.some(s => s.id === id)
+      );
+      if (firstOpenTab) {
+        setActiveSession(firstOpenTab);
+      }
+    }
+  }, [sessions, openTabs, activeSession]);
 
   // Load sessions
   useEffect(() => {
@@ -200,29 +330,19 @@ const SessionsPage = () => {
       const sessionsData = data || [];
       setSessions(sessionsData);
 
-      // On initial load (empty openTabs), add all sessions
-      // Otherwise, only keep sessions that are still valid (not deleted from DB)
+      // Only keep tabs that still exist in the database
       setOpenTabs(prev => {
         const validSessionIds = new Set(sessionsData.map(s => s.id));
-
-        // If openTabs is empty (initial load), add all sessions
-        if (prev.size === 0) {
-          return validSessionIds;
-        }
-
-        // Otherwise, only keep tabs that still exist in the database
         const newTabs = new Set<string>();
+        
         prev.forEach(id => {
           if (validSessionIds.has(id)) {
             newTabs.add(id);
           }
         });
+        
         return newTabs;
       });
-
-      if (sessionsData.length > 0 && !activeSession) {
-        setActiveSession(sessionsData[0].id);
-      }
       return sessionsData;
     } catch (error) {
       console.error('Error loading sessions:', error);
@@ -582,23 +702,89 @@ const SessionsPage = () => {
     }
   };
 
+  // Check for clinical notes when opening link dialog
+  const handleOpenLinkDialog = async () => {
+    if (!activeSession) return;
+    
+    setLinkDialogOpen(true);
+    setSelectedPatientId("");
+    
+    // Check if session already has a patient and clinical notes
+    const session = sessions.find(s => s.id === activeSession);
+    if (session?.patient_id) {
+      try {
+        const notesCheck = await checkSessionClinicalNotes(activeSession);
+        if (notesCheck.hasNotes) {
+          setRelinkWarning({
+            show: true,
+            notesCount: notesCheck.notesCount,
+            finalizedCount: notesCheck.finalizedCount,
+            signedCount: notesCheck.signedCount,
+          });
+        } else {
+          setRelinkWarning(null);
+        }
+      } catch (error) {
+        console.error('Error checking clinical notes:', error);
+        setRelinkWarning(null);
+      }
+    } else {
+      setRelinkWarning(null);
+    }
+  };
+
   const handleLinkToPatient = async () => {
     if (!activeSession || !selectedPatientId) return;
 
     setIsLinking(true);
-    // Save current session ID before reloading
     const savedSessionId = activeSession;
+    
     try {
-      await linkSessionToPatient(activeSession, selectedPatientId);
+      // Determine if this is a re-link
+      const session = sessions.find(s => s.id === activeSession);
+      const isRelinking = session?.patient_id !== null && session?.patient_id !== selectedPatientId;
+      
+      // Get notes check for re-linking
+      let allowRelinkFinalized = false;
+      let allowRelinkSigned = false;
+      
+      if (isRelinking && relinkWarning) {
+        // For re-linking, we need user confirmation for finalized/signed notes
+        if (relinkWarning.signedCount > 0) {
+          // Don't allow re-linking signed notes without explicit confirmation
+          throw new Error(
+            `Невозможно перепривязать: есть ${relinkWarning.signedCount} подписанных заметок. ` +
+            `Перепривязка подписанных заметок запрещена.`
+          );
+        }
+        
+        if (relinkWarning.finalizedCount > 0) {
+          // Allow but warn - in production, show confirmation dialog
+          console.warn(
+            `Re-linking session with ${relinkWarning.finalizedCount} finalized notes`
+          );
+          allowRelinkFinalized = true;
+        }
+      }
+
+      await linkSessionToPatient(activeSession, selectedPatientId, {
+        allowRelinkFinalized,
+        allowRelinkSigned,
+      });
+      
       toast({
         title: "Успешно",
-        description: "Сессия привязана к пациенту",
+        description: isRelinking 
+          ? "Сессия перепривязана к новому пациенту" 
+          : "Сессия привязана к пациенту",
       });
+      
       setLinkDialogOpen(false);
       setSelectedPatientId("");
+      setRelinkWarning(null);
+      
       // Reload sessions and restore active session
       const updatedSessions = await loadSessions();
-      // Restore active session if it still exists, otherwise select the first one
       const sessionToSelect = updatedSessions.find(s => s.id === savedSessionId) || updatedSessions[0];
       if (sessionToSelect) {
         setActiveSession(sessionToSelect.id);
@@ -607,11 +793,17 @@ const SessionsPage = () => {
       } else {
         setActiveSession(null);
       }
+      
+      // Reload clinical notes if they exist
+      if (activeSession) {
+        await loadClinicalNotes(activeSession);
+      }
     } catch (error) {
       console.error('Error linking session to patient:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Неизвестная ошибка';
       toast({
         title: "Ошибка",
-        description: "Не удалось привязать сессию к пациенту",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {
@@ -722,7 +914,10 @@ const SessionsPage = () => {
     return result;
   }, [sessions, patients, searchQuery, openTabs]);
 
-  const currentSession = filteredSessions.find(s => s.id === activeSession) || sessions.find(s => s.id === activeSession);
+  // Только показываем сессию, если она в открытых вкладках
+  const currentSession = activeSession && openTabs.has(activeSession)
+    ? (filteredSessions.find(s => s.id === activeSession) || sessions.find(s => s.id === activeSession))
+    : null;
   const currentRecordings = recordings.filter(r => r.session_id === activeSession);
   const currentNotes = sessionNotes.filter(n => n.session_id === activeSession);
 
@@ -1039,65 +1234,90 @@ const SessionsPage = () => {
         </div>
         
         {/* Session tabs */}
-        <div className="border-b border-border px-6 py-3 flex items-center gap-2 overflow-x-auto">
-          {isLoading ? (
-            <div className="flex items-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              <span className="text-sm text-muted-foreground">Загрузка...</span>
-            </div>
-          ) : (
-            <>
-          {filteredSessions.map((session) => (
-            <div
-              key={session.id}
-              className={`px-4 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors whitespace-nowrap group ${
-                activeSession === session.id
-                  ? "bg-muted text-foreground"
-                  : "text-muted-foreground hover:bg-muted/50"
-              }`}
-            >
-              <button
-                onClick={() => {
-                  // Add to open tabs if not already there
-                  setOpenTabs(prev => {
-                    const newTabs = new Set(prev);
-                    newTabs.add(session.id);
-                    return newTabs;
-                  });
-                  setActiveSession(session.id);
-                }}
-                className="flex items-center gap-2 flex-1"
-              >
-                <Circle className={`w-2 h-2 ${!session.patient_id ? "text-destructive" : "text-success"} fill-current`} />
-                {(session.title?.replace(/^Запись\s/, 'Сессия ') || `Сессия ${new Date(session.created_at).toLocaleDateString('ru-RU')}`)}
-                {!session.patient_id && (
-                  <Badge variant="outline" className="ml-1 text-xs">
-                    Не привязано
-                  </Badge>
-                )}
-              </button>
-              <button
-                onClick={(e) => handleCloseSession(session.id, e)}
-                className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-muted rounded"
-                title="Закрыть сессию"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-          ))}
-              <button
-                className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg"
-                onClick={() => setCreateSessionDialogOpen(true)}
-                title="Создать новую сессию"
-              >
-            <Plus className="w-4 h-4" />
-          </button>
-            </>
-          )}
-        </div>
+        {openTabs.size > 0 && (
+          <div className="border-b border-border px-6 py-3 flex items-center gap-2 overflow-x-auto">
+            {isLoading ? (
+              <div className="flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span className="text-sm text-muted-foreground">Загрузка...</span>
+              </div>
+            ) : (
+              <>
+                {filteredSessions.map((session) => (
+                  <div
+                    key={session.id}
+                    className={`px-4 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors whitespace-nowrap group ${
+                      activeSession === session.id
+                        ? "bg-muted text-foreground"
+                        : "text-muted-foreground hover:bg-muted/50"
+                    }`}
+                  >
+                    <button
+                      onClick={() => {
+                        // Add to open tabs if not already there
+                        setOpenTabs(prev => {
+                          const newTabs = new Set(prev);
+                          newTabs.add(session.id);
+                          return newTabs;
+                        });
+                        setActiveSession(session.id);
+                      }}
+                      className="flex items-center gap-2 flex-1"
+                    >
+                      <Circle className={`w-2 h-2 ${!session.patient_id ? "text-destructive" : "text-success"} fill-current`} />
+                      {(session.title?.replace(/^Запись\s/, 'Сессия ') || `Сессия ${new Date(session.created_at).toLocaleDateString('ru-RU')}`)}
+                      {!session.patient_id && (
+                        <Badge variant="outline" className="ml-1 text-xs">
+                          Не привязано
+                        </Badge>
+                      )}
+                    </button>
+                    <button
+                      onClick={(e) => handleCloseSession(session.id, e)}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-muted rounded"
+                      title="Закрыть сессию"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg"
+                  onClick={() => setCreateSessionDialogOpen(true)}
+                  title="Создать новую сессию"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </>
+            )}
+          </div>
+        )}
         
         {/* Main content - 3 колонки: исходники, библиотека шаблонов, результат */}
         <div className="flex-1 overflow-hidden">
+          {openTabs.size === 0 ? (
+            // Empty state - все вкладки закрыты
+            <div className="h-full flex items-center justify-center p-8">
+              <div className="text-center max-w-md">
+                <div className="mb-4 flex justify-center">
+                  <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
+                    <FileText className="w-8 h-8 text-muted-foreground" />
+                  </div>
+                </div>
+                <h3 className="text-lg font-semibold mb-2">Нет открытых сессий</h3>
+                <p className="text-sm text-muted-foreground mb-6">
+                  Создайте новую сессию, чтобы начать работу.
+                </p>
+                <Button 
+                  onClick={() => setCreateSessionDialogOpen(true)}
+                  size="lg"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Создать новую сессию
+                </Button>
+              </div>
+            </div>
+          ) : (
           <ResizablePanelGroup direction="horizontal" className="h-full">
             {/* Левая колонка - Исходники (транскрипт, заметки) */}
             <ResizablePanel defaultSize={35} minSize={25} maxSize={50}>
@@ -1106,9 +1326,15 @@ const SessionsPage = () => {
               <div className="flex items-center justify-between mb-3">
               <h2 className="text-lg font-semibold text-foreground">Ввод информации о пациенте</h2>
                 {currentSession && !currentSession.patient_id && (
-                  <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
+                  <Dialog open={linkDialogOpen} onOpenChange={(open) => {
+                    setLinkDialogOpen(open);
+                    if (!open) {
+                      setRelinkWarning(null);
+                      setSelectedPatientId("");
+                    }
+                  }}>
                     <DialogTrigger asChild>
-                      <Button variant="outline" size="sm" className="gap-2">
+                      <Button variant="outline" size="sm" className="gap-2" onClick={handleOpenLinkDialog}>
                         <Link2 className="w-4 h-4" />
                         Привязать к пациенту
                       </Button>
@@ -1127,7 +1353,11 @@ const SessionsPage = () => {
                         <div className="flex justify-end gap-2">
                           <Button
                             variant="outline"
-                            onClick={() => setLinkDialogOpen(false)}
+                            onClick={() => {
+                              setLinkDialogOpen(false);
+                              setRelinkWarning(null);
+                              setSelectedPatientId("");
+                            }}
                             disabled={isLinking}
                           >
                             Отмена
@@ -1157,18 +1387,103 @@ const SessionsPage = () => {
                     <User className="w-3 h-3" />
                     Привязано к пациенту
                 </Badge>
-                {(() => {
-                  const linkedPatient = patients.find(p => p.id === currentSession.patient_id);
-                  return linkedPatient ? (
-                    <span className="text-sm text-foreground font-medium">
-                      {linkedPatient.name}
-                    </span>
-                  ) : (
-                    <span className="text-sm text-muted-foreground">
-                      Загрузка...
-                    </span>
-                  );
-                })()}
+                <Dialog open={linkDialogOpen} onOpenChange={(open) => {
+                  setLinkDialogOpen(open);
+                  if (!open) {
+                    setRelinkWarning(null);
+                    setSelectedPatientId("");
+                  }
+                }}>
+                  <DialogTrigger asChild>
+                    {(() => {
+                      const linkedPatient = patients.find(p => p.id === currentSession.patient_id);
+                      return linkedPatient ? (
+                        <button
+                          onClick={handleOpenLinkDialog}
+                          className="text-sm text-foreground font-medium hover:text-primary hover:underline transition-colors cursor-pointer"
+                        >
+                          {linkedPatient.name}
+                        </button>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">
+                          Загрузка...
+                        </span>
+                      );
+                    })()}
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Перепривязать сессию к пациенту</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                      {relinkWarning && relinkWarning.show && (
+                        <Alert variant="warning">
+                          <AlertTriangle className="h-4 w-4" />
+                          <AlertTitle>Внимание: перепривязка сессии</AlertTitle>
+                          <AlertDescription className="mt-2">
+                            <p className="mb-2">
+                              У этой сессии уже есть клинические заметки:
+                            </p>
+                            <ul className="list-disc list-inside space-y-1 text-sm">
+                              <li>Всего заметок: {relinkWarning.notesCount}</li>
+                              {relinkWarning.finalizedCount > 0 && (
+                                <li className="text-amber-600 dark:text-amber-500">
+                                  Финализированных: {relinkWarning.finalizedCount}
+                                </li>
+                              )}
+                              {relinkWarning.signedCount > 0 && (
+                                <li className="text-red-600 dark:text-red-500">
+                                  Подписанных: {relinkWarning.signedCount} (перепривязка запрещена)
+                                </li>
+                              )}
+                            </ul>
+                            {relinkWarning.signedCount === 0 && (
+                              <p className="mt-2 text-sm">
+                                Все заметки будут перепривязаны к новому пациенту.
+                              </p>
+                            )}
+                          </AlertDescription>
+                        </Alert>
+                      )}
+                      <PatientCombobox
+                        patients={patients}
+                        value={selectedPatientId}
+                        onValueChange={setSelectedPatientId}
+                        placeholder="Выберите нового пациента"
+                      />
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setLinkDialogOpen(false);
+                            setRelinkWarning(null);
+                            setSelectedPatientId("");
+                          }}
+                          disabled={isLinking}
+                        >
+                          Отмена
+                        </Button>
+                        <Button
+                          onClick={handleLinkToPatient}
+                          disabled={
+                            !selectedPatientId || 
+                            isLinking || 
+                            (relinkWarning?.signedCount ?? 0) > 0
+                          }
+                        >
+                          {isLinking ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                              Перепривязка...
+                            </>
+                          ) : (
+                            "Перепривязать"
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
               </div>
               )}
             </div>
@@ -1653,6 +1968,7 @@ const SessionsPage = () => {
               </div>
             </ResizablePanel>
           </ResizablePanelGroup>
+          )}
         </div>
       </div>
 
