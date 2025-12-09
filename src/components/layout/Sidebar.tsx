@@ -1,7 +1,8 @@
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
-import { Building2, ChevronDown, User, LogOut } from "lucide-react";
+import { Building2, ChevronDown, User, LogOut, Moon, Sun } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { ShrimpIcon } from "@/components/ShrimpIcon";
+import { useTheme } from "@/hooks/use-theme";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,6 +22,7 @@ export const Sidebar = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { profile, user, signOut } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   
   // Get user initials from profile or user email
   const getUserInitials = () => {
@@ -124,6 +126,15 @@ export const Sidebar = () => {
               <DropdownMenuItem onClick={() => navigate("/profile")}>
                 <User className="w-4 h-4 mr-2" />
                 <span>Редактировать профиль</span>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={toggleTheme}>
+                {theme === "light" ? (
+                  <Moon className="w-4 h-4 mr-2" />
+                ) : (
+                  <Sun className="w-4 h-4 mr-2" />
+                )}
+                <span>{theme === "light" ? "Темная тема" : "Светлая тема"}</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
