@@ -217,14 +217,12 @@ const SessionsPage = () => {
   useEffect(() => {
     // Пропускаем, если идет обработка навигации с sessionId
     if (processingNavigationRef.current) {
-      console.log('[ActiveSession] Skipping - processing navigation');
       return;
     }
     
     // Если все вкладки закрыты - сбросить активную сессию
     if (openTabs.size === 0) {
       if (activeSession) {
-        console.log('[ActiveSession] No open tabs, clearing activeSession:', activeSession);
         setActiveSession(null);
       }
       return;
@@ -232,23 +230,19 @@ const SessionsPage = () => {
     
     // Если активная сессия больше не в открытых вкладках - выбрать первую открытую
     if (activeSession && !openTabs.has(activeSession)) {
-      console.log('[ActiveSession] Active session not in open tabs:', activeSession, 'openTabs:', Array.from(openTabs));
       const firstOpenTab = Array.from(openTabs).find(id => 
         sessions.some(s => s.id === id)
       );
-      console.log('[ActiveSession] Selecting first open tab:', firstOpenTab);
       setActiveSession(firstOpenTab || null);
       return;
     }
     
     // Если нет активной сессии, но есть открытые вкладки - выбрать первую
     if (sessions.length > 0 && !activeSession && openTabs.size > 0) {
-      console.log('[ActiveSession] No active session, selecting first open tab. openTabs:', Array.from(openTabs));
       const firstOpenTab = Array.from(openTabs).find(id => 
         sessions.some(s => s.id === id)
       );
       if (firstOpenTab) {
-        console.log('[ActiveSession] Setting first open tab:', firstOpenTab);
         setActiveSession(firstOpenTab);
       }
     }
@@ -267,29 +261,16 @@ const SessionsPage = () => {
     const sessionIdFromUrl = searchParams.get('sessionId');
     const sessionId = sessionIdFromState || sessionIdFromUrl;
     
-    console.log('[Navigation] Checking navigation:', {
-      sessionIdFromState,
-      sessionIdFromUrl,
-      sessionId,
-      isLoading,
-      sessionsCount: sessions.length,
-      userId: user?.id,
-      processing: processingNavigationRef.current
-    });
-    
     if (sessionId && !isLoading && sessions.length > 0 && user?.id && !processingNavigationRef.current) {
-      console.log('[Navigation] Processing sessionId:', sessionId);
-      
       // Check if session exists in loaded sessions
       const sessionExists = sessions.some(s => s.id === sessionId);
       if (!sessionExists) {
-        console.warn('[Navigation] Session not found in loaded sessions:', sessionId);
+        console.warn('Session not found in loaded sessions:', sessionId);
         navigate(location.pathname, { replace: true, state: {} });
         return;
       }
       
       processingNavigationRef.current = true;
-      console.log('[Navigation] Saving to DB...');
       
       // СНАЧАЛА сохраняем в БД, ПОТОМ загружаем вкладки
       supabase
@@ -302,29 +283,20 @@ const SessionsPage = () => {
           if (error) {
             // Если уже существует - это нормально (UNIQUE constraint)
             if (error.code !== '23505') {
-              console.error('[Navigation] Error saving session tab:', error);
+              console.error('Error saving session tab:', error);
               processingNavigationRef.current = false;
               return;
-            } else {
-              console.log('[Navigation] Session tab already exists in DB');
             }
-          } else {
-            console.log('[Navigation] Session tab saved to DB successfully');
           }
           
           // После сохранения в БД - загружаем все вкладки заново
-          console.log('[Navigation] Loading tabs from DB...');
           const tabs = await loadOpenTabs();
-          console.log('[Navigation] Loaded tabs:', Array.from(tabs));
-          console.log('[Navigation] SessionId in loaded tabs?', tabs.has(sessionId));
-          
           setOpenTabs(tabs);
           
           // Небольшая задержка, чтобы React успел обновить состояние
           await new Promise(resolve => setTimeout(resolve, 100));
           
           // Устанавливаем активную сессию
-          console.log('[Navigation] Setting active session:', sessionId);
           setActiveSession(sessionId);
           
           // Еще небольшая задержка перед очисткой state
@@ -335,7 +307,6 @@ const SessionsPage = () => {
           setSearchParams(searchParams, { replace: true });
           navigate(location.pathname, { replace: true, state: {} });
           processingNavigationRef.current = false;
-          console.log('[Navigation] Navigation processing complete');
         })
         .catch((error) => {
           console.error('[Navigation] Unexpected error:', error);
