@@ -34,7 +34,8 @@ app.get('/', (req, res) => {
         generate: 'POST /api/ai/generate',
         status: 'GET /api/ai/generate/:clinicalNoteId/status',
         regenerateSection: 'POST /api/ai/regenerate-section/:sectionId',
-        caseSummary: 'POST /api/ai/case-summary'
+        caseSummary: 'POST /api/ai/case-summary',
+        patientCaseSummary: 'POST /api/ai/patient-case-summary'
       }
     },
     timestamp: new Date().toISOString()

@@ -104,10 +104,11 @@ export interface CaseSummaryRequest {
 }
 
 export interface CaseSummary {
-  session_id: string;
+  session_id?: string;
   patient_id: string;
   case_summary: string;
   generated_at: string;
   based_on_notes_count: number;
+  based_on_sessions_count?: number;
 }
 

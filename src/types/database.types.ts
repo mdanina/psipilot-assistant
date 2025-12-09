@@ -107,6 +107,8 @@ export type Database = {
           notes: string | null;
           tags: string[];
           last_activity_at: string | null;
+          case_summary_encrypted: string | null;
+          case_summary_generated_at: string | null;
           created_at: string;
           updated_at: string;
           deleted_at: string | null;
@@ -124,6 +126,8 @@ export type Database = {
           notes?: string | null;
           tags?: string[];
           last_activity_at?: string | null;
+          case_summary_encrypted?: string | null;
+          case_summary_generated_at?: string | null;
           created_at?: string;
           updated_at?: string;
           deleted_at?: string | null;
@@ -141,6 +145,8 @@ export type Database = {
           notes?: string | null;
           tags?: string[];
           last_activity_at?: string | null;
+          case_summary_encrypted?: string | null;
+          case_summary_generated_at?: string | null;
           created_at?: string;
           updated_at?: string;
           deleted_at?: string | null;

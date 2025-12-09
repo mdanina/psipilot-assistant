@@ -428,6 +428,21 @@ export async function generateCaseSummary(
   return handleResponse<CaseSummary>(response);
 }
 
+/**
+ * Генерация структурированной HTML сводки по случаю пациента
+ * На основе всех клинических заметок и транскриптов всех сессий
+ */
+export async function generatePatientCaseSummary(
+  patientId: string
+): Promise<CaseSummary> {
+  const response = await fetch(`${AI_API_URL}/api/ai/patient-case-summary`, {
+    method: 'POST',
+    headers: await getAuthHeaders(),
+    body: JSON.stringify({ patient_id: patientId }),
+  });
+  return handleResponse<CaseSummary>(response);
+}
+
 // ============================================================================
 // Работа с клиническими заметками через Supabase
 // ============================================================================

@@ -257,6 +257,131 @@ export async function generateCaseSummaryContent(clinicalNotesText, options = {}
 }
 
 /**
+ * Генерация структурированной HTML сводки по случаю пациента
+ * На основе всех клинических заметок и транскриптов всех сессий
+ *
+ * @param {string} clinicalNotesText - Анонимизированный текст всех клинических заметок
+ * @param {string} transcriptsText - Анонимизированный текст всех транскриптов
+ * @param {number} sessionsCount - Количество сессий
+ * @param {string} firstSessionDate - Дата первой сессии
+ * @param {string} lastSessionDate - Дата последней сессии
+ * @param {Object} [options] - Дополнительные опции
+ * @param {string} [options.model] - Модель OpenAI (по умолчанию 'gpt-4o')
+ * @param {number} [options.temperature] - Температура (по умолчанию 0.3)
+ * @param {number} [options.maxTokens] - Максимальное количество токенов (по умолчанию 3000)
+ * @returns {Promise<string>} Сгенерированная HTML сводка
+ */
+export async function generatePatientCaseSummaryContent(
+  clinicalNotesText,
+  transcriptsText,
+  sessionsCount,
+  firstSessionDate,
+  lastSessionDate,
+  options = {}
+) {
+  const {
+    model = 'gpt-4o',
+    temperature = 0.3,
+    maxTokens = 3000,
+  } = options;
+
+  const systemPrompt = `Ты — опытный психиатр. На основе предоставленных клинических заметок и транскриптов сессий
+создай структурированную HTML сводку по случаю пациента.
+
+ВАЖНО: Выводи ТОЛЬКО чистый HTML код, БЕЗ markdown разметки (без тройных обратных кавычек, без markdown блоков кода).
+Начинай сразу с HTML тегов, без дополнительных символов или разметки.
+
+Создай HTML документ со следующими разделами (используй теги <h2> для заголовков разделов):
+
+1. <h2>Цели</h2> - терапевтические цели работы с пациентом, что планируется достичь
+2. <h2>Альянс</h2> - качество терапевтического альянса, отношения между терапевтом и пациентом
+3. <h2>История</h2> - краткая история случая, ключевые события и факты
+4. <h2>Количество сессий</h2> - статистика: всего сессий (${sessionsCount}), первая сессия (${firstSessionDate || 'не указана'}), последняя сессия (${lastSessionDate || 'не указана'})
+5. <h2>Прогресс</h2> - динамика и изменения, что изменилось за время работы, какие улучшения
+
+Используй следующие HTML теги:
+- <h2> для заголовков разделов
+- <p> для параграфов
+- <ul> и <li> для списков
+- <strong> для важных моментов
+- <em> для акцентов
+- <br> для переносов строк (если нужно)
+
+Пиши профессионально, от третьего лица. Каждый раздел должен быть информативным и содержательным.
+HTML должен быть валидным и готовым для отображения в браузере.
+НЕ используй markdown синтаксис - только чистый HTML, начинай сразу с тегов.`;
+
+  const combinedText = transcriptsText
+    ? `Клинические заметки пациента:\n\n${clinicalNotesText}\n\n\nТранскрипты сессий:\n\n${transcriptsText}`
+    : `Клинические заметки пациента:\n\n${clinicalNotesText}`;
+
+  const makeRequest = async () => {
+    const openai = getOpenAIClient();
+
+    const completion = await openai.chat.completions.create({
+      model,
+      messages: [
+        {
+          role: 'system',
+          content: systemPrompt,
+        },
+        {
+          role: 'user',
+          content: combinedText,
+        },
+      ],
+      temperature,
+      max_tokens: maxTokens,
+    });
+
+    let content = completion.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error('OpenAI API returned empty content');
+    }
+
+    // Удаляем markdown разметку, если модель её добавила
+    // Убираем ```html в начале и ``` в конце
+    content = content.trim();
+    if (content.startsWith('```html')) {
+      content = content.replace(/^```html\s*/i, '');
+    }
+    if (content.startsWith('```')) {
+      content = content.replace(/^```\s*/, '');
+    }
+    if (content.endsWith('```')) {
+      content = content.replace(/\s*```$/, '');
+    }
+    content = content.trim();
+
+    return content;
+  };
+
+  try {
+    return await executeWithRetry(makeRequest, 'generatePatientCaseSummaryContent');
+  } catch (error) {
+    // Fallback на другую модель при model_not_found
+    if (error.code === 'model_not_found' && model === 'gpt-5') {
+      console.warn('[OpenAI] GPT-5 not available, falling back to gpt-4o');
+      return generatePatientCaseSummaryContent(
+        clinicalNotesText,
+        transcriptsText,
+        sessionsCount,
+        firstSessionDate,
+        lastSessionDate,
+        { ...options, model: 'gpt-4o' }
+      );
+    }
+
+    // Форматируем ошибку для пользователя
+    if (error.status === 429) {
+      throw new Error('Превышен лимит запросов к OpenAI API. Попробуйте позже.');
+    }
+
+    throw new Error(`OpenAI API error: ${error.message}`);
+  }
+}
+
+/**
  * Проверяет, настроен ли OpenAI API ключ
  *
  * @returns {boolean}
@@ -268,3 +393,4 @@ export function isOpenAIConfigured() {
     return false;
   }
 }
+

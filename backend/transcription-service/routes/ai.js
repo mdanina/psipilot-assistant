@@ -1,7 +1,7 @@
 import express from 'express';
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
-import { generateBlockContent, generateCaseSummaryContent } from '../services/openai.js';
+import { generateBlockContent, generateCaseSummaryContent, generatePatientCaseSummaryContent } from '../services/openai.js';
 import { anonymize, deanonymize } from '../services/anonymization.js';
 import { encrypt, decrypt } from '../services/encryption.js';
 import { extractTranscriptsFromRecordings } from '../services/transcriptHelper.js';
@@ -721,6 +721,172 @@ router.post('/case-summary', async (req, res) => {
     });
   } catch (error) {
     console.error('Error generating case summary:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * POST /api/ai/patient-case-summary
+ * Генерация структурированной HTML сводки по случаю пациента
+ * На основе всех клинических заметок и транскриптов всех сессий
+ */
+router.post('/patient-case-summary', async (req, res) => {
+  try {
+    const { patient_id } = req.body;
+    const { id: user_id } = req.user;
+    const supabase = getSupabaseAdmin();
+
+    if (!patient_id) {
+      return res.status(400).json({
+        success: false,
+        error: 'patient_id обязателен',
+      });
+    }
+
+    // Получаем пациента
+    const { data: patient, error: patientError } = await supabase
+      .from('patients')
+      .select('*')
+      .eq('id', patient_id)
+      .single();
+
+    if (patientError) throw patientError;
+    if (!patient) {
+      return res.status(404).json({
+        success: false,
+        error: 'Пациент не найден',
+      });
+    }
+
+    // Получаем все сессии пациента для статистики
+    const { data: sessions, error: sessionsError } = await supabase
+      .from('sessions')
+      .select('id, created_at')
+      .eq('patient_id', patient_id)
+      .order('created_at', { ascending: true });
+
+    if (sessionsError) throw sessionsError;
+
+    const sessionsCount = sessions?.length || 0;
+    const firstSessionDate = sessions?.[0]?.created_at
+      ? new Date(sessions[0].created_at).toLocaleDateString('ru-RU')
+      : null;
+    const lastSessionDate = sessions?.[sessions.length - 1]?.created_at
+      ? new Date(sessions[sessions.length - 1].created_at).toLocaleDateString('ru-RU')
+      : null;
+
+    // Получаем все клинические заметки пациента (из всех сессий)
+    const { data: clinicalNotes, error: notesError } = await supabase
+      .from('clinical_notes')
+      .select('*, sections (*)')
+      .eq('patient_id', patient_id)
+      .in('generation_status', ['completed'])
+      .in('status', ['finalized', 'completed'])
+      .order('created_at', { ascending: true });
+
+    if (notesError) throw notesError;
+
+    // Собираем текст из всех клинических заметок
+    let clinicalNotesText = '';
+    for (const note of clinicalNotes || []) {
+      clinicalNotesText += `\n\n=== Заметка от ${note.created_at} ===\n`;
+      for (const section of note.sections || []) {
+        if (section.ai_content) {
+          try {
+            const decryptedContent = decrypt(section.ai_content);
+            clinicalNotesText += `\n### ${section.name}\n`;
+            clinicalNotesText += decryptedContent;
+          } catch (err) {
+            console.error('Error decrypting section content:', err);
+          }
+        }
+      }
+    }
+
+    // Получаем все транскрипты из всех сессий пациента
+    let transcriptsText = '';
+    if (sessionsCount > 0) {
+      const sessionIds = sessions.map(s => s.id);
+      const { data: recordings, error: recordingsError } = await supabase
+        .from('recordings')
+        .select('id, transcription_text, transcription_encrypted, transcription_status, file_name, session_id')
+        .in('session_id', sessionIds)
+        .eq('transcription_status', 'completed');
+
+      if (recordingsError) {
+        console.error('[Patient Case Summary] Error fetching recordings:', recordingsError);
+      } else if (recordings?.length) {
+        // Используем helper для расшифровки транскриптов
+        transcriptsText = extractTranscriptsFromRecordings(recordings) || '';
+      }
+    }
+
+    if (!clinicalNotesText.trim() && !transcriptsText.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Нет доступного контента для генерации сводки. Необходимы клинические заметки или транскрипты сессий.',
+      });
+    }
+
+    // Анонимизируем
+    const combinedText = clinicalNotesText + (transcriptsText ? '\n\n' + transcriptsText : '');
+    const { text: anonymizedText, map: anonymizationMap } = anonymize(
+      combinedText,
+      patient
+    );
+
+    // Разделяем анонимизированный текст обратно
+    const anonymizedNotes = anonymizedText.split('\n\nТранскрипты сессий:\n\n');
+    const anonymizedClinicalNotes = anonymizedNotes[0] || anonymizedText;
+    const anonymizedTranscripts = anonymizedNotes[1] || '';
+
+    // Генерируем HTML сводку
+    const aiSummary = await generatePatientCaseSummaryContent(
+      anonymizedClinicalNotes,
+      anonymizedTranscripts,
+      sessionsCount,
+      firstSessionDate,
+      lastSessionDate
+    );
+
+    // Де-анонимизируем
+    const deanonymizedSummary = deanonymize(aiSummary, anonymizationMap);
+
+    // Шифруем и сохраняем в пациента
+    const encryptedSummary = encrypt(deanonymizedSummary);
+
+    await supabase
+      .from('patients')
+      .update({
+        case_summary_encrypted: encryptedSummary,
+        case_summary_generated_at: new Date().toISOString(),
+      })
+      .eq('id', patient_id);
+
+    // Логируем
+    await supabase.from('audit_logs').insert({
+      user_id,
+      action: 'ai_patient_case_summary_generated',
+      resource_type: 'patient',
+      resource_id: patient_id,
+      details: {
+        based_on_notes_count: clinicalNotes?.length || 0,
+        based_on_sessions_count: sessionsCount,
+      },
+    });
+
+    res.json({
+      success: true,
+      data: {
+        patient_id,
+        case_summary: deanonymizedSummary,
+        generated_at: new Date().toISOString(),
+        based_on_notes_count: clinicalNotes?.length || 0,
+        based_on_sessions_count: sessionsCount,
+      },
+    });
+  } catch (error) {
+    console.error('Error generating patient case summary:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
