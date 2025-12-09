@@ -14,7 +14,6 @@ const navItems = [
   { name: "Запись аудио", icon: FileText, path: "/" },
   { name: "Пациенты", icon: Users, path: "/patients" },
   { name: "Сессии", icon: Calendar, path: "/sessions" },
-  { name: "Клиника", icon: Building2, path: "/clinic" },
 ];
 
 export const Sidebar = () => {
