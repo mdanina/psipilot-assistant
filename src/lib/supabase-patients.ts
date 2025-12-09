@@ -216,8 +216,7 @@ export async function getPatients(): Promise<{
     const { data: patients, error } = await supabase
       .from('patients')
       .select('*')
-      .is('deleted_at', null)
-      .order('created_at', { ascending: false });
+      .is('deleted_at', null);
 
     if (error) {
       return { data: null, error: new Error(error.message) };
@@ -227,7 +226,20 @@ export async function getPatients(): Promise<{
       patients.map((p) => decryptPatientPII(p))
     );
 
-    return { data: decryptedPatients, error: null };
+    // Сортировка по актуальности: last_activity_at > updated_at > created_at
+    const sortedPatients = decryptedPatients.sort((a, b) => {
+      const getDate = (p: DecryptedPatient) => {
+        return p.last_activity_at 
+          ? new Date(p.last_activity_at).getTime()
+          : p.updated_at
+          ? new Date(p.updated_at).getTime()
+          : new Date(p.created_at).getTime();
+      };
+      
+      return getDate(b) - getDate(a); // Более актуальные сверху
+    });
+
+    return { data: sortedPatients, error: null };
   } catch (error) {
     return { data: null, error: error as Error };
   }
