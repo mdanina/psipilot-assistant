@@ -1,0 +1,29 @@
+# Caddyfile for PsiPilot Assistant
+# Replace YOUR_DOMAIN with your actual domain
+
+# For temporary IP-based access (no SSL):
+# :80 {
+#     reverse_proxy frontend:80
+# }
+
+# For domain with automatic SSL:
+YOUR_DOMAIN {
+    # Frontend
+    reverse_proxy frontend:80
+
+    # Enable compression
+    encode gzip
+
+    # Security headers
+    header {
+        X-Frame-Options "SAMEORIGIN"
+        X-Content-Type-Options "nosniff"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+
+    # Logging
+    log {
+        output file /var/log/caddy/access.log
+    }
+}

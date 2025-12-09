@@ -1,0 +1,15 @@
+node_modules
+dist
+.git
+.gitignore
+*.md
+.env
+.env.*
+!.env.example
+.cursor
+.vscode
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+backend
