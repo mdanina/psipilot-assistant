@@ -125,14 +125,14 @@ async function executeWithRetry(requestFn, operationName) {
  * @param {string} systemPrompt - Системный промпт для блока
  * @param {string} transcript - Анонимизированный транскрипт сессии
  * @param {Object} [options] - Дополнительные опции
- * @param {string} [options.model] - Модель OpenAI (по умолчанию 'gpt-4o')
+ * @param {string} [options.model] - Модель OpenAI (по умолчанию 'gpt-5-chat-latest')
  * @param {number} [options.temperature] - Температура (по умолчанию 0.3)
  * @param {number} [options.maxTokens] - Максимальное количество токенов (по умолчанию 1000)
  * @returns {Promise<string>} Сгенерированный контент
  */
 export async function generateBlockContent(systemPrompt, transcript, options = {}) {
   const {
-    model = 'gpt-4o',
+    model = 'gpt-5-chat-latest',
     temperature = 0.3,
     maxTokens = 1000,
   } = options;
@@ -168,8 +168,8 @@ export async function generateBlockContent(systemPrompt, transcript, options = {
     return await executeWithRetry(makeRequest, 'generateBlockContent');
   } catch (error) {
     // Fallback на другую модель при model_not_found
-    if (error.code === 'model_not_found' && model === 'gpt-5') {
-      console.warn('[OpenAI] GPT-5 not available, falling back to gpt-4o');
+    if (error.code === 'model_not_found' && model === 'gpt-5-chat-latest') {
+      console.warn('[OpenAI] gpt-5-chat-latest not available, falling back to gpt-4o');
       return generateBlockContent(systemPrompt, transcript, { ...options, model: 'gpt-4o' });
     }
 
@@ -187,14 +187,14 @@ export async function generateBlockContent(systemPrompt, transcript, options = {
  *
  * @param {string} clinicalNotesText - Анонимизированный текст всех клинических заметок
  * @param {Object} [options] - Дополнительные опции
- * @param {string} [options.model] - Модель OpenAI (по умолчанию 'gpt-4o')
+ * @param {string} [options.model] - Модель OpenAI (по умолчанию 'gpt-5-chat-latest')
  * @param {number} [options.temperature] - Температура (по умолчанию 0.3)
  * @param {number} [options.maxTokens] - Максимальное количество токенов (по умолчанию 1500)
  * @returns {Promise<string>} Сгенерированная сводка
  */
 export async function generateCaseSummaryContent(clinicalNotesText, options = {}) {
   const {
-    model = 'gpt-4o',
+    model = 'gpt-5-chat-latest',
     temperature = 0.3,
     maxTokens = 1500,
   } = options;
@@ -242,8 +242,8 @@ export async function generateCaseSummaryContent(clinicalNotesText, options = {}
     return await executeWithRetry(makeRequest, 'generateCaseSummaryContent');
   } catch (error) {
     // Fallback на другую модель при model_not_found
-    if (error.code === 'model_not_found' && model === 'gpt-5') {
-      console.warn('[OpenAI] GPT-5 not available, falling back to gpt-4o');
+    if (error.code === 'model_not_found' && model === 'gpt-5-chat-latest') {
+      console.warn('[OpenAI] gpt-5-chat-latest not available, falling back to gpt-4o');
       return generateCaseSummaryContent(clinicalNotesText, { ...options, model: 'gpt-4o' });
     }
 
@@ -266,7 +266,7 @@ export async function generateCaseSummaryContent(clinicalNotesText, options = {}
  * @param {string} firstSessionDate - Дата первой сессии
  * @param {string} lastSessionDate - Дата последней сессии
  * @param {Object} [options] - Дополнительные опции
- * @param {string} [options.model] - Модель OpenAI (по умолчанию 'gpt-4o')
+ * @param {string} [options.model] - Модель OpenAI (по умолчанию 'gpt-5-chat-latest')
  * @param {number} [options.temperature] - Температура (по умолчанию 0.3)
  * @param {number} [options.maxTokens] - Максимальное количество токенов (по умолчанию 3000)
  * @returns {Promise<string>} Сгенерированная HTML сводка
@@ -280,7 +280,7 @@ export async function generatePatientCaseSummaryContent(
   options = {}
 ) {
   const {
-    model = 'gpt-4o',
+    model = 'gpt-5-chat-latest',
     temperature = 0.3,
     maxTokens = 3000,
   } = options;
@@ -360,8 +360,8 @@ HTML должен быть валидным и готовым для отобр�
     return await executeWithRetry(makeRequest, 'generatePatientCaseSummaryContent');
   } catch (error) {
     // Fallback на другую модель при model_not_found
-    if (error.code === 'model_not_found' && model === 'gpt-5') {
-      console.warn('[OpenAI] GPT-5 not available, falling back to gpt-4o');
+    if (error.code === 'model_not_found' && model === 'gpt-5-chat-latest') {
+      console.warn('[OpenAI] gpt-5-chat-latest not available, falling back to gpt-4o');
       return generatePatientCaseSummaryContent(
         clinicalNotesText,
         transcriptsText,
