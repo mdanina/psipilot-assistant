@@ -95,7 +95,8 @@ export function ClinicalNoteView({ clinicalNote, searchQuery }: ClinicalNoteView
     section => section.content || section.ai_content
   );
 
-  const handleCopy = async () => {
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
     try {
       const text = noteToPlainText(clinicalNote);
       await navigator.clipboard.writeText(text);
@@ -114,7 +115,8 @@ export function ClinicalNoteView({ clinicalNote, searchQuery }: ClinicalNoteView
     }
   };
 
-  const handleExportPDF = () => {
+  const handleExportPDF = (e: React.MouseEvent) => {
+    e.stopPropagation();
     // Create a printable version and trigger print dialog
     const text = noteToPlainText(clinicalNote);
     const printWindow = window.open('', '_blank');
