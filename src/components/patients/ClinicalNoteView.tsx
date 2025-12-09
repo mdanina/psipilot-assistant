@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FileText, Copy, Check, Download } from 'lucide-react';
+import { FileText, Copy, Check, Download, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import type { GeneratedClinicalNote } from '@/types/ai.types';
@@ -7,6 +7,7 @@ import type { GeneratedClinicalNote } from '@/types/ai.types';
 interface ClinicalNoteViewProps {
   clinicalNote: GeneratedClinicalNote;
   searchQuery?: string;
+  onDelete?: (e: React.MouseEvent) => void;
 }
 
 /**
@@ -83,7 +84,7 @@ function noteToPlainText(clinicalNote: GeneratedClinicalNote): string {
  * Компонент для просмотра полной клинической заметки
  * Показывает все секции как единый документ
  */
-export function ClinicalNoteView({ clinicalNote, searchQuery }: ClinicalNoteViewProps) {
+export function ClinicalNoteView({ clinicalNote, searchQuery, onDelete }: ClinicalNoteViewProps) {
   const { toast } = useToast();
   const [isCopied, setIsCopied] = useState(false);
 
@@ -245,6 +246,17 @@ export function ClinicalNoteView({ clinicalNote, searchQuery }: ClinicalNoteView
           <Download className="w-3 h-3 mr-1" />
           PDF / Печать
         </Button>
+        {onDelete && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onDelete}
+            className="h-7 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+          >
+            <Trash2 className="w-3 h-3 mr-1" />
+            Удалить
+          </Button>
+        )}
       </div>
 
       {/* Template name as subtitle if available */}
@@ -275,3 +287,4 @@ export function ClinicalNoteView({ clinicalNote, searchQuery }: ClinicalNoteView
     </div>
   );
 }
+

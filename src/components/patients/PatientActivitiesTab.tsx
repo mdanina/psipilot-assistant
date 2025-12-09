@@ -367,16 +367,19 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
                     }
                     return null;
                   })()}
+
+                  {/* Delete button */}
+                  <button
+                    onClick={(e) => handleDeleteClick('session', session.id, session.title || 'Сессия', e)}
+                    className="flex items-center gap-1.5 text-muted-foreground hover:text-destructive transition-colors"
+                    title="Удалить сессию"
+                  >
+                    <Trash2 className="w-4 h-4 flex-shrink-0" />
+                    <span>Удалить</span>
+                  </button>
                 </div>
               </div>
               <div className="flex items-center gap-1 flex-shrink-0 ml-2">
-                <button
-                  onClick={(e) => handleDeleteClick('session', session.id, session.title || 'Сессия', e)}
-                  className="p-1 text-muted-foreground hover:text-destructive rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="Удалить сессию"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
                 <ExternalLink className="w-4 h-4 text-muted-foreground" />
               </div>
             </div>
@@ -414,13 +417,6 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
-                        <button
-                          onClick={(e) => handleDeleteClick('note', note.id, note.title, e)}
-                          className="p-1 text-muted-foreground hover:text-destructive rounded"
-                          title="Удалить заметку"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -449,7 +445,11 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
                     {/* Full note */}
                     {isExpanded && (
                       <div className="mt-3">
-                        <ClinicalNoteView clinicalNote={note} searchQuery={searchQuery} />
+                        <ClinicalNoteView 
+                          clinicalNote={note} 
+                          searchQuery={searchQuery}
+                          onDelete={(e) => handleDeleteClick('note', note.id, note.title, e)}
+                        />
                       </div>
                     )}
                   </div>
@@ -500,13 +500,6 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
                     )}
                   </div>
                   <div className="flex items-center gap-1">
-                    <button
-                      onClick={(e) => handleDeleteClick('note', note.id, note.title, e)}
-                      className="p-1 text-muted-foreground hover:text-destructive rounded"
-                      title="Удалить заметку"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -530,7 +523,11 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
 
                 {isExpanded && (
                   <div className="mt-3">
-                    <ClinicalNoteView clinicalNote={note} searchQuery={searchQuery} />
+                    <ClinicalNoteView 
+                      clinicalNote={note} 
+                      searchQuery={searchQuery}
+                      onDelete={(e) => handleDeleteClick('note', note.id, note.title, e)}
+                    />
                   </div>
                 )}
               </div>

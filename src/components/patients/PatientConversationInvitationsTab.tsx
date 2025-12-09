@@ -1,6 +1,4 @@
-import { Send, Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { useToast } from "@/hooks/use-toast";
+import { Construction } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface PatientConversationInvitationsTabProps {
@@ -10,36 +8,25 @@ interface PatientConversationInvitationsTabProps {
 export function PatientConversationInvitationsTab({
   patientId,
 }: PatientConversationInvitationsTabProps) {
-  const { toast } = useToast();
-
-  const handleSend = () => {
-    toast({
-      title: "В разработке",
-      description: "Функционал приглашений в диалоги находится в разработке",
-    });
-  };
-
   return (
     <div className="flex items-center justify-center py-12">
       <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>AI Pre-Assessment</CardTitle>
-          <CardDescription>
-            Let the AI interview the patient about current issue, allergies,
-            alcohol and tobacco consumption, and more.
+        <CardHeader className="text-center">
+          <div className="flex justify-center mb-4">
+            <Construction className="w-12 h-12 text-muted-foreground" />
+          </div>
+          <CardTitle>В разработке</CardTitle>
+          <CardDescription className="mt-2">
+            Раздел "Приглашения" находится в разработке и будет доступен в ближайшее время.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Button
-            onClick={handleSend}
-            className="w-full gap-2"
-            disabled
-          >
-            <Send className="w-4 h-4" />
-            Send
-          </Button>
+          <p className="text-sm text-muted-foreground text-center">
+            Здесь будет функционал для отправки приглашений пациентам в диалоги и предварительные опросы.
+          </p>
         </CardContent>
       </Card>
     </div>
   );
 }
+
