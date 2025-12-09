@@ -381,9 +381,14 @@ const SessionsPage = () => {
 
   useEffect(() => {
     if (activeSession) {
-      loadRecordings(activeSession);
-      loadSessionNotes(activeSession);
-      loadClinicalNotes(activeSession);
+      // Load all session data in parallel for better performance
+      Promise.all([
+        loadRecordings(activeSession),
+        loadSessionNotes(activeSession),
+        loadClinicalNotes(activeSession)
+      ]).catch(error => {
+        console.error('Error loading session data:', error);
+      });
     }
   }, [activeSession]);
 
@@ -465,29 +470,34 @@ const SessionsPage = () => {
       const recordingsData = await getSessionRecordings(sessionId);
       setRecordings(recordingsData);
 
-      // Check and sync old processing recordings immediately
-      recordingsData.forEach(async (recording) => {
+      // Collect old processing recordings that need immediate sync
+      const now = new Date();
+      const oldRecordings = recordingsData.filter(recording => {
         if (recording.transcription_status === 'processing' && recording.transcript_id) {
-          // Check if recording is old (more than 2 minutes old)
           const createdAt = new Date(recording.created_at);
-          const now = new Date();
           const minutesSinceCreated = (now.getTime() - createdAt.getTime()) / (1000 * 60);
-          
-          // If recording is older than 2 minutes, sync immediately
-          if (minutesSinceCreated > 2) {
-            try {
-              console.log(`Syncing old recording ${recording.id} immediately`);
-              await syncTranscriptionStatus(recording.id, transcriptionApiUrl);
-              // Reload recordings after sync
-              const updatedRecordings = await getSessionRecordings(sessionId);
-              setRecordings(updatedRecordings);
-            } catch (syncError) {
-              console.warn('Failed to sync old recording:', syncError);
-            }
-          }
+          return minutesSinceCreated > 2;
         }
-        
-        // Start polling for pending and processing recordings
+        return false;
+      });
+
+      // Sync all old recordings in parallel (only once)
+      if (oldRecordings.length > 0) {
+        console.log(`Syncing ${oldRecordings.length} old recording(s) immediately`);
+        await Promise.all(
+          oldRecordings.map(recording =>
+            syncTranscriptionStatus(recording.id, transcriptionApiUrl).catch(err => {
+              console.warn(`Failed to sync old recording ${recording.id}:`, err);
+            })
+          )
+        );
+        // Reload recordings ONCE after all syncs complete
+        const updatedRecordings = await getSessionRecordings(sessionId);
+        setRecordings(updatedRecordings);
+      }
+      
+      // Start polling for pending and processing recordings
+      recordingsData.forEach(recording => {
         if (recording.transcription_status === 'pending' || recording.transcription_status === 'processing') {
           startPollingRecording(recording.id, sessionId);
         }
