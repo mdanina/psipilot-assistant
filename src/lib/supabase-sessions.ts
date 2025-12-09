@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import type { Database } from '@/types/database.types';
 import { hasActiveConsent } from './security';
+import { generatePatientCaseSummary } from './supabase-ai';
 
 type Session = Database['public']['Tables']['sessions']['Row'];
 type SessionInsert = Database['public']['Tables']['sessions']['Insert'];
@@ -305,6 +306,7 @@ export async function linkSessionToPatient(
 
 /**
  * Complete session
+ * Automatically updates patient case summary if session is linked to a patient
  */
 export async function completeSession(sessionId: string): Promise<Session> {
   const session = await getSession(sessionId);
@@ -312,11 +314,23 @@ export async function completeSession(sessionId: string): Promise<Session> {
   const endedAt = new Date();
   const durationSeconds = Math.floor((endedAt.getTime() - startedAt.getTime()) / 1000);
 
-  return updateSession(sessionId, {
+  const completedSession = await updateSession(sessionId, {
     status: 'completed',
     ended_at: endedAt.toISOString(),
     duration_seconds: durationSeconds,
   });
+
+  // Automatically update case summary for patient if session is linked to a patient
+  // Do this asynchronously to not block session completion
+  if (completedSession.patient_id) {
+    // Fire and forget - don't wait for completion, don't throw errors
+    generatePatientCaseSummary(completedSession.patient_id).catch((error) => {
+      // Log error but don't fail the session completion
+      console.warn('[completeSession] Failed to auto-update case summary:', error);
+    });
+  }
+
+  return completedSession;
 }
 
 /**
