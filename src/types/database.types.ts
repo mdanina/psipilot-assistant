@@ -299,6 +299,7 @@ export type Database = {
           signed_by: string | null;
           created_at: string;
           updated_at: string;
+          deleted_at: string | null;
         };
         Insert: {
           id?: string;
@@ -314,6 +315,7 @@ export type Database = {
           signed_by?: string | null;
           created_at?: string;
           updated_at?: string;
+          deleted_at?: string | null;
         };
         Update: {
           id?: string;
@@ -329,6 +331,7 @@ export type Database = {
           signed_by?: string | null;
           created_at?: string;
           updated_at?: string;
+          deleted_at?: string | null;
         };
         Relationships: [
           {
