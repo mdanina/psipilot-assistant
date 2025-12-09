@@ -1,125 +1,253 @@
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Badge } from '@/components/ui/badge';
+import { useState } from 'react';
+import { FileText, Copy, Check, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { CheckCircle2, XCircle, Loader2, FileText, Calendar } from 'lucide-react';
-import { formatDate } from '@/lib/date-utils';
-import type { GeneratedClinicalNote, GeneratedSection } from '@/types/ai.types';
+import { useToast } from '@/hooks/use-toast';
+import type { GeneratedClinicalNote } from '@/types/ai.types';
 
 interface ClinicalNoteViewProps {
   clinicalNote: GeneratedClinicalNote;
+  searchQuery?: string;
+}
+
+/**
+ * Highlight search query in text
+ */
+function HighlightedText({ text, query }: { text: string; query?: string }) {
+  if (!query || !query.trim()) {
+    return <>{text}</>;
+  }
+
+  const lowerText = text.toLowerCase();
+  const lowerQuery = query.toLowerCase().trim();
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let index = lowerText.indexOf(lowerQuery);
+  let keyCounter = 0;
+
+  while (index !== -1) {
+    // Add text before match
+    if (index > lastIndex) {
+      parts.push(text.slice(lastIndex, index));
+    }
+    // Add highlighted match
+    parts.push(
+      <mark key={keyCounter++} className="bg-yellow-200 text-yellow-900 rounded px-0.5">
+        {text.slice(index, index + lowerQuery.length)}
+      </mark>
+    );
+    lastIndex = index + lowerQuery.length;
+    index = lowerText.indexOf(lowerQuery, lastIndex);
+  }
+
+  // Add remaining text
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return <>{parts}</>;
+}
+
+/**
+ * Convert clinical note to plain text for copying
+ */
+function noteToPlainText(clinicalNote: GeneratedClinicalNote): string {
+  const sections = clinicalNote.sections || [];
+  const sortedSections = [...sections].sort((a, b) => a.position - b.position);
+
+  const lines: string[] = [];
+
+  // Title
+  lines.push(clinicalNote.title);
+  lines.push('');
+
+  // Template info
+  if (clinicalNote.template) {
+    lines.push(`Шаблон: ${clinicalNote.template.name}`);
+    lines.push('');
+  }
+
+  // Sections
+  sortedSections.forEach(section => {
+    const content = section.content || section.ai_content;
+    if (content) {
+      lines.push(section.name);
+      lines.push(content);
+      lines.push('');
+    }
+  });
+
+  return lines.join('\n').trim();
 }
 
 /**
  * Компонент для просмотра полной клинической заметки
+ * Показывает все секции как единый документ
  */
-export function ClinicalNoteView({ clinicalNote }: ClinicalNoteViewProps) {
+export function ClinicalNoteView({ clinicalNote, searchQuery }: ClinicalNoteViewProps) {
+  const { toast } = useToast();
+  const [isCopied, setIsCopied] = useState(false);
+
   const sections = clinicalNote.sections || [];
   const sortedSections = [...sections].sort((a, b) => a.position - b.position);
 
-  const getStatusBadge = (section: GeneratedSection) => {
-    switch (section.generation_status) {
-      case 'completed':
-        return (
-          <Badge variant="default" className="gap-1 text-xs">
-            <CheckCircle2 className="h-3 w-3" />
-            Готово
-          </Badge>
-        );
-      case 'generating':
-        return (
-          <Badge variant="secondary" className="gap-1 text-xs">
-            <Loader2 className="h-3 w-3 animate-spin" />
-            Генерация
-          </Badge>
-        );
-      case 'failed':
-        return (
-          <Badge variant="destructive" className="gap-1 text-xs">
-            <XCircle className="h-3 w-3" />
-            Ошибка
-          </Badge>
-        );
-      default:
-        return (
-          <Badge variant="outline" className="text-xs">
-            Ожидание
-          </Badge>
-        );
+  // Filter out sections with no content
+  const sectionsWithContent = sortedSections.filter(
+    section => section.content || section.ai_content
+  );
+
+  const handleCopy = async () => {
+    try {
+      const text = noteToPlainText(clinicalNote);
+      await navigator.clipboard.writeText(text);
+      setIsCopied(true);
+      toast({
+        title: 'Скопировано',
+        description: 'Заметка скопирована в буфер обмена',
+      });
+      setTimeout(() => setIsCopied(false), 2000);
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось скопировать текст',
+        variant: 'destructive',
+      });
     }
   };
 
-  return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h3 className="text-lg font-semibold">{clinicalNote.title}</h3>
-          {clinicalNote.template && (
-            <p className="text-sm text-muted-foreground mt-1">
-              Шаблон: {clinicalNote.template.name}
-            </p>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {getStatusBadge({
-            id: clinicalNote.id,
-            clinical_note_id: clinicalNote.id,
-            block_template_id: null,
-            name: 'Note',
-            slug: 'note',
-            content: null,
-            ai_content: null,
-            ai_generated_at: clinicalNote.ai_generated_at,
-            generation_status: clinicalNote.generation_status === 'completed' ? 'completed' : 
-                              clinicalNote.generation_status === 'generating' ? 'generating' :
-                              clinicalNote.generation_status === 'failed' ? 'failed' : 'pending',
-            generation_error: null,
-            position: 0,
-          } as GeneratedSection)}
-          {clinicalNote.created_at && (
-            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-              <Calendar className="w-4 h-4" />
-              <span>{formatDate(clinicalNote.created_at)}</span>
+  const handleExportPDF = () => {
+    // Create a printable version and trigger print dialog
+    const text = noteToPlainText(clinicalNote);
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>${clinicalNote.title}</title>
+          <style>
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+              max-width: 800px;
+              margin: 40px auto;
+              padding: 20px;
+              line-height: 1.6;
+              color: #333;
+            }
+            h1 {
+              font-size: 24px;
+              margin-bottom: 8px;
+              color: #111;
+            }
+            .template {
+              font-size: 12px;
+              color: #666;
+              margin-bottom: 24px;
+            }
+            .section {
+              margin-bottom: 20px;
+            }
+            .section-title {
+              font-weight: 600;
+              font-size: 14px;
+              color: #111;
+              margin-bottom: 4px;
+            }
+            .section-content {
+              font-size: 14px;
+              color: #444;
+              white-space: pre-wrap;
+            }
+            @media print {
+              body { margin: 0; padding: 20px; }
+            }
+          </style>
+        </head>
+        <body>
+          <h1>${clinicalNote.title}</h1>
+          ${clinicalNote.template ? `<div class="template">Шаблон: ${clinicalNote.template.name}</div>` : ''}
+          ${sectionsWithContent.map(section => `
+            <div class="section">
+              <div class="section-title">${section.name}</div>
+              <div class="section-content">${(section.content || section.ai_content || '').replace(/\n/g, '<br>')}</div>
             </div>
+          `).join('')}
+        </body>
+        </html>
+      `);
+      printWindow.document.close();
+      printWindow.print();
+    }
+  };
+
+  if (sectionsWithContent.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-8 text-center">
+        <FileText className="w-8 h-8 text-muted-foreground mb-2" />
+        <p className="text-sm text-muted-foreground">
+          Нет содержимого в этой заметке
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Actions bar */}
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleCopy}
+          className="h-7 text-xs"
+        >
+          {isCopied ? (
+            <>
+              <Check className="w-3 h-3 mr-1" />
+              Скопировано
+            </>
+          ) : (
+            <>
+              <Copy className="w-3 h-3 mr-1" />
+              Копировать
+            </>
           )}
-        </div>
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleExportPDF}
+          className="h-7 text-xs"
+        >
+          <Download className="w-3 h-3 mr-1" />
+          PDF / Печать
+        </Button>
       </div>
 
-      {/* Sections */}
-      {sortedSections.length > 0 ? (
-        <div className="space-y-4">
-          {sortedSections.map((section) => (
-            <Card key={section.id}>
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base">{section.name}</CardTitle>
-                  {getStatusBadge(section)}
-                </div>
-                {section.generation_error && (
-                  <p className="text-sm text-destructive mt-2">
-                    Ошибка: {section.generation_error}
-                  </p>
-                )}
-              </CardHeader>
-              <CardContent>
-                <div className="prose prose-sm max-w-none">
-                  <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">
-                    {section.content || section.ai_content || 'Контент отсутствует'}
-                  </pre>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : (
-        <div className="flex flex-col items-center justify-center py-12 text-center">
-          <FileText className="w-12 h-12 text-muted-foreground mb-4" />
-          <p className="text-sm text-muted-foreground">
-            Нет секций в этой заметке
-          </p>
-        </div>
+      {/* Template name as subtitle if available */}
+      {clinicalNote.template && (
+        <p className="text-xs text-muted-foreground">
+          Шаблон: {clinicalNote.template.name}
+        </p>
       )}
+
+      {/* All sections as unified document */}
+      <div className="space-y-4">
+        {sectionsWithContent.map((section) => {
+          const content = section.content || section.ai_content || '';
+          return (
+            <div key={section.id}>
+              {/* Section title */}
+              <h4 className="font-medium text-sm text-foreground mb-1">
+                <HighlightedText text={section.name} query={searchQuery} />
+              </h4>
+              {/* Section content */}
+              <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
+                <HighlightedText text={content} query={searchQuery} />
+              </p>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
