@@ -177,6 +177,7 @@ export type Database = {
           notes: string | null;
           tags: string[];
           deleted_at: string | null;
+          summary: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -196,6 +197,7 @@ export type Database = {
           notes?: string | null;
           tags?: string[];
           deleted_at?: string | null;
+          summary?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -214,6 +216,7 @@ export type Database = {
           duration_seconds?: number | null;
           notes?: string | null;
           tags?: string[];
+          summary?: string | null;
           created_at?: string;
           updated_at?: string;
         };
