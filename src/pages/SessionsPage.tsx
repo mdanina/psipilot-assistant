@@ -199,18 +199,27 @@ const SessionsPage = () => {
 
       const sessionsData = data || [];
       setSessions(sessionsData);
-      
-      // Add new sessions to open tabs
+
+      // On initial load (empty openTabs), add all sessions
+      // Otherwise, only keep sessions that are still valid (not deleted from DB)
       setOpenTabs(prev => {
-        const newTabs = new Set(prev);
-        sessionsData.forEach(session => {
-          if (!newTabs.has(session.id)) {
-            newTabs.add(session.id);
+        const validSessionIds = new Set(sessionsData.map(s => s.id));
+
+        // If openTabs is empty (initial load), add all sessions
+        if (prev.size === 0) {
+          return validSessionIds;
+        }
+
+        // Otherwise, only keep tabs that still exist in the database
+        const newTabs = new Set<string>();
+        prev.forEach(id => {
+          if (validSessionIds.has(id)) {
+            newTabs.add(id);
           }
         });
         return newTabs;
       });
-      
+
       if (sessionsData.length > 0 && !activeSession) {
         setActiveSession(sessionsData[0].id);
       }
@@ -403,7 +412,7 @@ const SessionsPage = () => {
   // For linked sessions, also complete the session when closing
   const handleCloseSession = async (sessionId: string, e?: React.MouseEvent) => {
     e?.stopPropagation(); // Prevent session selection
-    
+
     const session = sessions.find(s => s.id === sessionId);
     if (!session) return;
 
@@ -412,27 +421,31 @@ const SessionsPage = () => {
       try {
         // Complete the session (set status to 'completed', set end time, calculate duration)
         await completeSession(sessionId);
-        
+
+        // Update session status locally (don't reload to avoid race condition)
+        setSessions(prev => prev.map(s =>
+          s.id === sessionId ? { ...s, status: 'completed' } : s
+        ));
+
         // Remove from open tabs
         setOpenTabs(prev => {
           const newTabs = new Set(prev);
           newTabs.delete(sessionId);
           return newTabs;
         });
-        
-        // If closed session was active, select another one
+
+        // If closed session was active, select another one from remaining open tabs
         if (activeSession === sessionId) {
-          const remainingSessions = sessions.filter(s => s.id !== sessionId && openTabs.has(s.id));
+          // We need to calculate remaining tabs manually since state hasn't updated yet
+          const remainingOpenTabIds = [...openTabs].filter(id => id !== sessionId);
+          const remainingSessions = sessions.filter(s => remainingOpenTabIds.includes(s.id));
           if (remainingSessions.length > 0) {
             setActiveSession(remainingSessions[0].id);
           } else {
             setActiveSession(null);
           }
         }
-        
-        // Reload sessions to update status
-        await loadSessions();
-        
+
         toast({
           title: "Сессия завершена",
           description: "Сессия успешно завершена и закрыта",
@@ -454,37 +467,44 @@ const SessionsPage = () => {
 
   const handleLinkAndCloseSession = async () => {
     if (!closingSessionId || !selectedPatientId) return;
-    
+
     try {
       // First link session to patient
       await linkSessionToPatient(closingSessionId, selectedPatientId);
-      
+
       // Then complete the session
       await completeSession(closingSessionId);
-      
-      toast({
-        title: "Успешно",
-        description: "Сессия привязана к пациенту и завершена",
-      });
-      
+
+      // Update session locally (don't reload to avoid race condition)
+      setSessions(prev => prev.map(s =>
+        s.id === closingSessionId
+          ? { ...s, patient_id: selectedPatientId, status: 'completed' }
+          : s
+      ));
+
       // Remove from open tabs (close the tab)
       setOpenTabs(prev => {
         const newTabs = new Set(prev);
         newTabs.delete(closingSessionId);
         return newTabs;
       });
-      
-      // If closed session was active, select another one
+
+      // If closed session was active, select another one from remaining open tabs
       if (activeSession === closingSessionId) {
-        const remainingSessions = sessions.filter(s => s.id !== closingSessionId && openTabs.has(s.id));
+        const remainingOpenTabIds = [...openTabs].filter(id => id !== closingSessionId);
+        const remainingSessions = sessions.filter(s => remainingOpenTabIds.includes(s.id));
         if (remainingSessions.length > 0) {
           setActiveSession(remainingSessions[0].id);
         } else {
           setActiveSession(null);
         }
       }
-      
-      await loadSessions();
+
+      toast({
+        title: "Успешно",
+        description: "Сессия привязана к пациенту и завершена",
+      });
+
       setCloseSessionDialogOpen(false);
       setClosingSessionId(null);
       setSelectedPatientId("");
