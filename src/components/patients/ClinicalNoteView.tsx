@@ -116,12 +116,24 @@ export function ClinicalNoteView({ clinicalNote, searchQuery }: ClinicalNoteView
   };
 
   const handleExportPDF = (e: React.MouseEvent) => {
+    e.preventDefault();
     e.stopPropagation();
-    // Create a printable version and trigger print dialog
-    const text = noteToPlainText(clinicalNote);
-    const printWindow = window.open('', '_blank');
-    if (printWindow) {
-      printWindow.document.write(`
+
+    // Use hidden iframe for printing to avoid navigation issues
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = 'none';
+    iframe.style.visibility = 'hidden';
+    document.body.appendChild(iframe);
+
+    const iframeDoc = iframe.contentWindow?.document;
+    if (iframeDoc) {
+      iframeDoc.open();
+      iframeDoc.write(`
         <!DOCTYPE html>
         <html>
         <head>
@@ -176,8 +188,18 @@ export function ClinicalNoteView({ clinicalNote, searchQuery }: ClinicalNoteView
         </body>
         </html>
       `);
-      printWindow.document.close();
-      printWindow.print();
+      iframeDoc.close();
+
+      // Wait for content to load then print
+      setTimeout(() => {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+
+        // Remove iframe after printing
+        setTimeout(() => {
+          document.body.removeChild(iframe);
+        }, 1000);
+      }, 100);
     }
   };
 
