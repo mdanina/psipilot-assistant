@@ -1,12 +1,23 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { Calendar, Clock, Loader2, ExternalLink, FileText, Sparkles, ChevronDown, ChevronUp, Search, Paperclip, X } from "lucide-react";
+import { Calendar, Clock, Loader2, ExternalLink, FileText, Sparkles, ChevronDown, ChevronUp, Search, Paperclip, X, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getPatientSessions, getSessionsContentCounts, searchPatientSessions, type SessionContentCounts } from "@/lib/supabase-sessions";
-import { getClinicalNotesForPatient } from "@/lib/supabase-ai";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { getPatientSessions, getSessionsContentCounts, searchPatientSessions, deleteSession, type SessionContentCounts } from "@/lib/supabase-sessions";
+import { getClinicalNotesForPatient, softDeleteClinicalNote } from "@/lib/supabase-ai";
 import { formatDateTime } from "@/lib/date-utils";
+import { useToast } from "@/hooks/use-toast";
 import { ClinicalNoteView } from "./ClinicalNoteView";
 import type { Database } from "@/types/database.types";
 import type { GeneratedClinicalNote } from "@/types/ai.types";
@@ -54,6 +65,7 @@ interface PatientActivitiesTabProps {
 
 export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [clinicalNotes, setClinicalNotes] = useState<GeneratedClinicalNote[]>([]);
   const [contentCounts, setContentCounts] = useState<Map<string, SessionContentCounts>>(new Map());
@@ -62,6 +74,11 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [filteredSessionIds, setFilteredSessionIds] = useState<Set<string> | null>(null);
   const [isSearching, setIsSearching] = useState(false);
+
+  // Delete dialog state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ type: 'session' | 'note'; id: string; title: string } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -163,6 +180,52 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
     setFilteredSessionIds(null);
   };
 
+  // Delete handlers
+  const handleDeleteClick = (type: 'session' | 'note', id: string, title: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setDeleteTarget({ type, id, title });
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+
+    setIsDeleting(true);
+    try {
+      if (deleteTarget.type === 'session') {
+        await deleteSession(deleteTarget.id);
+        // Update local state
+        setSessions(prev => prev.filter(s => s.id !== deleteTarget.id));
+        toast({
+          title: "Сессия удалена",
+          description: "Сессия успешно удалена",
+        });
+      } else {
+        await softDeleteClinicalNote(deleteTarget.id);
+        // Update local state
+        setClinicalNotes(prev => prev.filter(n => n.id !== deleteTarget.id));
+        toast({
+          title: "Заметка удалена",
+          description: "Клиническая заметка успешно удалена",
+        });
+      }
+    } catch (error) {
+      console.error('Error deleting:', error);
+      toast({
+        title: "Ошибка",
+        description: deleteTarget.type === 'session'
+          ? "Не удалось удалить сессию"
+          : "Не удалось удалить заметку",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeleting(false);
+      setDeleteDialogOpen(false);
+      setDeleteTarget(null);
+    }
+  };
+
   // Filter sessions based on search
   const filteredSessions = useMemo(() => {
     if (!filteredSessionIds) {
@@ -256,7 +319,7 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
         <div key={session.id} className="space-y-3">
           {/* Session card */}
           <div
-            className="border border-border rounded-lg p-4 hover:bg-muted/50 transition-colors cursor-pointer"
+            className="group border border-border rounded-lg p-4 hover:bg-muted/50 transition-colors cursor-pointer"
             onClick={() => handleSessionClick(session.id)}
           >
             <div className="flex items-start justify-between">
@@ -306,7 +369,16 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
                   })()}
                 </div>
               </div>
-              <ExternalLink className="w-4 h-4 text-muted-foreground flex-shrink-0 ml-2" />
+              <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+                <button
+                  onClick={(e) => handleDeleteClick('session', session.id, session.title || 'Сессия', e)}
+                  className="p-1 text-muted-foreground hover:text-destructive rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="Удалить сессию"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+                <ExternalLink className="w-4 h-4 text-muted-foreground" />
+              </div>
             </div>
           </div>
 
@@ -341,21 +413,30 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
                           )}
                         </div>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleNoteExpansion(note.id);
-                        }}
-                        className="h-7 px-2"
-                      >
-                        {isExpanded ? (
-                          <ChevronUp className="w-4 h-4" />
-                        ) : (
-                          <ChevronDown className="w-4 h-4" />
-                        )}
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={(e) => handleDeleteClick('note', note.id, note.title, e)}
+                          className="p-1 text-muted-foreground hover:text-destructive rounded"
+                          title="Удалить заметку"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleNoteExpansion(note.id);
+                          }}
+                          className="h-7 px-2"
+                        >
+                          {isExpanded ? (
+                            <ChevronUp className="w-4 h-4" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4" />
+                          )}
+                        </Button>
+                      </div>
                     </div>
 
                     {/* Brief summary (if available and not expanded) */}
@@ -418,18 +499,27 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
                       </p>
                     )}
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => toggleNoteExpansion(note.id)}
-                    className="h-7 px-2"
-                  >
-                    {isExpanded ? (
-                      <ChevronUp className="w-4 h-4" />
-                    ) : (
-                      <ChevronDown className="w-4 h-4" />
-                    )}
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={(e) => handleDeleteClick('note', note.id, note.title, e)}
+                      className="p-1 text-muted-foreground hover:text-destructive rounded"
+                      title="Удалить заметку"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => toggleNoteExpansion(note.id)}
+                      className="h-7 px-2"
+                    >
+                      {isExpanded ? (
+                        <ChevronUp className="w-4 h-4" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4" />
+                      )}
+                    </Button>
+                  </div>
                 </div>
 
                 {note.ai_summary && !isExpanded && (
@@ -448,6 +538,43 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
           })}
         </div>
       )}
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {deleteTarget?.type === 'session' ? 'Удалить сессию?' : 'Удалить клиническую заметку?'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget?.type === 'session'
+                ? `Вы уверены, что хотите удалить сессию "${deleteTarget?.title}"? Все связанные данные (записи, заметки) также будут скрыты.`
+                : `Вы уверены, что хотите удалить заметку "${deleteTarget?.title}"?`}
+              <br /><br />
+              <span className="text-muted-foreground text-xs">
+                Данные не удаляются физически и могут быть восстановлены при необходимости.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Отмена</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Удаление...
+                </>
+              ) : (
+                'Удалить'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -465,6 +465,7 @@ export async function getClinicalNote(
       template:clinical_note_templates (*)
     `)
     .eq('id', clinicalNoteId)
+    .is('deleted_at', null)  // Filter out soft-deleted notes
     .single();
 
   if (error) throw error;
@@ -649,6 +650,7 @@ export async function getClinicalNotesForSession(
       template:clinical_note_templates (*)
     `)
     .eq('session_id', sessionId)
+    .is('deleted_at', null)  // Filter out soft-deleted notes
     .order('created_at', { ascending: false });
 
   if (error) throw error;
@@ -728,6 +730,7 @@ export async function getClinicalNotesForPatient(
       )
     `)
     .eq('patient_id', patientId)
+    .is('deleted_at', null)  // Filter out soft-deleted notes
     .order('created_at', { ascending: false });
 
   if (error) throw error;
@@ -753,7 +756,7 @@ export async function getClinicalNotesForPatient(
           // Расшифровываем content, если он зашифрован
           if (section.content) {
             try {
-              const isLikelyEncrypted = section.content.length > 50 && 
+              const isLikelyEncrypted = section.content.length > 50 &&
                                        /^[A-Za-z0-9+/=]+$/.test(section.content) &&
                                        !section.content.includes('\n');
               if (isLikelyEncrypted) {
@@ -771,3 +774,23 @@ export async function getClinicalNotesForPatient(
   return (data || []) as GeneratedClinicalNote[];
 }
 
+/**
+ * Soft delete a clinical note (set deleted_at timestamp)
+ * The note remains in the database for audit purposes but won't appear in queries
+ */
+export async function softDeleteClinicalNote(
+  clinicalNoteId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('clinical_notes')
+    .update({
+      deleted_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', clinicalNoteId);
+
+  if (error) {
+    console.error('Error soft deleting clinical note:', error);
+    throw new Error(`Не удалось удалить клиническую заметку: ${error.message}`);
+  }
+}
