@@ -13,6 +13,41 @@ import type { GeneratedClinicalNote } from "@/types/ai.types";
 
 type Session = Database["public"]["Tables"]["sessions"]["Row"];
 
+/**
+ * Highlight search query in text
+ */
+function HighlightedText({ text, query }: { text: string; query?: string }) {
+  if (!query || !query.trim()) {
+    return <>{text}</>;
+  }
+
+  const lowerText = text.toLowerCase();
+  const lowerQuery = query.toLowerCase().trim();
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let index = lowerText.indexOf(lowerQuery);
+  let keyCounter = 0;
+
+  while (index !== -1) {
+    if (index > lastIndex) {
+      parts.push(text.slice(lastIndex, index));
+    }
+    parts.push(
+      <mark key={keyCounter++} className="bg-yellow-200 text-yellow-900 rounded px-0.5">
+        {text.slice(index, index + lowerQuery.length)}
+      </mark>
+    );
+    lastIndex = index + lowerQuery.length;
+    index = lowerText.indexOf(lowerQuery, lastIndex);
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return <>{parts}</>;
+}
+
 interface PatientActivitiesTabProps {
   patientId: string;
 }
@@ -243,7 +278,7 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
                 {/* AI Summary */}
                 {session.summary && (
                   <p className="text-sm text-muted-foreground line-clamp-2 mb-3">
-                    {session.summary}
+                    <HighlightedText text={session.summary} query={searchQuery} />
                   </p>
                 )}
 
@@ -326,14 +361,14 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
                     {/* Brief summary (if available and not expanded) */}
                     {note.ai_summary && !isExpanded && (
                       <p className="text-sm text-muted-foreground line-clamp-2 mt-2">
-                        {note.ai_summary}
+                        <HighlightedText text={note.ai_summary} query={searchQuery} />
                       </p>
                     )}
 
                     {/* Full note */}
                     {isExpanded && (
                       <div className="mt-3">
-                        <ClinicalNoteView clinicalNote={note} />
+                        <ClinicalNoteView clinicalNote={note} searchQuery={searchQuery} />
                       </div>
                     )}
                   </div>
@@ -399,13 +434,13 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
 
                 {note.ai_summary && !isExpanded && (
                   <p className="text-sm text-muted-foreground line-clamp-2 mt-2">
-                    {note.ai_summary}
+                    <HighlightedText text={note.ai_summary} query={searchQuery} />
                   </p>
                 )}
 
                 {isExpanded && (
                   <div className="mt-3">
-                    <ClinicalNoteView clinicalNote={note} />
+                    <ClinicalNoteView clinicalNote={note} searchQuery={searchQuery} />
                   </div>
                 )}
               </div>
