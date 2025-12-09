@@ -40,6 +40,69 @@ function getSupabaseAdmin() {
 }
 
 /**
+ * Get user role from recording
+ * @param {Object} recording - Recording object with user_id
+ * @param {Object} supabase - Supabase admin client
+ * @returns {Promise<string>} User role in Russian ('Врач', 'Администратор', 'Ассистент')
+ */
+async function getUserRoleFromRecording(recording, supabase) {
+  try {
+    if (!recording?.user_id) {
+      console.warn('Recording has no user_id, defaulting to "Врач"');
+      return 'Врач';
+    }
+
+    const { data: profile, error } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', recording.user_id)
+      .single();
+
+    if (error || !profile) {
+      console.warn('Failed to fetch user profile:', error?.message, 'Defaulting to "Врач"');
+      return 'Врач';
+    }
+
+    // Map role to Russian name
+    const roleMap = {
+      'doctor': 'Врач',
+      'admin': 'Администратор',
+      'assistant': 'Ассистент'
+    };
+
+    return roleMap[profile.role] || 'Врач';
+  } catch (error) {
+    console.error('Error getting user role:', error);
+    return 'Врач'; // Default fallback
+  }
+}
+
+/**
+ * Format transcript with speaker labels using user role
+ * @param {Array} utterances - Array of utterance objects from AssemblyAI
+ * @param {string} userRole - Role of the first user (in Russian)
+ * @returns {string} Formatted transcript text
+ */
+function formatTranscriptWithSpeakers(utterances, userRole = 'Врач') {
+  if (!utterances || utterances.length === 0) {
+    return '';
+  }
+
+  const speakerMap = {};
+  let speakerIndex = 0;
+  // First speaker gets the user's role, second is always "Пациент", others are "Участник N"
+  const speakerNames = [userRole, 'Пациент', 'Участник 3', 'Участник 4'];
+
+  return utterances.map(utterance => {
+    if (!speakerMap[utterance.speaker]) {
+      speakerMap[utterance.speaker] = speakerNames[speakerIndex] || `Участник ${speakerIndex + 1}`;
+      speakerIndex++;
+    }
+    return `${speakerMap[utterance.speaker]}: ${utterance.text}`;
+  }).join('\n');
+}
+
+/**
  * Sync transcription status from AssemblyAI API
  */
 async function syncTranscriptionStatus(recording) {
@@ -55,6 +118,7 @@ async function syncTranscriptionStatus(recording) {
       return null;
     }
 
+    const supabase = getSupabaseAdmin();
     const updateData = {
       updated_at: new Date().toISOString(),
     };
@@ -63,17 +127,9 @@ async function syncTranscriptionStatus(recording) {
       // Format transcript with speaker labels if available
       let formattedText = transcript.text;
       if (transcript.utterances && transcript.utterances.length > 0) {
-        const speakerMap = {};
-        let speakerIndex = 0;
-        const speakerNames = ['Врач', 'Пациент', 'Участник 3', 'Участник 4'];
-
-        formattedText = transcript.utterances.map(utterance => {
-          if (!speakerMap[utterance.speaker]) {
-            speakerMap[utterance.speaker] = speakerNames[speakerIndex] || `Участник ${speakerIndex + 1}`;
-            speakerIndex++;
-          }
-          return `${speakerMap[utterance.speaker]}: ${utterance.text}`;
-        }).join('\n');
+        // Get user role from recording
+        const userRole = await getUserRoleFromRecording(recording, supabase);
+        formattedText = formatTranscriptWithSpeakers(transcript.utterances, userRole);
       }
 
       updateData.transcription_status = 'completed';
@@ -86,7 +142,6 @@ async function syncTranscriptionStatus(recording) {
       updateData.transcription_status = 'processing';
     }
 
-    const supabase = getSupabaseAdmin();
     const { error: updateError } = await supabase
       .from('recordings')
       .update(updateData)
@@ -225,18 +280,9 @@ router.post('/transcribe', async (req, res) => {
       // Format transcript with speaker labels if available
       let formattedText = transcript.text;
       if (transcript.utterances && transcript.utterances.length > 0) {
-        // Map speaker labels to readable names (Doctor/Patient)
-        const speakerMap = {};
-        let speakerIndex = 0;
-        const speakerNames = ['Врач', 'Пациент', 'Участник 3', 'Участник 4'];
-
-        formattedText = transcript.utterances.map(utterance => {
-          if (!speakerMap[utterance.speaker]) {
-            speakerMap[utterance.speaker] = speakerNames[speakerIndex] || `Участник ${speakerIndex + 1}`;
-            speakerIndex++;
-          }
-          return `${speakerMap[utterance.speaker]}: ${utterance.text}`;
-        }).join('\n');
+        // Get user role from recording
+        const userRole = await getUserRoleFromRecording(recording, supabase);
+        formattedText = formatTranscriptWithSpeakers(transcript.utterances, userRole);
       }
 
       updateData.transcription_text = formattedText;
