@@ -1,5 +1,5 @@
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
-import { FileText, Users, Calendar, Building2, Settings, ChevronDown, User, LogOut } from "lucide-react";
+import { Building2, ChevronDown, User, LogOut } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { ShrimpIcon } from "@/components/ShrimpIcon";
 import {
@@ -11,10 +11,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 const navItems = [
-  { name: "Запись аудио", icon: FileText, path: "/" },
-  { name: "Пациенты", icon: Users, path: "/patients" },
-  { name: "Сессии", icon: Calendar, path: "/sessions" },
-  { name: "Календарь", icon: Calendar, path: "/calendar" },
+  { name: "Запись аудио", icon: "/assets/bell_17821680.png", path: "/", isImage: true },
+  { name: "Пациенты", icon: "/assets/fishes_17821722.png", path: "/patients", isImage: true },
+  { name: "Сессии", icon: "/assets/lighthouse_17821735.png", path: "/sessions", isImage: true },
+  { name: "Календарь", icon: "/assets/compass_17821700.png", path: "/calendar", isImage: true },
 ];
 
 export const Sidebar = () => {
@@ -46,15 +46,13 @@ export const Sidebar = () => {
       <div className="px-6 py-5 flex flex-col items-center gap-2">
         <ShrimpIcon className="w-10 h-10" />
         <h1 className="text-2xl font-bold text-foreground">supershrimp</h1>
+        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+          ИИ КОПАЙЛОТ
+        </span>
       </div>
       
       {/* Navigation */}
       <nav className="flex-1 px-3">
-        <div className="mb-4">
-          <span className="px-4 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            ИИ копайлот
-          </span>
-        </div>
         <ul className="space-y-1">
           {navItems.map((item) => {
             const isActive = location.pathname === item.path;
@@ -64,7 +62,11 @@ export const Sidebar = () => {
                   to={item.path}
                   className={`sidebar-item ${isActive ? 'sidebar-item-active' : 'sidebar-item-inactive'}`}
                 >
-                  <item.icon className="w-5 h-5" />
+                  {item.isImage ? (
+                    <img src={item.icon} alt={item.name} className="w-10 h-10" />
+                  ) : (
+                    <item.icon className="w-10 h-10" />
+                  )}
                   <span>{item.name}</span>
                 </NavLink>
               </li>
@@ -79,8 +81,8 @@ export const Sidebar = () => {
           to="/administration"
           className="sidebar-item sidebar-item-inactive"
         >
-          <Settings className="w-5 h-5" />
-          <span>Администрирование</span>
+          <img src="/assets/helm_17821727.png" alt="Админка" className="w-10 h-10" />
+          <span>Админка</span>
         </NavLink>
         
         {/* User */}
