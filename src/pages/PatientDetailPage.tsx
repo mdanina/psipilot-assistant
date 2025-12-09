@@ -13,7 +13,6 @@ import {
   Sparkles,
 } from "lucide-react";
 import { ShrimpIcon } from "@/components/ShrimpIcon";
-import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -150,7 +149,6 @@ const PatientDetailPage = () => {
   if (isLoading) {
     return (
       <>
-        <Header title="Пациент" icon={<User className="w-5 h-5" />} />
         <div className="flex-1 flex items-center justify-center">
           <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
         </div>
@@ -164,7 +162,6 @@ const PatientDetailPage = () => {
 
   return (
     <>
-      <Header title="Пациент" icon={<User className="w-5 h-5" />} />
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top bar with back button and patient info */}
         <div className="px-6 py-4 border-b border-border bg-background">

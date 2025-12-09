@@ -18,7 +18,7 @@ import { PatientCombobox } from "@/components/ui/patient-combobox";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
-import { linkSessionToPatient, getSession, createSession, deleteSession } from "@/lib/supabase-sessions";
+import { linkSessionToPatient, getSession, createSession, deleteSession, completeSession } from "@/lib/supabase-sessions";
 import { getSessionRecordings, getRecordingStatus, createRecording, uploadAudioFile, updateRecording, startTranscription, syncTranscriptionStatus, deleteRecording } from "@/lib/supabase-recordings";
 import { getPatients } from "@/lib/supabase-patients";
 import { getSessionNotes, createSessionNote, deleteSessionNote, getCombinedTranscriptWithNotes } from "@/lib/supabase-session-notes";
@@ -400,29 +400,50 @@ const SessionsPage = () => {
 
   // Close tab (just hide it, don't delete session)
   // But if session is not linked to patient, show dialog to link or delete
-  const handleCloseSession = (sessionId: string, e?: React.MouseEvent) => {
+  // For linked sessions, also complete the session when closing
+  const handleCloseSession = async (sessionId: string, e?: React.MouseEvent) => {
     e?.stopPropagation(); // Prevent session selection
     
     const session = sessions.find(s => s.id === sessionId);
     if (!session) return;
 
-    // If session is linked to patient, close directly (just hide tab)
+    // If session is linked to patient, complete it and close the tab
     if (session.patient_id) {
-      // Remove from open tabs
-      setOpenTabs(prev => {
-        const newTabs = new Set(prev);
-        newTabs.delete(sessionId);
-        return newTabs;
-      });
-      
-      // If closed session was active, select another one
-      if (activeSession === sessionId) {
-        const remainingSessions = sessions.filter(s => s.id !== sessionId && openTabs.has(s.id));
-        if (remainingSessions.length > 0) {
-          setActiveSession(remainingSessions[0].id);
-        } else {
-          setActiveSession(null);
+      try {
+        // Complete the session (set status to 'completed', set end time, calculate duration)
+        await completeSession(sessionId);
+        
+        // Remove from open tabs
+        setOpenTabs(prev => {
+          const newTabs = new Set(prev);
+          newTabs.delete(sessionId);
+          return newTabs;
+        });
+        
+        // If closed session was active, select another one
+        if (activeSession === sessionId) {
+          const remainingSessions = sessions.filter(s => s.id !== sessionId && openTabs.has(s.id));
+          if (remainingSessions.length > 0) {
+            setActiveSession(remainingSessions[0].id);
+          } else {
+            setActiveSession(null);
+          }
         }
+        
+        // Reload sessions to update status
+        await loadSessions();
+        
+        toast({
+          title: "Сессия завершена",
+          description: "Сессия успешно завершена и закрыта",
+        });
+      } catch (error) {
+        console.error('Error completing session:', error);
+        toast({
+          title: "Ошибка",
+          description: "Не удалось завершить сессию. Попробуйте ещё раз.",
+          variant: "destructive",
+        });
       }
     } else {
       // If not linked, show dialog - user must link or delete
@@ -435,11 +456,15 @@ const SessionsPage = () => {
     if (!closingSessionId || !selectedPatientId) return;
     
     try {
+      // First link session to patient
       await linkSessionToPatient(closingSessionId, selectedPatientId);
+      
+      // Then complete the session
+      await completeSession(closingSessionId);
       
       toast({
         title: "Успешно",
-        description: "Сессия привязана к пациенту",
+        description: "Сессия привязана к пациенту и завершена",
       });
       
       // Remove from open tabs (close the tab)
@@ -467,7 +492,7 @@ const SessionsPage = () => {
       console.error('Error linking and closing session:', error);
       toast({
         title: "Ошибка",
-        description: "Не удалось привязать сессию",
+        description: "Не удалось привязать и завершить сессию",
         variant: "destructive",
       });
     }

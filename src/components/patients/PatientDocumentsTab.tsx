@@ -80,7 +80,12 @@ export function PatientDocumentsTab({
         return;
       }
 
-      setFiles(data || []);
+      // Filter: only show directly uploaded documents (not transcripts, note files, or session-linked documents)
+      const uploadedDocuments = (data || []).filter(
+        file => file.type === 'document' && file.source === 'direct'
+      );
+
+      setFiles(uploadedDocuments);
     } catch (error) {
       console.error("Error loading files:", error);
       toast({
@@ -256,7 +261,7 @@ export function PatientDocumentsTab({
           <FileText className="w-12 h-12 text-muted-foreground mb-4" />
           <p className="text-muted-foreground mb-2">Нет файлов</p>
           <p className="text-sm text-muted-foreground">
-            Загрузите документы или добавьте транскрипты через сессии
+            Загрузите документы для пациента
           </p>
         </div>
       ) : (
