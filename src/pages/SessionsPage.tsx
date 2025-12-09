@@ -84,6 +84,7 @@ const SessionsPage = () => {
   const [isRecordingInSession, setIsRecordingInSession] = useState(false);
   const [isSavingRecording, setIsSavingRecording] = useState(false);
   const [isUploadingAudio, setIsUploadingAudio] = useState(false);
+  const [uploadingFileName, setUploadingFileName] = useState<string | null>(null);
   const currentRecordingSessionIdRef = useRef<string | null>(null);
   const audioFileInputRef = useRef<HTMLInputElement>(null);
   const transcriptionApiUrl = import.meta.env.VITE_TRANSCRIPTION_API_URL || 'http://localhost:3001';
@@ -117,19 +118,29 @@ const SessionsPage = () => {
 
   // Load open tabs from database
   const loadOpenTabs = async (): Promise<Set<string>> => {
-    if (!user?.id) return new Set();
+    if (!user?.id) {
+      console.log('[Tabs] No user.id, returning empty set');
+      return new Set();
+    }
     
     try {
+      console.log('[Tabs] Loading open tabs for user:', user.id);
       const { data, error } = await supabase
         .from('user_session_tabs')
         .select('session_id')
         .eq('user_id', user.id);
       
-      if (error) throw error;
+      if (error) {
+        console.error('[Tabs] Error loading open tabs:', error);
+        throw error;
+      }
       
-      return new Set(data?.map(row => row.session_id) || []);
+      const sessionIds = data?.map(row => row.session_id) || [];
+      console.log('[Tabs] Loaded tabs from DB:', sessionIds.length, 'tabs:', sessionIds);
+      
+      return new Set(sessionIds);
     } catch (error) {
-      console.error('Error loading open tabs:', error);
+      console.error('[Tabs] Error loading open tabs:', error);
       return new Set();
     }
   };
@@ -182,13 +193,20 @@ const SessionsPage = () => {
 
   // Track if we're processing navigation with sessionId
   const processingNavigationRef = useRef(false);
-  
-  // Load open tabs on mount
+
+  // Load open tabs immediately when user is available
+  // user is available immediately after login, profile loads later
   useEffect(() => {
     if (user?.id) {
+      console.log('[Tabs] useEffect triggered, user.id:', user.id);
       loadOpenTabs().then(tabs => {
+        console.log('[Tabs] Setting openTabs to:', Array.from(tabs));
         setOpenTabs(tabs);
+      }).catch(err => {
+        console.error('[Tabs] Error in loadOpenTabs promise:', err);
       });
+    } else {
+      console.log('[Tabs] useEffect triggered, but no user.id');
     }
   }, [user?.id]);
 
@@ -248,10 +266,45 @@ const SessionsPage = () => {
     }
   }, [sessions, openTabs, activeSession]);
 
-  // Load sessions
+  // Load sessions and filter open tabs after sessions are loaded
+  // This removes tabs for deleted/non-existent sessions
   useEffect(() => {
-    loadSessions();
-    loadPatients();
+    const loadData = async () => {
+      if (!profile?.clinic_id) {
+        console.log('[Sessions] No profile.clinic_id, skipping session load');
+        return;
+      }
+      
+      console.log('[Sessions] Loading sessions for clinic:', profile.clinic_id);
+      const sessionsData = await loadSessions();
+      await loadPatients();
+      
+      console.log('[Sessions] Loaded', sessionsData.length, 'sessions');
+      
+      // After sessions are loaded, filter openTabs to only include existing sessions
+      // This ensures we remove tabs for deleted sessions, but we don't reload tabs
+      // because they were already loaded when user became available
+      setOpenTabs(prev => {
+        const validSessionIds = new Set(sessionsData.map(s => s.id));
+        const filteredTabs = new Set<string>();
+        const prevArray = Array.from(prev);
+        
+        console.log('[Sessions] Filtering tabs. Before:', prevArray.length, 'tabs:', prevArray);
+        console.log('[Sessions] Valid session IDs:', Array.from(validSessionIds));
+        
+        prev.forEach(id => {
+          if (validSessionIds.has(id)) {
+            filteredTabs.add(id);
+          }
+        });
+        
+        console.log('[Sessions] After filtering:', Array.from(filteredTabs).length, 'tabs:', Array.from(filteredTabs));
+        
+        return filteredTabs;
+      });
+    };
+    
+    loadData();
   }, [profile]);
 
   // Handle navigation with session ID from patient card or other pages
@@ -383,19 +436,6 @@ const SessionsPage = () => {
       const sessionsData = data || [];
       setSessions(sessionsData);
 
-      // Only keep tabs that still exist in the database
-      setOpenTabs(prev => {
-        const validSessionIds = new Set(sessionsData.map(s => s.id));
-        const newTabs = new Set<string>();
-        
-        prev.forEach(id => {
-          if (validSessionIds.has(id)) {
-            newTabs.add(id);
-          }
-        });
-        
-        return newTabs;
-      });
       return sessionsData;
     } catch (error) {
       console.error('Error loading sessions:', error);
@@ -919,7 +959,11 @@ const SessionsPage = () => {
   // Filter sessions by search query and open tabs
   const filteredSessions = useMemo(() => {
     // First filter by open tabs
+    const openTabsArray = Array.from(openTabs);
+    console.log('[FilteredSessions] openTabs:', openTabsArray);
+    console.log('[FilteredSessions] sessions:', sessions.length);
     let result = sessions.filter(session => openTabs.has(session.id));
+    console.log('[FilteredSessions] after filtering by openTabs:', result.length);
     
     // Then filter by search query if provided
     if (searchQuery.trim()) {
@@ -1179,6 +1223,7 @@ const SessionsPage = () => {
     }
 
     setIsUploadingAudio(true);
+    setUploadingFileName(file.name);
 
     try {
       // Get audio duration
@@ -1253,6 +1298,7 @@ const SessionsPage = () => {
       });
     } finally {
       setIsUploadingAudio(false);
+      setUploadingFileName(null);
       // Reset file input
       if (audioFileInputRef.current) {
         audioFileInputRef.current.value = '';
@@ -1841,10 +1887,19 @@ const SessionsPage = () => {
                 </div>
               ) : (
                 <>
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-success" />
-                <span className="text-sm text-muted-foreground">Готов</span>
-              </div>
+                  {isUploadingAudio ? (
+                    <div className="flex items-center gap-2 flex-1">
+                      <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                      <span className="text-sm text-muted-foreground">
+                        Загрузка {uploadingFileName ? `файла "${uploadingFileName}"...` : 'аудио файла...'}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-success" />
+                      <span className="text-sm text-muted-foreground">Готов</span>
+                    </div>
+                  )}
               
                   <div className="flex items-center gap-1 flex-1">
                     <Button
@@ -1878,7 +1933,7 @@ const SessionsPage = () => {
                       variant="ghost"
                       className="gap-1"
                       onClick={() => setNotesDialogOpen(true)}
-                      disabled={!activeSession}
+                      disabled={!activeSession || isUploadingAudio}
                       title="Добавить заметку специалиста"
                     >
                       <FileText className="w-4 h-4" />
