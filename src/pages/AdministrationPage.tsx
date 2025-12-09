@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
-import { Header } from '@/components/layout/Header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -369,59 +368,51 @@ export default function AdministrationPage() {
   // Show loading state if profile is not loaded yet
   if (!profile) {
     return (
-      <>
-        <Header title="Администрирование" icon={<Settings className="w-5 h-5" />} />
-        <div className="flex-1 p-6 overflow-auto">
-          <div className="max-w-6xl mx-auto">
-            <Card>
-              <CardContent className="flex items-center justify-center py-12">
-                <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-              </CardContent>
-            </Card>
-          </div>
+      <div className="flex-1 p-6 overflow-auto">
+        <div className="max-w-6xl mx-auto">
+          <Card>
+            <CardContent className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+            </CardContent>
+          </Card>
         </div>
-      </>
+      </div>
     );
   }
 
   // Only show for admins
   if (profile.role !== 'admin') {
     return (
-      <>
-        <Header title="Администрирование" icon={<Settings className="w-5 h-5" />} />
-        <div className="flex-1 p-6 overflow-auto">
-          <Alert>
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
-              Для доступа к этой странице необходимы права администратора.
-            </AlertDescription>
-          </Alert>
-        </div>
-      </>
+      <div className="flex-1 p-6 overflow-auto">
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Для доступа к этой странице необходимы права администратора.
+          </AlertDescription>
+        </Alert>
+      </div>
     );
   }
 
   return (
-    <>
-      <Header title="Администрирование" icon={<Settings className="w-5 h-5" />} />
-      <div className="flex-1 p-6 overflow-auto">
-        <div className="max-w-6xl mx-auto space-y-6">
-          {error && (
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
+    <div className="flex-1 p-6 overflow-auto">
+      <div className="max-w-6xl mx-auto space-y-6">
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
 
-          {success && (
-            <Alert>
-              <CheckCircle2 className="h-4 w-4" />
-              <AlertDescription>{success}</AlertDescription>
-            </Alert>
-          )}
+        {success && (
+          <Alert>
+            <CheckCircle2 className="h-4 w-4" />
+            <AlertDescription>{success}</AlertDescription>
+          </Alert>
+        )}
 
-          {/* Clinic Information Card */}
-          {profile?.clinic_id && (
+        {/* Clinic Information Card */}
+        {profile?.clinic_id && (
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -533,10 +524,10 @@ export default function AdministrationPage() {
                 )}
               </CardContent>
             </Card>
-          )}
+        )}
 
-          {/* Header with Add User button */}
-          <div className="flex items-center justify-between">
+        {/* Header with Add User button */}
+        <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold text-foreground">Пользователи клиники</h1>
               <p className="text-muted-foreground mt-1">
@@ -547,10 +538,10 @@ export default function AdministrationPage() {
               <UserPlus className="w-4 h-4 mr-2" />
               Добавить пользователя
             </Button>
-          </div>
+        </div>
 
-          {/* Users List */}
-          <Card>
+        {/* Users List */}
+        <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Users className="w-5 h-5" />
@@ -639,10 +630,10 @@ export default function AdministrationPage() {
                 </div>
               )}
             </CardContent>
-          </Card>
+        </Card>
 
-          {/* Pending Invitations Card */}
-          {invitations.length > 0 && (
+        {/* Pending Invitations Card */}
+        {invitations.length > 0 && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -713,8 +704,7 @@ export default function AdministrationPage() {
                 </div>
               </CardContent>
             </Card>
-          )}
-        </div>
+        )}
       </div>
 
       {/* Invite User Dialog */}
@@ -890,6 +880,6 @@ export default function AdministrationPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </>
+    </div>
   );
 }

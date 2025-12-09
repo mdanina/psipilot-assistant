@@ -307,7 +307,7 @@ const CalendarPage = () => {
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left Panel - Calendar */}
-        <div className="w-1/2 border-r bg-background p-6 space-y-6 overflow-y-auto flex flex-col items-center">
+        <div className="w-1/2 border-r bg-background p-6 flex flex-col items-center justify-center">
           <Calendar
             mode="single"
             selected={selectedDate}
@@ -317,15 +317,16 @@ const CalendarPage = () => {
             className="w-fit"
             classNames={{
               months: "flex justify-center",
-              month: "space-y-6",
+              month: "space-y-7",
               caption: "flex justify-center pt-1 relative items-center",
               caption_label: "text-base font-semibold",
               nav_button_previous: "absolute left-1",
               nav_button_next: "absolute right-1",
               table: "mx-auto",
-              head_cell: "text-sm font-medium w-12 h-8",
-              cell: "h-12 w-12",
-              day: "h-12 w-12 text-base relative [&.has-online-appointment]:after:content-[''] [&.has-online-appointment]:after:absolute [&.has-online-appointment]:after:bottom-1.5 [&.has-online-appointment]:after:left-1/2 [&.has-online-appointment]:after:-translate-x-1/2 [&.has-online-appointment]:after:h-1 [&.has-online-appointment]:after:w-1 [&.has-online-appointment]:after:rounded-full [&.has-online-appointment]:after:bg-muted-foreground [&.has-inperson-appointment]:after:content-[''] [&.has-inperson-appointment]:after:absolute [&.has-inperson-appointment]:after:bottom-1.5 [&.has-inperson-appointment]:after:left-1/2 [&.has-inperson-appointment]:after:-translate-x-1/2 [&.has-inperson-appointment]:after:h-1 [&.has-inperson-appointment]:after:w-1 [&.has-inperson-appointment]:after:rounded-full [&.has-inperson-appointment]:after:bg-primary",
+              head_cell: "text-sm font-medium w-[61px] h-10",
+              cell: "h-[61px] w-[61px]",
+              day: "h-[61px] w-[61px] text-base relative [&.has-online-appointment]:after:content-[''] [&.has-online-appointment]:after:absolute [&.has-online-appointment]:after:bottom-1.5 [&.has-online-appointment]:after:left-1/2 [&.has-online-appointment]:after:-translate-x-1/2 [&.has-online-appointment]:after:h-1 [&.has-online-appointment]:after:w-1 [&.has-online-appointment]:after:rounded-full [&.has-online-appointment]:after:bg-muted-foreground [&.has-inperson-appointment]:after:content-[''] [&.has-inperson-appointment]:after:absolute [&.has-inperson-appointment]:after:bottom-1.5 [&.has-inperson-appointment]:after:left-1/2 [&.has-inperson-appointment]:after:-translate-x-1/2 [&.has-inperson-appointment]:after:h-1 [&.has-inperson-appointment]:after:w-1 [&.has-inperson-appointment]:after:rounded-full [&.has-inperson-appointment]:after:bg-primary",
+              day_selected: "border-2 border-primary rounded-full bg-transparent text-foreground hover:border-primary hover:bg-transparent focus:border-primary focus:bg-transparent",
             }}
             modifiers={{
               hasOnlineAppointment: (date) => {
@@ -352,40 +353,44 @@ const CalendarPage = () => {
         </div>
 
         {/* Right Panel - Schedule */}
-        <div className="w-1/2 overflow-y-auto p-6">
-          <div className="mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setSelectedDate(new Date(selectedDate.getTime() - 24 * 60 * 60 * 1000))}
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </Button>
-              <div className="text-center">
-                <p className="text-sm font-medium">
-                  {format(selectedDate, "EEEE, d MMMM yyyy", { locale: ru })}
-                </p>
+        <div className="w-1/2 p-6">
+          <div className="bg-card rounded-lg border border-border shadow-sm h-full flex flex-col overflow-hidden">
+            <div className="p-6 pb-4 border-b border-border">
+              <div className="flex items-center justify-between">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSelectedDate(new Date(selectedDate.getTime() - 24 * 60 * 60 * 1000))}
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </Button>
+                <div className="text-center">
+                  <p className="text-sm font-medium">
+                    {format(selectedDate, "EEEE, d MMMM yyyy", { locale: ru })}
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSelectedDate(new Date(selectedDate.getTime() + 24 * 60 * 60 * 1000))}
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setSelectedDate(new Date(selectedDate.getTime() + 24 * 60 * 60 * 1000))}
-              >
-                <ChevronRight className="w-4 h-4" />
-              </Button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 pt-4">
+              <AppointmentList
+                appointments={dayAppointments}
+                patients={patients}
+                selectedDate={selectedDate}
+                isAdmin={profile?.role === 'admin'}
+                clinicId={profile?.clinic_id}
+                onDelete={handleDeleteAppointment}
+                onCreateAtTime={handleCreateAtTime}
+                onReassign={handleReassignAppointment}
+              />
             </div>
           </div>
-          <AppointmentList
-            appointments={dayAppointments}
-            patients={patients}
-            selectedDate={selectedDate}
-            isAdmin={profile?.role === 'admin'}
-            clinicId={profile?.clinic_id}
-            onDelete={handleDeleteAppointment}
-            onCreateAtTime={handleCreateAtTime}
-            onReassign={handleReassignAppointment}
-          />
         </div>
       </div>
 
