@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Plus, FileText, Circle, User, Link2, Loader2, Mic, Pause, Play, Square, Sparkles, ChevronDown, RefreshCw, Trash2, X, File, Upload, Search, AlertTriangle } from "lucide-react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -45,6 +45,7 @@ const SessionsPage = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSession, setActiveSession] = useState<string | null>(null);
@@ -179,6 +180,9 @@ const SessionsPage = () => {
     }
   };
 
+  // Track if we're processing navigation with sessionId
+  const processingNavigationRef = useRef(false);
+  
   // Load open tabs on mount
   useEffect(() => {
     if (user?.id) {
@@ -211,27 +215,40 @@ const SessionsPage = () => {
 
   // Set active session when sessions and openTabs are loaded
   useEffect(() => {
+    // Пропускаем, если идет обработка навигации с sessionId
+    if (processingNavigationRef.current) {
+      console.log('[ActiveSession] Skipping - processing navigation');
+      return;
+    }
+    
     // Если все вкладки закрыты - сбросить активную сессию
     if (openTabs.size === 0) {
-      setActiveSession(null);
+      if (activeSession) {
+        console.log('[ActiveSession] No open tabs, clearing activeSession:', activeSession);
+        setActiveSession(null);
+      }
       return;
     }
     
     // Если активная сессия больше не в открытых вкладках - выбрать первую открытую
     if (activeSession && !openTabs.has(activeSession)) {
+      console.log('[ActiveSession] Active session not in open tabs:', activeSession, 'openTabs:', Array.from(openTabs));
       const firstOpenTab = Array.from(openTabs).find(id => 
         sessions.some(s => s.id === id)
       );
+      console.log('[ActiveSession] Selecting first open tab:', firstOpenTab);
       setActiveSession(firstOpenTab || null);
       return;
     }
     
     // Если нет активной сессии, но есть открытые вкладки - выбрать первую
     if (sessions.length > 0 && !activeSession && openTabs.size > 0) {
+      console.log('[ActiveSession] No active session, selecting first open tab. openTabs:', Array.from(openTabs));
       const firstOpenTab = Array.from(openTabs).find(id => 
         sessions.some(s => s.id === id)
       );
       if (firstOpenTab) {
+        console.log('[ActiveSession] Setting first open tab:', firstOpenTab);
         setActiveSession(firstOpenTab);
       }
     }
@@ -243,24 +260,89 @@ const SessionsPage = () => {
     loadPatients();
   }, [profile]);
 
-  // Handle navigation with session ID from ScribePage
+  // Handle navigation with session ID from patient card or other pages
   useEffect(() => {
-    if (location.state?.sessionId) {
-      const sessionId = location.state.sessionId;
-      // Wait for sessions to load, then select the session
-      setTimeout(() => {
-        // Add to open tabs
-        setOpenTabs(prev => {
-          const newTabs = new Set(prev);
-          newTabs.add(sessionId);
-          return newTabs;
-        });
-        setActiveSession(sessionId);
-        // Clear location state
+    // Проверяем и location.state, и URL параметры
+    const sessionIdFromState = location.state?.sessionId;
+    const sessionIdFromUrl = searchParams.get('sessionId');
+    const sessionId = sessionIdFromState || sessionIdFromUrl;
+    
+    console.log('[Navigation] Checking navigation:', {
+      sessionIdFromState,
+      sessionIdFromUrl,
+      sessionId,
+      isLoading,
+      sessionsCount: sessions.length,
+      userId: user?.id,
+      processing: processingNavigationRef.current
+    });
+    
+    if (sessionId && !isLoading && sessions.length > 0 && user?.id && !processingNavigationRef.current) {
+      console.log('[Navigation] Processing sessionId:', sessionId);
+      
+      // Check if session exists in loaded sessions
+      const sessionExists = sessions.some(s => s.id === sessionId);
+      if (!sessionExists) {
+        console.warn('[Navigation] Session not found in loaded sessions:', sessionId);
         navigate(location.pathname, { replace: true, state: {} });
-      }, 500);
+        return;
+      }
+      
+      processingNavigationRef.current = true;
+      console.log('[Navigation] Saving to DB...');
+      
+      // СНАЧАЛА сохраняем в БД, ПОТОМ загружаем вкладки
+      supabase
+        .from('user_session_tabs')
+        .insert({
+          user_id: user.id,
+          session_id: sessionId
+        })
+        .then(async ({ error }) => {
+          if (error) {
+            // Если уже существует - это нормально (UNIQUE constraint)
+            if (error.code !== '23505') {
+              console.error('[Navigation] Error saving session tab:', error);
+              processingNavigationRef.current = false;
+              return;
+            } else {
+              console.log('[Navigation] Session tab already exists in DB');
+            }
+          } else {
+            console.log('[Navigation] Session tab saved to DB successfully');
+          }
+          
+          // После сохранения в БД - загружаем все вкладки заново
+          console.log('[Navigation] Loading tabs from DB...');
+          const tabs = await loadOpenTabs();
+          console.log('[Navigation] Loaded tabs:', Array.from(tabs));
+          console.log('[Navigation] SessionId in loaded tabs?', tabs.has(sessionId));
+          
+          setOpenTabs(tabs);
+          
+          // Небольшая задержка, чтобы React успел обновить состояние
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
+          // Устанавливаем активную сессию
+          console.log('[Navigation] Setting active session:', sessionId);
+          setActiveSession(sessionId);
+          
+          // Еще небольшая задержка перед очисткой state
+          await new Promise(resolve => setTimeout(resolve, 50));
+          
+          // Очищаем location state и URL параметры
+          searchParams.delete('sessionId');
+          setSearchParams(searchParams, { replace: true });
+          navigate(location.pathname, { replace: true, state: {} });
+          processingNavigationRef.current = false;
+          console.log('[Navigation] Navigation processing complete');
+        })
+        .catch((error) => {
+          console.error('[Navigation] Unexpected error:', error);
+          processingNavigationRef.current = false;
+        });
     }
-  }, [location.state, navigate, location.pathname]);
+  }, [location.state, searchParams, navigate, location.pathname, isLoading, sessions, user?.id, setSearchParams]);
 
   // Load recordings and notes when session changes
   // Load clinical notes for active session
