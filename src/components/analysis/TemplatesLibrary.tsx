@@ -8,9 +8,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Loader2, GripVertical, Plus, ChevronDown } from 'lucide-react';
-import { getBlockTemplates, getNoteTemplates, updateNoteTemplateBlockOrder } from '@/lib/supabase-ai';
+import { Loader2, GripVertical, Plus, X } from 'lucide-react';
+import { getBlockTemplates, getNoteTemplates, updateNoteTemplateBlockOrder, removeBlockFromTemplate } from '@/lib/supabase-ai';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 import { AddBlockDialog } from './AddBlockDialog';
 import { CreateTemplateDialog } from './CreateTemplateDialog';
 import {
@@ -42,9 +43,17 @@ interface TemplatesLibraryProps {
 function SortableBlockItem({
   block,
   getStatusBadge,
+  onRemove,
+  templateId,
+  onError,
+  canEdit,
 }: {
   block: NoteBlockTemplate;
   getStatusBadge?: (block: NoteBlockTemplate) => React.ReactNode;
+  onRemove?: (blockId: string) => void;
+  templateId?: string;
+  onError?: (error: Error) => void;
+  canEdit?: boolean;
 }) {
   const {
     attributes,
@@ -61,25 +70,54 @@ function SortableBlockItem({
     opacity: isDragging ? 0.5 : 1,
   };
 
+  const handleRemove = async (e: React.MouseEvent) => {
+    e.stopPropagation(); // Предотвращаем срабатывание drag
+    if (!templateId || !onRemove) return;
+    
+    try {
+      await removeBlockFromTemplate(templateId, block.id);
+      onRemove(block.id);
+    } catch (error) {
+      console.error('Error removing block:', error);
+      if (onError) {
+        onError(error instanceof Error ? error : new Error('Не удалось удалить блок'));
+      }
+    }
+  };
+
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className={`group flex items-center gap-2 px-3 py-2 rounded-md hover:bg-muted/50 cursor-pointer transition-all duration-200 ${
+      className={`group flex items-center gap-2 px-3 py-2 rounded-md hover:bg-muted/50 transition-all duration-200 ${
         isDragging ? 'shadow-lg scale-105 bg-background border border-primary/30 z-50' : ''
-      }`}
+      } ${canEdit ? 'cursor-pointer' : ''}`}
     >
-      <div
-        {...attributes}
-        {...listeners}
-        className="cursor-grab active:cursor-grabbing touch-none"
-        title="Перетащите для изменения порядка"
-      >
-        <GripVertical className="h-4 w-4 text-muted-foreground hover:text-foreground transition-colors" />
-      </div>
+      {canEdit && (
+        <div
+          {...attributes}
+          {...listeners}
+          className="cursor-grab active:cursor-grabbing touch-none"
+          title="Перетащите для изменения порядка"
+        >
+          <GripVertical className="h-4 w-4 text-muted-foreground hover:text-foreground transition-colors" />
+        </div>
+      )}
+      {!canEdit && (
+        <div className="w-4 h-4" /> // Spacer для выравнивания
+      )}
       <span className="text-sm flex-1 truncate">{block.name}</span>
       {getStatusBadge && getStatusBadge(block)}
-      <ChevronDown className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+      {canEdit && onRemove && (
+        <button
+          onClick={handleRemove}
+          className="opacity-0 group-hover:opacity-100 transition-opacity hover:text-destructive p-1"
+          title="Удалить блок из шаблона"
+          type="button"
+        >
+          <X className="h-4 w-4 text-muted-foreground hover:text-destructive transition-colors" />
+        </button>
+      )}
     </div>
   );
 }
@@ -100,6 +138,9 @@ export function TemplatesLibrary({
   const [isAddBlockDialogOpen, setIsAddBlockDialogOpen] = useState(false);
   const [isCreateTemplateDialogOpen, setIsCreateTemplateDialogOpen] = useState(false);
   const { toast } = useToast();
+  const { profile } = useAuth();
+  
+  const isAdmin = profile?.role === 'admin';
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -146,10 +187,20 @@ export function TemplatesLibrary({
         })
     : [];
 
+  // Проверяем, можно ли редактировать выбранный шаблон
+  const canEditTemplate = selectedTemplate && (
+    !selectedTemplate.is_system && (
+      // Личный шаблон - только владелец
+      (selectedTemplate.user_id && selectedTemplate.user_id === profile?.id) ||
+      // Шаблон клиники - только админы
+      (selectedTemplate.user_id === null && isAdmin)
+    )
+  );
+
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
 
-    if (!over || active.id === over.id || !selectedTemplate) {
+    if (!over || active.id === over.id || !selectedTemplate || !canEditTemplate) {
       return;
     }
 
@@ -210,6 +261,39 @@ export function TemplatesLibrary({
     await loadTemplates();
   };
 
+  const handleBlockRemoved = async (removedBlockId: string) => {
+    if (!selectedTemplate) return;
+    
+    // Оптимистичное обновление - сразу обновляем локальное состояние
+    const updatedBlockIds = selectedTemplate.block_template_ids.filter(
+      (id: string) => id !== removedBlockId
+    );
+    
+    setNoteTemplates((prev) =>
+      prev.map((t) =>
+        t.id === selectedTemplate.id 
+          ? { ...t, block_template_ids: updatedBlockIds }
+          : t
+      )
+    );
+
+    toast({
+      title: 'Блок удалён',
+      description: 'Блок успешно удалён из шаблона',
+    });
+
+    // Перезагружаем шаблоны для синхронизации с БД
+    await loadTemplates();
+  };
+
+  const handleBlockRemoveError = (error: Error) => {
+    toast({
+      title: 'Ошибка',
+      description: error.message || 'Не удалось удалить блок из шаблона',
+      variant: 'destructive',
+    });
+  };
+
   if (isLoading) {
     return (
       <div className="h-full flex items-center justify-center">
@@ -224,15 +308,36 @@ export function TemplatesLibrary({
       <div className="border-b px-4 py-3">
         <div className="flex items-center gap-2">
           <Select value={selectedTemplateId || ''} onValueChange={onTemplateSelect}>
-            <SelectTrigger className="flex-1">
-              <SelectValue placeholder="Выберите шаблон">
-                {selectedTemplate ? selectedTemplate.name : 'Выберите шаблон'}
+            <SelectTrigger className="flex-1 justify-start">
+              <SelectValue placeholder="Выберите шаблон" className="text-left">
+                {selectedTemplate ? (
+                  <div className="flex items-center gap-2 text-left w-full">
+                    <span className="text-left">{selectedTemplate.name}</span>
+                    {selectedTemplate.is_default && (
+                      <span className="text-xs text-muted-foreground">(По умолчанию)</span>
+                    )}
+                  </div>
+                ) : (
+                  'Выберите шаблон'
+                )}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {noteTemplates.map((template) => (
-                <SelectItem key={template.id} value={template.id}>
-                  {template.name}
+                <SelectItem key={template.id} value={template.id} className="text-left">
+                  <div className="flex flex-col text-left w-full">
+                    <div className="flex items-center gap-2 text-left">
+                      <span className="text-left">{template.name}</span>
+                      {template.is_default && (
+                        <span className="text-xs text-muted-foreground">(По умолчанию)</span>
+                      )}
+                    </div>
+                    {template.description && (
+                      <span className="text-xs text-muted-foreground mt-0.5 text-left">
+                        {template.description}
+                      </span>
+                    )}
+                  </div>
                 </SelectItem>
               ))}
             </SelectContent>
@@ -251,9 +356,6 @@ export function TemplatesLibrary({
 
       {/* Sections list */}
       <div className="flex-1 overflow-hidden">
-        <div className="px-4 py-2 border-b">
-          <h3 className="text-sm font-semibold">Sections</h3>
-        </div>
         <ScrollArea className="flex-1">
           <div className="p-2">
             {selectedTemplate ? (
@@ -275,21 +377,30 @@ export function TemplatesLibrary({
                       >
                         <div className="space-y-1">
                           {selectedTemplateBlocks.map((block) => (
-                            <SortableBlockItem key={block.id} block={block} />
+                            <SortableBlockItem 
+                              key={block.id} 
+                              block={block}
+                              onRemove={canEditTemplate ? handleBlockRemoved : undefined}
+                              onError={handleBlockRemoveError}
+                              templateId={selectedTemplate?.id}
+                              canEdit={canEditTemplate}
+                            />
                           ))}
                         </div>
                       </SortableContext>
                     </DndContext>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="w-full mt-2 justify-start text-muted-foreground hover:text-foreground"
-                      disabled={isReordering}
-                      onClick={() => setIsAddBlockDialogOpen(true)}
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      New section
-                    </Button>
+                    {canEditTemplate && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full mt-2 justify-start text-muted-foreground hover:text-foreground"
+                        disabled={isReordering}
+                        onClick={() => setIsAddBlockDialogOpen(true)}
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        New section
+                      </Button>
+                    )}
                   </>
                 )}
               </>

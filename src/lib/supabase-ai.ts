@@ -79,6 +79,50 @@ export async function updateNoteTemplateBlockOrder(
   templateId: string,
   blockTemplateIds: string[]
 ): Promise<void> {
+  // Получаем текущего пользователя
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    throw new Error('Необходима авторизация');
+  }
+
+  // Получаем шаблон с информацией о владельце
+  const { data: template, error: fetchError } = await (supabase as any)
+    .from('clinical_note_templates')
+    .select('is_system, user_id, clinic_id')
+    .eq('id', templateId)
+    .single();
+
+  if (fetchError) {
+    throw new Error(fetchError.message);
+  }
+
+  if (!template) {
+    throw new Error('Шаблон не найден');
+  }
+
+  // Проверка прав: системные шаблоны нельзя редактировать
+  if (template.is_system) {
+    throw new Error('Системные шаблоны нельзя редактировать');
+  }
+
+  // Проверка прав: для шаблонов клиники нужны права админа
+  if (template.user_id === null && template.clinic_id) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role, clinic_id')
+      .eq('id', user.id)
+      .single();
+    
+    if (profile?.role !== 'admin' || profile?.clinic_id !== template.clinic_id) {
+      throw new Error('Только администраторы могут редактировать шаблоны клиники');
+    }
+  }
+
+  // Проверка прав: для личных шаблонов - только владелец
+  if (template.user_id !== null && template.user_id !== user.id) {
+    throw new Error('Вы можете редактировать только свои личные шаблоны');
+  }
+
   const { error } = await (supabase as any)
     .from('clinical_note_templates')
     .update({ block_template_ids: blockTemplateIds })
@@ -96,10 +140,16 @@ export async function addBlockToTemplate(
   templateId: string,
   blockTemplateId: string
 ): Promise<void> {
-  // Получаем текущий шаблон
+  // Получаем текущего пользователя
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    throw new Error('Необходима авторизация');
+  }
+
+  // Получаем шаблон с информацией о владельце
   const { data: template, error: fetchError } = await (supabase as any)
     .from('clinical_note_templates')
-    .select('block_template_ids')
+    .select('block_template_ids, is_system, user_id, clinic_id')
     .eq('id', templateId)
     .single();
 
@@ -109,6 +159,29 @@ export async function addBlockToTemplate(
 
   if (!template) {
     throw new Error('Шаблон не найден');
+  }
+
+  // Проверка прав: системные шаблоны нельзя редактировать
+  if (template.is_system) {
+    throw new Error('Системные шаблоны нельзя редактировать');
+  }
+
+  // Проверка прав: для шаблонов клиники нужны права админа
+  if (template.user_id === null && template.clinic_id) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role, clinic_id')
+      .eq('id', user.id)
+      .single();
+    
+    if (profile?.role !== 'admin' || profile?.clinic_id !== template.clinic_id) {
+      throw new Error('Только администраторы могут редактировать шаблоны клиники');
+    }
+  }
+
+  // Проверка прав: для личных шаблонов - только владелец
+  if (template.user_id !== null && template.user_id !== user.id) {
+    throw new Error('Вы можете редактировать только свои личные шаблоны');
   }
 
   // Проверяем, что блока еще нет в шаблоне
@@ -136,10 +209,16 @@ export async function removeBlockFromTemplate(
   templateId: string,
   blockTemplateId: string
 ): Promise<void> {
-  // Получаем текущий шаблон
+  // Получаем текущего пользователя
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    throw new Error('Необходима авторизация');
+  }
+
+  // Получаем шаблон с информацией о владельце
   const { data: template, error: fetchError } = await (supabase as any)
     .from('clinical_note_templates')
-    .select('block_template_ids')
+    .select('block_template_ids, is_system, user_id, clinic_id')
     .eq('id', templateId)
     .single();
 
@@ -149,6 +228,29 @@ export async function removeBlockFromTemplate(
 
   if (!template) {
     throw new Error('Шаблон не найден');
+  }
+
+  // Проверка прав: системные шаблоны нельзя редактировать
+  if (template.is_system) {
+    throw new Error('Системные шаблоны нельзя редактировать');
+  }
+
+  // Проверка прав: для шаблонов клиники нужны права админа
+  if (template.user_id === null && template.clinic_id) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role, clinic_id')
+      .eq('id', user.id)
+      .single();
+    
+    if (profile?.role !== 'admin' || profile?.clinic_id !== template.clinic_id) {
+      throw new Error('Только администраторы могут редактировать шаблоны клиники');
+    }
+  }
+
+  // Проверка прав: для личных шаблонов - только владелец
+  if (template.user_id !== null && template.user_id !== user.id) {
+    throw new Error('Вы можете редактировать только свои личные шаблоны');
   }
 
   // Удаляем блок из списка
@@ -174,9 +276,10 @@ export async function createNoteTemplate(
   nameEn: string | null,
   description: string | null,
   blockTemplateIds: string[],
-  isDefault: boolean = false
+  isDefault: boolean = false,
+  isClinicTemplate: boolean = false
 ): Promise<ClinicalNoteTemplate> {
-  // Получаем clinic_id текущего пользователя
+  // Получаем clinic_id и роль текущего пользователя
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
     throw new Error('Необходима авторизация');
@@ -184,25 +287,46 @@ export async function createNoteTemplate(
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('clinic_id')
+    .select('clinic_id, role')
     .eq('id', user.id)
     .single();
 
   const clinicId = profile?.clinic_id || null;
+  const isAdmin = profile?.role === 'admin';
 
-  // Если устанавливаем как шаблон по умолчанию, снимаем флаг с других шаблонов клиники
-  if (isDefault && clinicId) {
-    await (supabase as any)
-      .from('clinical_note_templates')
-      .update({ is_default: false })
-      .eq('clinic_id', clinicId)
-      .eq('is_default', true);
+  // Проверка прав: только админы могут создавать шаблоны клиники
+  if (isClinicTemplate && !isAdmin) {
+    throw new Error('Только администраторы могут создавать шаблоны клиники');
+  }
+
+  // Определяем user_id: для шаблонов клиники - NULL, для личных - ID пользователя
+  const userId = isClinicTemplate ? null : user.id;
+
+  // Если устанавливаем как шаблон по умолчанию, снимаем флаг с других шаблонов
+  if (isDefault) {
+    if (isClinicTemplate && clinicId) {
+      // Для шаблонов клиники - снимаем флаг с других шаблонов клиники
+      await (supabase as any)
+        .from('clinical_note_templates')
+        .update({ is_default: false })
+        .eq('clinic_id', clinicId)
+        .is('user_id', null)
+        .eq('is_default', true);
+    } else if (!isClinicTemplate) {
+      // Для личных шаблонов - снимаем флаг с других личных шаблонов пользователя
+      await (supabase as any)
+        .from('clinical_note_templates')
+        .update({ is_default: false })
+        .eq('user_id', user.id)
+        .eq('is_default', true);
+    }
   }
 
   const { data, error } = await (supabase as any)
     .from('clinical_note_templates')
     .insert({
       clinic_id: clinicId,
+      user_id: userId,
       name,
       name_en: nameEn,
       description,
@@ -294,12 +418,12 @@ export async function regenerateSection(
  * Сгенерировать сводку по случаю пациента
  */
 export async function generateCaseSummary(
-  patientId: string
+  sessionId: string
 ): Promise<CaseSummary> {
   const response = await fetch(`${AI_API_URL}/api/ai/case-summary`, {
     method: 'POST',
     headers: await getAuthHeaders(),
-    body: JSON.stringify({ patient_id: patientId }),
+    body: JSON.stringify({ session_id: sessionId }),
   });
   return handleResponse<CaseSummary>(response);
 }

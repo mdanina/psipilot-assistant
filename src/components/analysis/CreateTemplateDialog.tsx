@@ -23,6 +23,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { getBlockTemplates, createNoteTemplate } from '@/lib/supabase-ai';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 import type { NoteBlockTemplate } from '@/types/ai.types';
 import { Check, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -39,14 +40,17 @@ export function CreateTemplateDialog({
   onTemplateCreated,
 }: CreateTemplateDialogProps) {
   const [name, setName] = useState('');
-  const [nameEn, setNameEn] = useState('');
   const [description, setDescription] = useState('');
   const [isDefault, setIsDefault] = useState(false);
+  const [isClinicTemplate, setIsClinicTemplate] = useState(false);
   const [selectedBlockIds, setSelectedBlockIds] = useState<string[]>([]);
   const [blocks, setBlocks] = useState<NoteBlockTemplate[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const { toast } = useToast();
+  const { profile } = useAuth();
+  
+  const isAdmin = profile?.role === 'admin';
 
   // Загружаем доступные блоки
   useEffect(() => {
@@ -59,9 +63,9 @@ export function CreateTemplateDialog({
   useEffect(() => {
     if (open) {
       setName('');
-      setNameEn('');
       setDescription('');
       setIsDefault(false);
+      setIsClinicTemplate(false);
       setSelectedBlockIds([]);
     }
   }, [open]);
@@ -114,10 +118,11 @@ export function CreateTemplateDialog({
       setIsCreating(true);
       await createNoteTemplate(
         name.trim(),
-        nameEn.trim() || null,
+        null, // name_en больше не используется
         description.trim() || null,
         selectedBlockIds,
-        isDefault
+        isDefault,
+        isClinicTemplate
       );
       toast({
         title: 'Успешно',
@@ -172,21 +177,12 @@ export function CreateTemplateDialog({
           {/* Форма с названием и описанием */}
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="name">Название (русский) *</Label>
+              <Label htmlFor="name">Название *</Label>
               <Input
                 id="name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Например: Первичная психиатрическая оценка"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="nameEn">Название (английский)</Label>
-              <Input
-                id="nameEn"
-                value={nameEn}
-                onChange={(e) => setNameEn(e.target.value)}
-                placeholder="Initial Psychiatric Assessment"
               />
             </div>
             <div className="space-y-2">
@@ -199,6 +195,18 @@ export function CreateTemplateDialog({
                 rows={2}
               />
             </div>
+            {isAdmin && (
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="isClinicTemplate"
+                  checked={isClinicTemplate}
+                  onCheckedChange={(checked) => setIsClinicTemplate(checked === true)}
+                />
+                <Label htmlFor="isClinicTemplate" className="cursor-pointer">
+                  Шаблон клиники (доступен всем пользователям клиники)
+                </Label>
+              </div>
+            )}
             <div className="flex items-center space-x-2">
               <Checkbox
                 id="isDefault"

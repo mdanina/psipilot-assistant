@@ -69,18 +69,26 @@ router.get('/block-templates', async (req, res) => {
  */
 router.get('/note-templates', async (req, res) => {
   try {
-    const { clinic_id } = req.user;
+    const { id: user_id, clinic_id } = req.user;
     const supabase = getSupabaseAdmin();
 
-    // Получаем шаблоны
+    // Получаем шаблоны:
+    // 1. Системные (is_system = true)
+    // 2. Шаблоны клиники (clinic_id = user's clinic AND user_id IS NULL)
+    // 3. Личные шаблоны пользователя (user_id = current user)
     let templatesQuery = supabase
       .from('clinical_note_templates')
       .select('*')
       .eq('is_active', true);
 
     if (clinic_id) {
-      templatesQuery = templatesQuery.or(`clinic_id.eq.${clinic_id},is_system.eq.true`);
+      // Системные ИЛИ шаблоны клиники ИЛИ личные шаблоны пользователя
+      // Используем фильтры через .or() с правильным синтаксисом
+      templatesQuery = templatesQuery.or(
+        `is_system.eq.true,and(clinic_id.eq.${clinic_id},user_id.is.null),user_id.eq.${user_id}`
+      );
     } else {
+      // Только системные, если нет clinic_id
       templatesQuery = templatesQuery.eq('is_system', true);
     }
 
@@ -583,28 +591,52 @@ router.post('/regenerate-section/:sectionId', async (req, res) => {
 
 /**
  * POST /api/ai/case-summary
- * Генерация сводки по пациенту
+ * Генерация сводки по сессии
  */
 router.post('/case-summary', async (req, res) => {
   try {
-    const { patient_id } = req.body;
+    const { session_id } = req.body;
     const { id: user_id } = req.user;
     const supabase = getSupabaseAdmin();
 
-    // Получаем пациента
-    const { data: patient, error: patientError } = await supabase
-      .from('patients')
-      .select('*')
-      .eq('id', patient_id)
+    if (!session_id) {
+      return res.status(400).json({
+        success: false,
+        error: 'session_id обязателен',
+      });
+    }
+
+    // Получаем сессию с данными пациента
+    const { data: session, error: sessionError } = await supabase
+      .from('sessions')
+      .select(`
+        *,
+        patient:patients(*)
+      `)
+      .eq('id', session_id)
       .single();
 
-    if (patientError) throw patientError;
+    if (sessionError) throw sessionError;
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        error: 'Сессия не найдена',
+      });
+    }
 
-    // Получаем все клинические заметки пациента
+    const patient = session.patient;
+    if (!patient) {
+      return res.status(404).json({
+        success: false,
+        error: 'Пациент не найден для данной сессии',
+      });
+    }
+
+    // Получаем все клинические заметки ЭТОЙ СЕССИИ
     const { data: clinicalNotes, error: notesError } = await supabase
       .from('clinical_notes')
       .select('*, sections (*)')
-      .eq('patient_id', patient_id)
+      .eq('session_id', session_id)
       .in('generation_status', ['completed'])
       .in('status', ['finalized', 'completed'])
       .order('created_at', { ascending: true });
@@ -618,7 +650,7 @@ router.post('/case-summary', async (req, res) => {
       });
     }
 
-    // Собираем текст из всех заметок
+    // Собираем текст из всех заметок сессии
     let combinedText = '';
     for (const note of clinicalNotes) {
       combinedText += `\n\n=== Заметка от ${note.created_at} ===\n`;
@@ -654,30 +686,34 @@ router.post('/case-summary', async (req, res) => {
     // Де-анонимизируем
     const deanonymizedSummary = deanonymize(aiSummary, anonymizationMap);
 
-    // Шифруем и сохраняем
+    // Шифруем и сохраняем в сессию
     const encryptedSummary = encrypt(deanonymizedSummary);
 
     await supabase
-      .from('patients')
+      .from('sessions')
       .update({
         case_summary_encrypted: encryptedSummary,
         case_summary_generated_at: new Date().toISOString(),
       })
-      .eq('id', patient_id);
+      .eq('id', session_id);
 
     // Логируем
     await supabase.from('audit_logs').insert({
       user_id,
       action: 'ai_case_summary_generated',
-      resource_type: 'patient',
-      resource_id: patient_id,
-      details: { based_on_notes_count: clinicalNotes.length },
+      resource_type: 'session',
+      resource_id: session_id,
+      details: { 
+        based_on_notes_count: clinicalNotes.length,
+        patient_id: patient.id 
+      },
     });
 
     res.json({
       success: true,
       data: {
-        patient_id,
+        session_id,
+        patient_id: patient.id,
         case_summary: deanonymizedSummary,
         generated_at: new Date().toISOString(),
         based_on_notes_count: clinicalNotes.length,
@@ -690,3 +726,4 @@ router.post('/case-summary', async (req, res) => {
 });
 
 export { router as aiRoute };
+

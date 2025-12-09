@@ -21,6 +21,7 @@ export interface NoteBlockTemplate {
 export interface ClinicalNoteTemplate {
   id: string;
   clinic_id: string | null;
+  user_id: string | null;
   name: string;
   name_en: string | null;
   description: string | null;
@@ -99,12 +100,14 @@ export interface RegenerateSectionRequest {
 }
 
 export interface CaseSummaryRequest {
-  patient_id: string;
+  session_id: string;
 }
 
 export interface CaseSummary {
+  session_id: string;
   patient_id: string;
   case_summary: string;
   generated_at: string;
   based_on_notes_count: number;
 }
+
