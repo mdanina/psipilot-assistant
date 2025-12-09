@@ -251,3 +251,255 @@ export async function getPatientSessions(patientId: string): Promise<{
   }
 }
 
+/**
+ * Session content counts for display in UI
+ */
+export interface SessionContentCounts {
+  sessionId: string;
+  recordingsCount: number;
+  sessionNotesCount: number;
+  clinicalNotesCount: number;
+  totalCount: number;
+}
+
+/**
+ * Get content counts for multiple sessions
+ * Returns total count of recordings + session_notes + clinical_notes for each session
+ */
+export async function getSessionsContentCounts(
+  sessionIds: string[]
+): Promise<Map<string, SessionContentCounts>> {
+  const countsMap = new Map<string, SessionContentCounts>();
+
+  if (sessionIds.length === 0) {
+    return countsMap;
+  }
+
+  // Initialize counts for all sessions
+  sessionIds.forEach(id => {
+    countsMap.set(id, {
+      sessionId: id,
+      recordingsCount: 0,
+      sessionNotesCount: 0,
+      clinicalNotesCount: 0,
+      totalCount: 0,
+    });
+  });
+
+  // Fetch counts in parallel
+  const [recordingsResult, sessionNotesResult, clinicalNotesResult] = await Promise.all([
+    // Recordings count (non-deleted)
+    supabase
+      .from('recordings')
+      .select('session_id')
+      .in('session_id', sessionIds)
+      .is('deleted_at', null),
+
+    // Session notes count
+    supabase
+      .from('session_notes')
+      .select('session_id')
+      .in('session_id', sessionIds),
+
+    // Clinical notes count
+    supabase
+      .from('clinical_notes')
+      .select('session_id')
+      .in('session_id', sessionIds),
+  ]);
+
+  // Count recordings per session
+  if (recordingsResult.data) {
+    recordingsResult.data.forEach(r => {
+      const counts = countsMap.get(r.session_id);
+      if (counts) {
+        counts.recordingsCount++;
+        counts.totalCount++;
+      }
+    });
+  }
+
+  // Count session notes per session
+  if (sessionNotesResult.data) {
+    sessionNotesResult.data.forEach(n => {
+      const counts = countsMap.get(n.session_id);
+      if (counts) {
+        counts.sessionNotesCount++;
+        counts.totalCount++;
+      }
+    });
+  }
+
+  // Count clinical notes per session
+  if (clinicalNotesResult.data) {
+    clinicalNotesResult.data.forEach(n => {
+      const counts = countsMap.get(n.session_id);
+      if (counts) {
+        counts.clinicalNotesCount++;
+        counts.totalCount++;
+      }
+    });
+  }
+
+  return countsMap;
+}
+
+/**
+ * Search sessions by content (transcript, session notes, clinical notes)
+ * Returns session IDs that match the search query
+ */
+export async function searchPatientSessions(
+  patientId: string,
+  searchQuery: string
+): Promise<{
+  data: string[] | null;
+  error: Error | null;
+}> {
+  try {
+    if (!searchQuery.trim()) {
+      // If empty query, return all session IDs
+      const { data, error } = await supabase
+        .from('sessions')
+        .select('id')
+        .eq('patient_id', patientId)
+        .is('deleted_at', null);
+
+      if (error) {
+        return { data: null, error: new Error(error.message) };
+      }
+
+      return { data: data?.map(s => s.id) || [], error: null };
+    }
+
+    const query = searchQuery.toLowerCase().trim();
+    const matchedSessionIds = new Set<string>();
+
+    // Search in sessions (transcript, summary, title)
+    const { data: sessionsData } = await supabase
+      .from('sessions')
+      .select('id, transcript, summary, title')
+      .eq('patient_id', patientId)
+      .is('deleted_at', null);
+
+    if (sessionsData) {
+      sessionsData.forEach(session => {
+        const searchableText = [
+          session.transcript,
+          session.summary,
+          session.title,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+
+        if (searchableText.includes(query)) {
+          matchedSessionIds.add(session.id);
+        }
+      });
+    }
+
+    // Search in session notes
+    const { data: sessionNotesData } = await supabase
+      .from('session_notes')
+      .select('session_id, content')
+      .in(
+        'session_id',
+        sessionsData?.map(s => s.id) || []
+      );
+
+    if (sessionNotesData) {
+      sessionNotesData.forEach(note => {
+        if (note.content?.toLowerCase().includes(query)) {
+          matchedSessionIds.add(note.session_id);
+        }
+      });
+    }
+
+    // Search in clinical notes (ai_summary)
+    const { data: clinicalNotesData } = await supabase
+      .from('clinical_notes')
+      .select('session_id, ai_summary, title')
+      .eq('patient_id', patientId);
+
+    if (clinicalNotesData) {
+      clinicalNotesData.forEach(note => {
+        const searchableText = [note.ai_summary, note.title]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+
+        if (searchableText.includes(query)) {
+          matchedSessionIds.add(note.session_id);
+        }
+      });
+    }
+
+    // Search in sections content
+    if (clinicalNotesData && clinicalNotesData.length > 0) {
+      const clinicalNoteIds = clinicalNotesData.map(n => n.session_id);
+      const { data: sectionsData } = await supabase
+        .from('sections')
+        .select('clinical_note_id, content, ai_content')
+        .in(
+          'clinical_note_id',
+          clinicalNotesData.map(n => n.session_id) // This should be note id, let's fix
+        );
+
+      // Actually we need to get clinical note IDs first
+      const { data: clinicalNoteIdsData } = await supabase
+        .from('clinical_notes')
+        .select('id, session_id')
+        .eq('patient_id', patientId);
+
+      if (clinicalNoteIdsData) {
+        const noteIdToSessionId = new Map(
+          clinicalNoteIdsData.map(n => [n.id, n.session_id])
+        );
+
+        const { data: sectionsData2 } = await supabase
+          .from('sections')
+          .select('clinical_note_id, content, ai_content')
+          .in('clinical_note_id', clinicalNoteIdsData.map(n => n.id));
+
+        if (sectionsData2) {
+          sectionsData2.forEach(section => {
+            const searchableText = [section.content, section.ai_content]
+              .filter(Boolean)
+              .join(' ')
+              .toLowerCase();
+
+            if (searchableText.includes(query)) {
+              const sessionId = noteIdToSessionId.get(section.clinical_note_id);
+              if (sessionId) {
+                matchedSessionIds.add(sessionId);
+              }
+            }
+          });
+        }
+      }
+    }
+
+    return { data: Array.from(matchedSessionIds), error: null };
+  } catch (error) {
+    return { data: null, error: error as Error };
+  }
+}
+
+/**
+ * Update session summary
+ */
+export async function updateSessionSummary(
+  sessionId: string,
+  summary: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('sessions')
+    .update({ summary })
+    .eq('id', sessionId);
+
+  if (error) {
+    console.error('Error updating session summary:', error);
+    throw new Error(`Failed to update session summary: ${error.message}`);
+  }
+}
+

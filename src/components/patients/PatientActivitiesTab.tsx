@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { Calendar, Clock, Loader2, ExternalLink, FileText, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
+import { Calendar, Clock, Loader2, ExternalLink, FileText, Sparkles, ChevronDown, ChevronUp, Search, Paperclip, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getPatientSessions } from "@/lib/supabase-sessions";
+import { Input } from "@/components/ui/input";
+import { getPatientSessions, getSessionsContentCounts, searchPatientSessions, type SessionContentCounts } from "@/lib/supabase-sessions";
 import { getClinicalNotesForPatient } from "@/lib/supabase-ai";
 import { formatDateTime } from "@/lib/date-utils";
 import { ClinicalNoteView } from "./ClinicalNoteView";
@@ -20,12 +21,40 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
   const navigate = useNavigate();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [clinicalNotes, setClinicalNotes] = useState<GeneratedClinicalNote[]>([]);
+  const [contentCounts, setContentCounts] = useState<Map<string, SessionContentCounts>>(new Map());
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filteredSessionIds, setFilteredSessionIds] = useState<Set<string> | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
 
   useEffect(() => {
     loadData();
   }, [patientId]);
+
+  // Debounced search
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setFilteredSessionIds(null);
+      return;
+    }
+
+    const timeoutId = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const { data } = await searchPatientSessions(patientId, searchQuery);
+        if (data) {
+          setFilteredSessionIds(new Set(data));
+        }
+      } catch (error) {
+        console.error("Error searching sessions:", error);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [searchQuery, patientId]);
 
   const loadData = async () => {
     try {
@@ -39,6 +68,13 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
         console.error("Error loading sessions:", sessionsData.error);
       } else {
         setSessions(sessionsData.data || []);
+
+        // Load content counts for all sessions
+        if (sessionsData.data && sessionsData.data.length > 0) {
+          const sessionIds = sessionsData.data.map(s => s.id);
+          const counts = await getSessionsContentCounts(sessionIds);
+          setContentCounts(counts);
+        }
       }
 
       setClinicalNotes(notesData || []);
@@ -87,6 +123,40 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
     return clinicalNotes.filter(note => note.session_id === sessionId);
   };
 
+  const clearSearch = () => {
+    setSearchQuery("");
+    setFilteredSessionIds(null);
+  };
+
+  // Filter sessions based on search
+  const filteredSessions = useMemo(() => {
+    if (!filteredSessionIds) {
+      return sessions;
+    }
+    return sessions.filter(s => filteredSessionIds.has(s.id));
+  }, [sessions, filteredSessionIds]);
+
+  // Group sessions with notes
+  const sessionsWithNotes = useMemo(() => {
+    return filteredSessions.map(session => ({
+      session,
+      notes: getNotesForSession(session.id),
+    }));
+  }, [filteredSessions, clinicalNotes]);
+
+  // Orphan notes (notes without sessions in filtered list)
+  const orphanNotes = useMemo(() => {
+    if (filteredSessionIds) {
+      return clinicalNotes.filter(
+        note => !filteredSessions.some(s => s.id === note.session_id) &&
+                filteredSessionIds.has(note.session_id)
+      );
+    }
+    return clinicalNotes.filter(
+      note => !sessions.some(s => s.id === note.session_id)
+    );
+  }, [clinicalNotes, sessions, filteredSessions, filteredSessionIds]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -104,67 +174,108 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
     );
   }
 
-  // Группируем заметки по сессиям
-  const sessionsWithNotes = sessions.map(session => ({
-    session,
-    notes: getNotesForSession(session.id),
-  }));
-
-  // Заметки без сессий (если есть)
-  const orphanNotes = clinicalNotes.filter(
-    note => !sessions.some(s => s.id === note.session_id)
-  );
-
   return (
     <div className="space-y-4">
-      {/* Сессии с заметками */}
+      {/* Search input */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Input
+          placeholder="Поиск по содержимому сессий..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="pl-9 pr-9"
+        />
+        {searchQuery && (
+          <button
+            onClick={clearSearch}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
+        {isSearching && (
+          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
+        )}
+      </div>
+
+      {/* Search results info */}
+      {searchQuery && filteredSessionIds && (
+        <p className="text-sm text-muted-foreground">
+          Найдено сессий: {filteredSessions.length}
+        </p>
+      )}
+
+      {/* No results message */}
+      {searchQuery && filteredSessions.length === 0 && !isSearching && (
+        <div className="flex flex-col items-center justify-center py-8 text-center">
+          <Search className="w-8 h-8 text-muted-foreground mb-2" />
+          <p className="text-muted-foreground">Ничего не найдено по запросу "{searchQuery}"</p>
+          <Button variant="link" onClick={clearSearch} className="mt-2">
+            Сбросить поиск
+          </Button>
+        </div>
+      )}
+
+      {/* Sessions with notes */}
       {sessionsWithNotes.map(({ session, notes }) => (
         <div key={session.id} className="space-y-3">
-          {/* Сессия */}
+          {/* Session card */}
           <div
             className="border border-border rounded-lg p-4 hover:bg-muted/50 transition-colors cursor-pointer"
             onClick={() => handleSessionClick(session.id)}
           >
             <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-2">
-                  <h3 className="font-medium">
+              <div className="flex-1 min-w-0">
+                {/* Title and status */}
+                <div className="flex items-center gap-2 mb-2 flex-wrap">
+                  <h3 className="font-medium truncate">
                     {session.title?.replace(/^Запись\s/, 'Сессия ') || "Сессия без названия"}
                   </h3>
                   <span
-                    className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(
+                    className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${getStatusColor(
                       session.status
                     )}`}
                   >
                     {getStatusLabel(session.status)}
                   </span>
-                  {notes.length > 0 && (
-                    <Badge variant="secondary" className="gap-1">
-                      <FileText className="w-3 h-3" />
-                      {notes.length} {notes.length === 1 ? 'заметка' : 'заметок'}
-                    </Badge>
-                  )}
                 </div>
-                <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                  {session.started_at && (
-                    <div className="flex items-center gap-1.5">
-                      <Clock className="w-4 h-4" />
-                      <span>{formatDateTime(session.started_at)}</span>
-                    </div>
-                  )}
-                  {session.created_at && (
-                    <div className="flex items-center gap-1.5">
-                      <Calendar className="w-4 h-4" />
-                      <span>Создана: {formatDateTime(session.created_at)}</span>
-                    </div>
-                  )}
+
+                {/* AI Summary */}
+                {session.summary && (
+                  <p className="text-sm text-muted-foreground line-clamp-2 mb-3">
+                    {session.summary}
+                  </p>
+                )}
+
+                {/* Meta info: date and content count */}
+                <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
+                  {/* Date - show only one */}
+                  <div className="flex items-center gap-1.5">
+                    <Clock className="w-4 h-4 flex-shrink-0" />
+                    <span>{formatDateTime(session.started_at || session.created_at)}</span>
+                  </div>
+
+                  {/* Total content count */}
+                  {(() => {
+                    const counts = contentCounts.get(session.id);
+                    const totalCount = counts?.totalCount || 0;
+                    if (totalCount > 0) {
+                      return (
+                        <div className="flex items-center gap-1.5">
+                          <Paperclip className="w-4 h-4 flex-shrink-0" />
+                          <span>{totalCount} {getElementsLabel(totalCount)}</span>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
                 </div>
               </div>
               <ExternalLink className="w-4 h-4 text-muted-foreground flex-shrink-0 ml-2" />
             </div>
           </div>
 
-          {/* Клинические заметки для этой сессии */}
+          {/* Clinical notes for this session */}
           {notes.length > 0 && (
             <div className="ml-4 space-y-2 border-l-2 border-muted pl-4">
               {notes.map((note) => {
@@ -176,8 +287,8 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
                   >
                     <div className="flex items-start justify-between mb-2">
                       <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <Sparkles className="w-4 h-4 text-primary" />
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Sparkles className="w-4 h-4 text-primary flex-shrink-0" />
                           <h4 className="font-medium text-sm">{note.title}</h4>
                           <Badge
                             variant={
@@ -226,14 +337,14 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
                       </Button>
                     </div>
 
-                    {/* Краткое саммари (если есть) */}
+                    {/* Brief summary (if available) */}
                     {note.ai_summary && !isExpanded && (
                       <p className="text-sm text-muted-foreground line-clamp-2 mt-2">
                         {note.ai_summary}
                       </p>
                     )}
 
-                    {/* Полная заметка */}
+                    {/* Full note */}
                     {isExpanded && (
                       <div className="mt-4 pt-4 border-t border-border">
                         <ClinicalNoteView clinicalNote={note} />
@@ -247,7 +358,7 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
         </div>
       ))}
 
-      {/* Заметки без сессий */}
+      {/* Orphan notes (without session) */}
       {orphanNotes.length > 0 && (
         <div className="space-y-2">
           <h3 className="text-sm font-semibold text-muted-foreground">
@@ -262,8 +373,8 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
               >
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-primary" />
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Sparkles className="w-4 h-4 text-primary flex-shrink-0" />
                       <h4 className="font-medium text-sm">{note.title}</h4>
                       <Badge
                         variant={
@@ -322,4 +433,26 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
       )}
     </div>
   );
+}
+
+/**
+ * Helper function to get correct Russian plural form for "элемент"
+ */
+function getElementsLabel(count: number): string {
+  const lastDigit = count % 10;
+  const lastTwoDigits = count % 100;
+
+  if (lastTwoDigits >= 11 && lastTwoDigits <= 19) {
+    return "элементов";
+  }
+
+  if (lastDigit === 1) {
+    return "элемент";
+  }
+
+  if (lastDigit >= 2 && lastDigit <= 4) {
+    return "элемента";
+  }
+
+  return "элементов";
 }

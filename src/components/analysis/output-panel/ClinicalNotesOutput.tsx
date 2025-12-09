@@ -5,6 +5,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Loader2, Save } from 'lucide-react';
 import { regenerateSection, updateSectionContent, finalizeClinicalNote } from '@/lib/supabase-ai';
+import { updateSessionSummary } from '@/lib/supabase-sessions';
 import { decryptPHI } from '@/lib/encryption';
 import { useToast } from '@/hooks/use-toast';
 import type { GeneratedClinicalNote, GeneratedSection } from '@/types/ai.types';
@@ -250,6 +251,32 @@ export function ClinicalNotesOutput({ clinicalNote, onUpdate }: ClinicalNotesOut
     try {
       setIsSavingSummary(true);
       await finalizeClinicalNote(clinicalNote.id);
+
+      // Generate and save session summary from clinical note
+      if (clinicalNote.session_id) {
+        try {
+          // Use ai_summary if available, otherwise create from sections
+          let sessionSummary = clinicalNote.ai_summary;
+
+          if (!sessionSummary && sortedSections.length > 0) {
+            // Create summary from first section content
+            const firstSection = sortedSections[0];
+            const content = firstSection.content || firstSection.ai_content || '';
+            // Take first 200 characters as summary
+            sessionSummary = content.length > 200
+              ? content.substring(0, 200).trim() + '...'
+              : content.trim();
+          }
+
+          if (sessionSummary) {
+            await updateSessionSummary(clinicalNote.session_id, sessionSummary);
+          }
+        } catch (summaryError) {
+          // Log but don't fail the whole operation
+          console.warn('Failed to update session summary:', summaryError);
+        }
+      }
+
       toast({
         title: 'Резюме сохранено',
         description: 'Клиническая заметка успешно сохранена и привязана к сессии',
@@ -258,10 +285,10 @@ export function ClinicalNotesOutput({ clinicalNote, onUpdate }: ClinicalNotesOut
     } catch (error) {
       console.error('Error saving summary:', error);
       const errorMessage = error instanceof Error ? error.message : 'Неизвестная ошибка';
-      
+
       // Более детальные сообщения об ошибках
       let description = 'Не удалось сохранить резюме. Попробуйте ещё раз.';
-      
+
       if (errorMessage.includes('Недостаточно прав') || errorMessage.includes('владельцем')) {
         description = 'Недостаточно прав для сохранения. Вы не являетесь владельцем этой заметки.';
       } else if (errorMessage.includes('не найдена') || errorMessage.includes('недоступна')) {
@@ -273,7 +300,7 @@ export function ClinicalNotesOutput({ clinicalNote, onUpdate }: ClinicalNotesOut
       } else if (errorMessage.includes('permission') || errorMessage.includes('auth') || errorMessage.includes('42501')) {
         description = 'Ошибка доступа. Проверьте права доступа или попробуйте перезайти в систему.';
       }
-      
+
       toast({
         title: 'Ошибка сохранения',
         description,
