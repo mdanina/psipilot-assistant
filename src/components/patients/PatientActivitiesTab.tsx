@@ -280,45 +280,31 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
             <div className="ml-4 space-y-2 border-l-2 border-muted pl-4">
               {notes.map((note) => {
                 const isExpanded = expandedNotes.has(note.id);
+                const isInProgress = note.generation_status === 'generating';
+                const hasFailed = note.generation_status === 'failed';
+
                 return (
                   <div
                     key={note.id}
                     className="border border-border rounded-lg p-4 bg-muted/30"
                   >
-                    <div className="flex items-start justify-between mb-2">
+                    <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <Sparkles className="w-4 h-4 text-primary flex-shrink-0" />
                           <h4 className="font-medium text-sm">{note.title}</h4>
-                          <Badge
-                            variant={
-                              note.generation_status === 'completed'
-                                ? 'default'
-                                : note.generation_status === 'generating'
-                                ? 'secondary'
-                                : 'destructive'
-                            }
-                            className="text-xs"
-                          >
-                            {note.generation_status === 'completed'
-                              ? 'Готово'
-                              : note.generation_status === 'generating'
-                              ? 'Генерация'
-                              : note.generation_status === 'failed'
-                              ? 'Ошибка'
-                              : 'Черновик'}
-                          </Badge>
-                          {note.status === 'finalized' && (
-                            <Badge variant="outline" className="text-xs">
-                              Финализировано
+                          {/* Show badge only for in-progress or failed states */}
+                          {isInProgress && (
+                            <Badge variant="secondary" className="text-xs">
+                              Генерация...
+                            </Badge>
+                          )}
+                          {hasFailed && (
+                            <Badge variant="destructive" className="text-xs">
+                              Ошибка
                             </Badge>
                           )}
                         </div>
-                        {note.created_at && (
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {formatDateTime(note.created_at)}
-                          </p>
-                        )}
                       </div>
                       <Button
                         variant="ghost"
@@ -337,7 +323,7 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
                       </Button>
                     </div>
 
-                    {/* Brief summary (if available) */}
+                    {/* Brief summary (if available and not expanded) */}
                     {note.ai_summary && !isExpanded && (
                       <p className="text-sm text-muted-foreground line-clamp-2 mt-2">
                         {note.ai_summary}
@@ -346,7 +332,7 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
 
                     {/* Full note */}
                     {isExpanded && (
-                      <div className="mt-4 pt-4 border-t border-border">
+                      <div className="mt-3">
                         <ClinicalNoteView clinicalNote={note} />
                       </div>
                     )}
@@ -366,35 +352,31 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
           </h3>
           {orphanNotes.map((note) => {
             const isExpanded = expandedNotes.has(note.id);
+            const isInProgress = note.generation_status === 'generating';
+            const hasFailed = note.generation_status === 'failed';
+
             return (
               <div
                 key={note.id}
                 className="border border-border rounded-lg p-4 bg-muted/30"
               >
-                <div className="flex items-start justify-between mb-2">
+                <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <Sparkles className="w-4 h-4 text-primary flex-shrink-0" />
                       <h4 className="font-medium text-sm">{note.title}</h4>
-                      <Badge
-                        variant={
-                          note.generation_status === 'completed'
-                            ? 'default'
-                            : note.generation_status === 'generating'
-                            ? 'secondary'
-                            : 'destructive'
-                        }
-                        className="text-xs"
-                      >
-                        {note.generation_status === 'completed'
-                          ? 'Готово'
-                          : note.generation_status === 'generating'
-                          ? 'Генерация'
-                          : note.generation_status === 'failed'
-                          ? 'Ошибка'
-                          : 'Черновик'}
-                      </Badge>
+                      {isInProgress && (
+                        <Badge variant="secondary" className="text-xs">
+                          Генерация...
+                        </Badge>
+                      )}
+                      {hasFailed && (
+                        <Badge variant="destructive" className="text-xs">
+                          Ошибка
+                        </Badge>
+                      )}
                     </div>
+                    {/* Show date only for orphan notes since they don't have a session card */}
                     {note.created_at && (
                       <p className="text-xs text-muted-foreground mt-1">
                         {formatDateTime(note.created_at)}
@@ -422,7 +404,7 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
                 )}
 
                 {isExpanded && (
-                  <div className="mt-4 pt-4 border-t border-border">
+                  <div className="mt-3">
                     <ClinicalNoteView clinicalNote={note} />
                   </div>
                 )}
