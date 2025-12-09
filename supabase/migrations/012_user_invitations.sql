@@ -11,7 +11,7 @@ CREATE TABLE user_invitations (
     invited_by UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
     email VARCHAR(255) NOT NULL,
     full_name VARCHAR(255),
-    role VARCHAR(50) NOT NULL DEFAULT 'doctor' CHECK (role IN ('doctor', 'admin', 'assistant')),
+    role VARCHAR(50) NOT NULL DEFAULT 'specialist' CHECK (role IN ('specialist', 'admin', 'assistant', 'doctor')),
     token VARCHAR(255) NOT NULL UNIQUE DEFAULT encode(gen_random_bytes(32), 'hex'),
     status VARCHAR(50) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'expired', 'cancelled')),
     expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '7 days'),
@@ -43,7 +43,7 @@ CREATE TRIGGER update_user_invitations_updated_at
 CREATE OR REPLACE FUNCTION create_user_invitation(
     p_email VARCHAR(255),
     p_full_name VARCHAR(255) DEFAULT NULL,
-    p_role VARCHAR(50) DEFAULT 'doctor'
+    p_role VARCHAR(50) DEFAULT 'specialist'
 )
 RETURNS UUID
 LANGUAGE plpgsql
@@ -78,8 +78,8 @@ BEGIN
     END IF;
     
     -- Validate role
-    IF p_role NOT IN ('doctor', 'admin', 'assistant') THEN
-        RAISE EXCEPTION 'Invalid role. Must be doctor, admin, or assistant';
+    IF p_role NOT IN ('specialist', 'admin', 'assistant', 'doctor') THEN
+        RAISE EXCEPTION 'Invalid role. Must be specialist, admin, or assistant';
     END IF;
     
     -- Check if user already exists and is in this clinic

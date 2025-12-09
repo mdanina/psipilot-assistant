@@ -57,7 +57,8 @@ export type Database = {
           full_name: string | null;
           avatar_url: string | null;
           clinic_id: string | null;
-          role: 'doctor' | 'admin' | 'assistant';
+          role: 'specialist' | 'admin' | 'assistant';
+          specialization: string | null;
           settings: Json;
           created_at: string;
           updated_at: string;
@@ -68,7 +69,8 @@ export type Database = {
           full_name?: string | null;
           avatar_url?: string | null;
           clinic_id?: string | null;
-          role?: 'doctor' | 'admin' | 'assistant';
+          role?: 'specialist' | 'admin' | 'assistant';
+          specialization?: string | null;
           settings?: Json;
           created_at?: string;
           updated_at?: string;
@@ -79,7 +81,7 @@ export type Database = {
           full_name?: string | null;
           avatar_url?: string | null;
           clinic_id?: string | null;
-          role?: 'doctor' | 'admin' | 'assistant';
+          role?: 'specialist' | 'admin' | 'assistant';
           settings?: Json;
           created_at?: string;
           updated_at?: string;
@@ -592,6 +594,70 @@ export type Database = {
           }
         ];
       };
+      patient_assignments: {
+        Row: {
+          id: string;
+          patient_id: string;
+          doctor_id: string;
+          clinic_id: string;
+          assignment_type: 'primary' | 'consultant' | 'group_therapist';
+          assigned_at: string;
+          assigned_by: string | null;
+          notes: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          patient_id: string;
+          doctor_id: string;
+          clinic_id: string;
+          assignment_type?: 'primary' | 'consultant' | 'group_therapist';
+          assigned_at?: string;
+          assigned_by?: string | null;
+          notes?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          patient_id?: string;
+          doctor_id?: string;
+          clinic_id?: string;
+          assignment_type?: 'primary' | 'consultant' | 'group_therapist';
+          assigned_at?: string;
+          assigned_by?: string | null;
+          notes?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'patient_assignments_patient_id_fkey';
+            columns: ['patient_id'];
+            referencedRelation: 'patients';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'patient_assignments_doctor_id_fkey';
+            columns: ['doctor_id'];
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'patient_assignments_clinic_id_fkey';
+            columns: ['clinic_id'];
+            referencedRelation: 'clinics';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'patient_assignments_assigned_by_fkey';
+            columns: ['assigned_by'];
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          }
+        ];
+      };
       session_notes: {
         Row: {
           id: string;
@@ -657,6 +723,35 @@ export type Database = {
         Args: { patient_uuid: string };
         Returns: number;
       };
+      assign_patient_to_doctor: {
+        Args: {
+          p_patient_id: string;
+          p_doctor_id: string;
+          p_assignment_type?: string;
+          p_notes?: string | null;
+        };
+        Returns: string;
+      };
+      unassign_patient_from_doctor: {
+        Args: {
+          p_patient_id: string;
+          p_doctor_id: string;
+        };
+        Returns: boolean;
+      };
+      reassign_patient: {
+        Args: {
+          p_patient_id: string;
+          p_old_doctor_id: string;
+          p_new_doctor_id: string;
+          p_assignment_type?: string;
+        };
+        Returns: string;
+      };
+      user_can_access_patient: {
+        Args: { p_patient_id: string };
+        Returns: boolean;
+      };
     };
     Enums: {};
     CompositeTypes: {};
@@ -677,6 +772,7 @@ export type Section = Database['public']['Tables']['sections']['Row'];
 export type SectionTemplate = Database['public']['Tables']['section_templates']['Row'];
 export type Recording = Database['public']['Tables']['recordings']['Row'];
 export type Document = Database['public']['Tables']['documents']['Row'];
+export type PatientAssignment = Database['public']['Tables']['patient_assignments']['Row'];
 export type SessionNote = Database['public']['Tables']['session_notes']['Row'];
 
 // Insert types
@@ -689,6 +785,7 @@ export type SectionInsert = Database['public']['Tables']['sections']['Insert'];
 export type SectionTemplateInsert = Database['public']['Tables']['section_templates']['Insert'];
 export type RecordingInsert = Database['public']['Tables']['recordings']['Insert'];
 export type DocumentInsert = Database['public']['Tables']['documents']['Insert'];
+export type PatientAssignmentInsert = Database['public']['Tables']['patient_assignments']['Insert'];
 export type SessionNoteInsert = Database['public']['Tables']['session_notes']['Insert'];
 
 // Update types
@@ -701,6 +798,7 @@ export type SectionUpdate = Database['public']['Tables']['sections']['Update'];
 export type SectionTemplateUpdate = Database['public']['Tables']['section_templates']['Update'];
 export type RecordingUpdate = Database['public']['Tables']['recordings']['Update'];
 export type DocumentUpdate = Database['public']['Tables']['documents']['Update'];
+export type PatientAssignmentUpdate = Database['public']['Tables']['patient_assignments']['Update'];
 export type SessionNoteUpdate = Database['public']['Tables']['session_notes']['Update'];
 
 // Enums

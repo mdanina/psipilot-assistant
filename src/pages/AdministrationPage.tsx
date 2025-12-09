@@ -37,12 +37,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { getSpecializationList, getSpecializationName } from '@/lib/specializations';
 
 type ClinicUser = {
   id: string;
   email: string;
   full_name: string | null;
-  role: 'admin' | 'doctor' | 'assistant';
+  role: 'admin' | 'specialist' | 'assistant';
+  specialization: string | null;
   created_at: string;
 };
 
@@ -50,7 +52,7 @@ type Invitation = {
   id: string;
   email: string;
   full_name: string | null;
-  role: 'admin' | 'doctor' | 'assistant';
+  role: 'admin' | 'specialist' | 'assistant';
   status: string;
   expires_at: string;
   created_at: string;
@@ -75,15 +77,17 @@ export default function AdministrationPage() {
   // Invite user dialog
   const [isInviteDialogOpen, setIsInviteDialogOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRole, setInviteRole] = useState<'doctor' | 'assistant'>('doctor');
+  const [inviteRole, setInviteRole] = useState<'specialist' | 'assistant'>('specialist');
   const [inviteFullName, setInviteFullName] = useState('');
+  const [inviteSpecialization, setInviteSpecialization] = useState<string>('none');
   const [isInviting, setIsInviting] = useState(false);
 
   // Edit user dialog
   const [editingUser, setEditingUser] = useState<ClinicUser | null>(null);
   const [editEmail, setEditEmail] = useState('');
   const [editFullName, setEditFullName] = useState('');
-  const [editRole, setEditRole] = useState<'admin' | 'doctor' | 'assistant'>('doctor');
+  const [editRole, setEditRole] = useState<'admin' | 'specialist' | 'assistant'>('specialist');
+  const [editSpecialization, setEditSpecialization] = useState<string>('none');
   const [isSaving, setIsSaving] = useState(false);
 
   // Update clinic form state when clinic loads
@@ -113,18 +117,22 @@ export default function AdministrationPage() {
     try {
       const { data, error: fetchError } = await supabase
         .from('profiles')
-        .select('id, email, full_name, role, created_at')
+        .select('id, email, full_name, role, specialization, created_at')
         .eq('clinic_id', profile.clinic_id)
         .order('created_at', { ascending: false });
 
       if (fetchError) {
+        console.error('Error loading users:', fetchError);
         setError(`Не удалось загрузить пользователей: ${fetchError.message}`);
+        setUsers([]);
         return;
       }
 
       setUsers(data || []);
     } catch (err) {
+      console.error('Exception loading users:', err);
       setError(`Ошибка: ${err instanceof Error ? err.message : 'Неизвестная ошибка'}`);
+      setUsers([]);
     } finally {
       setIsLoading(false);
     }
@@ -192,7 +200,8 @@ export default function AdministrationPage() {
       setIsInviteDialogOpen(false);
       setInviteEmail('');
       setInviteFullName('');
-      setInviteRole('doctor');
+      setInviteRole('specialist');
+      setInviteSpecialization('');
       await loadUsers();
       await loadInvitations();
     } catch (err) {
@@ -207,6 +216,7 @@ export default function AdministrationPage() {
     setEditEmail(user.email);
     setEditFullName(user.full_name || '');
     setEditRole(user.role);
+    setEditSpecialization(user.specialization || 'none');
   };
 
   const handleSaveUser = async () => {
@@ -223,6 +233,7 @@ export default function AdministrationPage() {
           email: editEmail.trim(),
           full_name: editFullName.trim() || null,
           role: editRole,
+          specialization: editSpecialization && editSpecialization !== 'none' ? editSpecialization : null,
         })
         .eq('id', editingUser.id);
 
@@ -314,7 +325,9 @@ export default function AdministrationPage() {
     switch (role) {
       case 'admin':
         return <Shield className="w-4 h-4 text-primary" />;
-      case 'doctor':
+      case 'specialist':
+        return <UserIcon className="w-4 h-4 text-primary" />;
+      case 'doctor': // Legacy support
         return <UserIcon className="w-4 h-4 text-primary" />;
       case 'assistant':
         return <UserCog className="w-4 h-4 text-green-500" />;
@@ -327,7 +340,9 @@ export default function AdministrationPage() {
     switch (role) {
       case 'admin':
         return 'bg-primary/10 text-primary border-primary/20';
-      case 'doctor':
+      case 'specialist':
+        return 'bg-primary/10 text-primary border-primary/20';
+      case 'doctor': // Legacy support
         return 'bg-primary/10 text-primary border-primary/20';
       case 'assistant':
         return 'bg-green-500/10 text-green-500 border-green-500/20';
@@ -340,8 +355,10 @@ export default function AdministrationPage() {
     switch (role) {
       case 'admin':
         return 'Администратор';
-      case 'doctor':
-        return 'Врач';
+      case 'specialist':
+        return 'Специалист';
+      case 'doctor': // Legacy support
+        return 'Специалист';
       case 'assistant':
         return 'Ассистент';
       default:
@@ -349,8 +366,26 @@ export default function AdministrationPage() {
     }
   };
 
+  // Show loading state if profile is not loaded yet
+  if (!profile) {
+    return (
+      <>
+        <Header title="Администрирование" icon={<Settings className="w-5 h-5" />} />
+        <div className="flex-1 p-6 overflow-auto">
+          <div className="max-w-6xl mx-auto">
+            <Card>
+              <CardContent className="flex items-center justify-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </>
+    );
+  }
+
   // Only show for admins
-  if (profile?.role !== 'admin') {
+  if (profile.role !== 'admin') {
     return (
       <>
         <Header title="Администрирование" icon={<Settings className="w-5 h-5" />} />
@@ -564,6 +599,11 @@ export default function AdministrationPage() {
                           <p className="text-sm text-muted-foreground truncate">
                             {user.email}
                           </p>
+                          {user.specialization && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {getSpecializationName(user.specialization)}
+                            </p>
+                          )}
                         </div>
                         <div className="flex items-center gap-2">
                           <span
@@ -708,16 +748,41 @@ export default function AdministrationPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="invite-role">Роль *</Label>
-              <Select value={inviteRole} onValueChange={(value: 'doctor' | 'assistant') => setInviteRole(value)}>
+              <Select value={inviteRole} onValueChange={(value: 'specialist' | 'assistant') => setInviteRole(value)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="doctor">Врач</SelectItem>
+                  <SelectItem value="specialist">Специалист</SelectItem>
                   <SelectItem value="assistant">Ассистент</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+            {inviteRole === 'specialist' && (
+              <div className="space-y-2">
+                <Label htmlFor="invite-specialization">Специализация</Label>
+                <Select value={inviteSpecialization || 'none'} onValueChange={setInviteSpecialization}>
+                  <SelectTrigger id="invite-specialization">
+                    <SelectValue placeholder="Выберите специализацию" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Не указана</SelectItem>
+                    {(() => {
+                      try {
+                        return getSpecializationList().map((spec) => (
+                          <SelectItem key={spec.code} value={spec.code}>
+                            {spec.name}
+                          </SelectItem>
+                        ));
+                      } catch (err) {
+                        console.error('Error loading specializations:', err);
+                        return null;
+                      }
+                    })()}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button
@@ -726,7 +791,8 @@ export default function AdministrationPage() {
                 setIsInviteDialogOpen(false);
                 setInviteEmail('');
                 setInviteFullName('');
-                setInviteRole('doctor');
+                setInviteRole('specialist');
+                setInviteSpecialization('');
               }}
             >
               Отмена
@@ -772,18 +838,43 @@ export default function AdministrationPage() {
               <Label htmlFor="edit-role">Роль *</Label>
               <Select
                 value={editRole}
-                onValueChange={(value: 'admin' | 'doctor' | 'assistant') => setEditRole(value)}
+                onValueChange={(value: 'admin' | 'specialist' | 'assistant') => setEditRole(value)}
               >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="admin">Администратор</SelectItem>
-                  <SelectItem value="doctor">Врач</SelectItem>
+                  <SelectItem value="specialist">Специалист</SelectItem>
                   <SelectItem value="assistant">Ассистент</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+            {(editRole === 'specialist' || editRole === 'admin') && (
+              <div className="space-y-2">
+                <Label htmlFor="edit-specialization">Специализация</Label>
+                <Select value={editSpecialization || 'none'} onValueChange={setEditSpecialization}>
+                  <SelectTrigger id="edit-specialization">
+                    <SelectValue placeholder="Выберите специализацию" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Не указана</SelectItem>
+                    {(() => {
+                      try {
+                        return getSpecializationList().map((spec) => (
+                          <SelectItem key={spec.code} value={spec.code}>
+                            {spec.name}
+                          </SelectItem>
+                        ));
+                      } catch (err) {
+                        console.error('Error loading specializations:', err);
+                        return null;
+                      }
+                    })()}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button

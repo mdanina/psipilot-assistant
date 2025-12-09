@@ -34,18 +34,23 @@ import { PatientActivitiesTab } from "@/components/patients/PatientActivitiesTab
 import { PatientDocumentsTab } from "@/components/patients/PatientDocumentsTab";
 import { PatientConversationInvitationsTab } from "@/components/patients/PatientConversationInvitationsTab";
 import { CaseSummaryBlock } from "@/components/patients/CaseSummaryBlock";
+import { PatientAssignmentsDialog } from "@/components/patients/PatientAssignmentsDialog";
+import { useAuth } from "@/contexts/AuthContext";
+import { Users } from "lucide-react";
 
 const PatientDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { toast } = useToast();
+  const { profile } = useAuth();
 
   const [patient, setPatient] = useState<DecryptedPatient | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [activeTab, setActiveTab] = useState("info");
+  const [assignmentsDialogOpen, setAssignmentsDialogOpen] = useState(false);
 
   const shouldEdit = searchParams.get("edit") === "true";
   const initialTab = searchParams.get("tab");
@@ -176,15 +181,28 @@ const PatientDetailPage = () => {
               Назад к списку
             </Button>
             {!isEditing && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={() => setIsEditing(true)}
-              >
-                <Edit className="w-4 h-4" />
-                Редактировать
-              </Button>
+              <div className="flex gap-2">
+                {profile?.role === 'admin' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    onClick={() => setAssignmentsDialogOpen(true)}
+                  >
+                    <Users className="w-4 h-4" />
+                    Управление назначениями
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={() => setIsEditing(true)}
+                >
+                  <Edit className="w-4 h-4" />
+                  Редактировать
+                </Button>
+              </div>
             )}
           </div>
 
@@ -329,6 +347,19 @@ const PatientDetailPage = () => {
           </Tabs>
         )}
       </div>
+
+      {/* Assignments Dialog */}
+      {patient && (
+        <PatientAssignmentsDialog
+          patientId={patient.id}
+          patientName={patient.name}
+          open={assignmentsDialogOpen}
+          onOpenChange={setAssignmentsDialogOpen}
+          onAssignmentsChanged={() => {
+            // Optionally reload patient data if needed
+          }}
+        />
+      )}
     </>
   );
 };

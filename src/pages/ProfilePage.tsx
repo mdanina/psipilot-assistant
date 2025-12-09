@@ -6,8 +6,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { User, Loader2, CheckCircle2, AlertCircle, X, Edit } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { getSpecializationList, getSpecializationName } from '@/lib/specializations';
 
 export default function ProfilePage() {
   const { profile, user, refreshProfile } = useAuth();
@@ -17,14 +19,20 @@ export default function ProfilePage() {
   const [success, setSuccess] = useState<string | null>(null);
   
   // Form state
-  const [fullName, setFullName] = useState(profile?.full_name || '');
-  const [email, setEmail] = useState(profile?.email || user?.email || '');
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [specialization, setSpecialization] = useState<string>('none');
 
   // Update form state when profile loads
   useEffect(() => {
     if (profile) {
       setFullName(profile.full_name || '');
       setEmail(profile.email || user?.email || '');
+      // Profile type includes specialization, but TypeScript might not recognize it
+      setSpecialization((profile as any).specialization || 'none');
+    } else if (user) {
+      // If profile not loaded yet, at least set email
+      setEmail(user.email || '');
     }
   }, [profile, user]);
 
@@ -41,6 +49,7 @@ export default function ProfilePage() {
         .update({
           full_name: fullName.trim() || null,
           email: email.trim(),
+          specialization: specialization && specialization !== 'none' ? specialization : null,
         })
         .eq('id', profile.id);
 
@@ -58,6 +67,24 @@ export default function ProfilePage() {
       setIsSaving(false);
     }
   };
+
+  // Show loading state if profile is not loaded yet
+  if (!profile && !user) {
+    return (
+      <>
+        <Header title="Профиль" icon={<User className="w-5 h-5" />} />
+        <div className="flex-1 p-6 overflow-auto">
+          <div className="max-w-4xl mx-auto space-y-6">
+            <Card>
+              <CardContent className="flex items-center justify-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
@@ -124,10 +151,36 @@ export default function ProfilePage() {
                   <div className="space-y-2">
                     <Label>Роль</Label>
                     <Input
-                      value={profile?.role === 'admin' ? 'Администратор' : profile?.role === 'doctor' ? 'Врач' : profile?.role === 'assistant' ? 'Ассистент' : profile?.role || 'Н/Д'}
+                      value={profile?.role === 'admin' ? 'Администратор' : profile?.role === 'specialist' ? 'Специалист' : profile?.role === 'assistant' ? 'Ассистент' : profile?.role || 'Н/Д'}
                       disabled
                       className="bg-muted"
                     />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="specialization">Специализация</Label>
+                    <Select
+                      value={specialization || 'none'}
+                      onValueChange={setSpecialization}
+                    >
+                      <SelectTrigger id="specialization">
+                        <SelectValue placeholder="Выберите специализацию" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Не указана</SelectItem>
+                        {(() => {
+                          try {
+                            return getSpecializationList().map((spec) => (
+                              <SelectItem key={spec.code} value={spec.code}>
+                                {spec.name}
+                              </SelectItem>
+                            ));
+                          } catch (err) {
+                            console.error('Error loading specializations:', err);
+                            return null;
+                          }
+                        })()}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="space-y-2">
                     <Label>ID пользователя</Label>
@@ -151,6 +204,7 @@ export default function ProfilePage() {
                         setIsEditing(false);
                         setFullName(profile?.full_name || '');
                         setEmail(profile?.email || user?.email || '');
+                        setSpecialization((profile as any)?.specialization || 'none');
                         setError(null);
                         setSuccess(null);
                       }}
@@ -173,7 +227,11 @@ export default function ProfilePage() {
                   </div>
                   <div>
                     <Label className="text-muted-foreground">Роль</Label>
-                    <p className="text-sm font-medium">{profile?.role === 'admin' ? 'Администратор' : profile?.role === 'doctor' ? 'Врач' : profile?.role === 'assistant' ? 'Ассистент' : profile?.role || 'Н/Д'}</p>
+                    <p className="text-sm font-medium">{profile?.role === 'admin' ? 'Администратор' : profile?.role === 'specialist' ? 'Специалист' : profile?.role === 'assistant' ? 'Ассистент' : profile?.role || 'Н/Д'}</p>
+                  </div>
+                  <div>
+                    <Label className="text-muted-foreground">Специализация</Label>
+                    <p className="text-sm font-medium">{getSpecializationName((profile as any)?.specialization)}</p>
                   </div>
                   <div>
                     <Label className="text-muted-foreground">ID пользователя</Label>

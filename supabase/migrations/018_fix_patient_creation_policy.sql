@@ -82,6 +82,23 @@ BEGIN
     )
     RETURNING * INTO v_patient;
     
+    -- Automatically create assignment for the creator
+    INSERT INTO patient_assignments (
+        patient_id,
+        doctor_id,
+        clinic_id,
+        assignment_type,
+        assigned_by
+    )
+    VALUES (
+        v_patient.id,
+        p_created_by,
+        p_clinic_id,
+        'primary',
+        v_user_id
+    )
+    ON CONFLICT (patient_id, doctor_id) DO NOTHING;
+    
     RETURN v_patient;
 END;
 $$;

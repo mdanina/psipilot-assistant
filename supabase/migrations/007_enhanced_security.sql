@@ -732,9 +732,9 @@ BEGIN
     FROM profiles
     WHERE id = v_user_id;
 
-    -- Only doctors and admins can request emergency access
-    IF v_user_role NOT IN ('doctor', 'admin') THEN
-        RAISE EXCEPTION 'Only doctors and administrators can request emergency access';
+    -- Only specialists and admins can request emergency access
+    IF v_user_role NOT IN ('specialist', 'admin', 'doctor') THEN
+        RAISE EXCEPTION 'Only specialists and administrators can request emergency access';
     END IF;
 
     -- Get patient name

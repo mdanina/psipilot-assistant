@@ -62,7 +62,7 @@ const App = () => (
             <Route
               path="/patients"
               element={
-                <ProtectedRoute requiredRole={['doctor', 'admin']}>
+                <ProtectedRoute requiredRole={['specialist', 'admin']}>
                   <MainLayout>
                     <PatientsPage />
                   </MainLayout>
@@ -72,7 +72,7 @@ const App = () => (
             <Route
               path="/patients/new"
               element={
-                <ProtectedRoute requiredRole={['doctor', 'admin']}>
+                <ProtectedRoute requiredRole={['specialist', 'admin']}>
                   <MainLayout>
                     <PatientCreatePage />
                   </MainLayout>
@@ -82,7 +82,7 @@ const App = () => (
             <Route
               path="/patients/:id"
               element={
-                <ProtectedRoute requiredRole={['doctor', 'admin']}>
+                <ProtectedRoute requiredRole={['specialist', 'admin']}>
                   <MainLayout>
                     <PatientDetailPage />
                   </MainLayout>
@@ -92,7 +92,7 @@ const App = () => (
             <Route
               path="/sessions"
               element={
-                <ProtectedRoute requiredRole={['doctor', 'admin']}>
+                <ProtectedRoute requiredRole={['specialist', 'admin']}>
                   <MainLayout>
                     <SessionsPage />
                   </MainLayout>
@@ -102,7 +102,7 @@ const App = () => (
             <Route
               path="/sessions/:sessionId/analysis"
               element={
-                <ProtectedRoute requiredRole={['doctor', 'admin']}>
+                <ProtectedRoute requiredRole={['specialist', 'admin']}>
                   <MainLayout>
                     <SessionAnalysisPage />
                   </MainLayout>

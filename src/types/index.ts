@@ -19,6 +19,7 @@ export type {
   SectionTemplate,
   Recording,
   Document,
+  PatientAssignment,
 
   // Insert types
   ClinicInsert,
@@ -29,6 +30,7 @@ export type {
   SectionInsert,
   RecordingInsert,
   DocumentInsert,
+  PatientAssignmentInsert,
 
   // Update types
   ClinicUpdate,
@@ -39,6 +41,7 @@ export type {
   SectionUpdate,
   RecordingUpdate,
   DocumentUpdate,
+  PatientAssignmentUpdate,
 
   // Enums
   UserRole,
