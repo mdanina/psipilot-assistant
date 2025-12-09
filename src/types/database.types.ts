@@ -186,6 +186,12 @@ export type Database = {
           tags: string[];
           deleted_at: string | null;
           summary: string | null;
+          meeting_format: 'online' | 'in_person' | null;
+          duration_minutes: number | null;
+          recurring_pattern: 'weekly' | 'monthly' | null;
+          recurring_end_date: string | null;
+          parent_appointment_id: string | null;
+          timezone: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -206,6 +212,12 @@ export type Database = {
           tags?: string[];
           deleted_at?: string | null;
           summary?: string | null;
+          meeting_format?: 'online' | 'in_person' | null;
+          duration_minutes?: number | null;
+          recurring_pattern?: 'weekly' | 'monthly' | null;
+          recurring_end_date?: string | null;
+          parent_appointment_id?: string | null;
+          timezone?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -218,6 +230,12 @@ export type Database = {
           status?: 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
           transcript?: string | null;
           transcript_status?: 'pending' | 'processing' | 'completed' | 'failed';
+          meeting_format?: 'online' | 'in_person' | null;
+          duration_minutes?: number | null;
+          recurring_pattern?: 'weekly' | 'monthly' | null;
+          recurring_end_date?: string | null;
+          parent_appointment_id?: string | null;
+          timezone?: string | null;
           scheduled_at?: string | null;
           started_at?: string | null;
           ended_at?: string | null;

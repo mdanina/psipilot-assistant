@@ -628,3 +628,330 @@ export async function updateSessionSummary(
   }
 }
 
+/**
+ * Get scheduled sessions for calendar view
+ */
+export async function getScheduledSessions(
+  startDate: Date,
+  endDate: Date
+): Promise<Session[]> {
+  const { data, error } = await supabase
+    .from('sessions')
+    .select('*')
+    .gte('scheduled_at', startDate.toISOString())
+    .lte('scheduled_at', endDate.toISOString())
+    .is('deleted_at', null)
+    .order('scheduled_at', { ascending: true });
+
+  if (error) {
+    console.error('Error getting scheduled sessions:', error);
+    throw new Error(`Failed to get scheduled sessions: ${error.message}`);
+  }
+
+  console.log('getScheduledSessions:', {
+    startDate: startDate.toISOString(),
+    endDate: endDate.toISOString(),
+    count: data?.length || 0,
+    sessions: data?.map(s => ({ id: s.id, scheduled_at: s.scheduled_at }))
+  });
+
+  return data || [];
+}
+
+/**
+ * Create appointment (scheduled session)
+ */
+export interface CreateAppointmentParams {
+  userId: string;
+  clinicId: string;
+  patientId?: string | null;
+  scheduledAt: string; // ISO string
+  durationMinutes: number;
+  meetingFormat?: 'online' | 'in_person' | null;
+  title?: string | null;
+  recurringPattern?: 'weekly' | 'monthly' | null;
+  recurringEndDate?: string | null; // ISO string
+  timezone?: string; // IANA timezone identifier (e.g., Europe/Moscow)
+}
+
+export async function createAppointment(
+  params: CreateAppointmentParams
+): Promise<Session[]> {
+  const {
+    userId,
+    clinicId,
+    patientId,
+    scheduledAt,
+    durationMinutes,
+    meetingFormat,
+    title,
+    recurringPattern,
+    recurringEndDate,
+  } = params;
+
+  // If patient is specified, verify assignment (RLS will enforce this, but we check explicitly for better error messages)
+  // Note: RLS policies allow admins to create appointments for any patient, so we skip this check
+  // The assignment will be created in CalendarPage if admin assigns appointment to another doctor
+  if (patientId) {
+    // Get current user to check if they are admin
+    const { data: { user: currentUser } } = await supabase.auth.getUser();
+    if (currentUser) {
+      const { data: currentUserProfile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', currentUser.id)
+        .single();
+
+      const isAdmin = currentUserProfile?.role === 'admin';
+
+      // Only check assignment if current user is not admin
+      // If admin is creating appointment for another doctor, the patient will be assigned in CalendarPage
+      if (!isAdmin) {
+        const { data: assignment, error: assignmentError } = await supabase
+          .from('patient_assignments')
+          .select('id')
+          .eq('patient_id', patientId)
+          .eq('doctor_id', userId)
+          .eq('clinic_id', clinicId)
+          .single();
+
+        if (assignmentError || !assignment) {
+          throw new Error('Пациент не назначен вам. Вы можете создавать встречи только с назначенными пациентами.');
+        }
+      }
+    }
+  }
+
+  const sessions: Session[] = [];
+
+  // If recurring, create multiple sessions
+  if (recurringPattern && recurringEndDate) {
+    const startDate = new Date(scheduledAt);
+    const endDate = new Date(recurringEndDate);
+    const createdSessions: Session[] = [];
+    let currentDate = new Date(startDate);
+
+    // Create first (parent) appointment
+    const parentSessionData: SessionInsert = {
+      user_id: userId,
+      clinic_id: clinicId,
+      patient_id: patientId || null,
+      title: title || null,
+      status: 'scheduled',
+      scheduled_at: currentDate.toISOString(),
+      duration_minutes: durationMinutes,
+      meeting_format: meetingFormat || null,
+      recurring_pattern: recurringPattern,
+      recurring_end_date: recurringEndDate,
+      parent_appointment_id: null, // This is the parent
+      timezone: params.timezone || 'UTC',
+    };
+
+    const { data: parentData, error: parentError } = await supabase
+      .from('sessions')
+      .insert(parentSessionData)
+      .select()
+      .single();
+
+    if (parentError || !parentData) {
+      throw new Error(`Failed to create parent appointment: ${parentError?.message || 'No data returned'}`);
+    }
+
+    createdSessions.push(parentData);
+    const parentId = parentData.id;
+
+    // Create recurring instances
+    while (currentDate <= endDate) {
+      // Move to next occurrence
+      if (recurringPattern === 'weekly') {
+        currentDate.setDate(currentDate.getDate() + 7);
+      } else if (recurringPattern === 'monthly') {
+        currentDate.setMonth(currentDate.getMonth() + 1);
+      }
+
+      if (currentDate > endDate) break;
+
+      const recurringSessionData: SessionInsert = {
+        user_id: userId,
+        clinic_id: clinicId,
+        patient_id: patientId || null,
+        title: title || null,
+        status: 'scheduled',
+        scheduled_at: new Date(currentDate).toISOString(),
+        duration_minutes: durationMinutes,
+        meeting_format: meetingFormat || null,
+        recurring_pattern: recurringPattern,
+        recurring_end_date: recurringEndDate,
+        parent_appointment_id: parentId,
+        timezone: params.timezone || 'UTC',
+      };
+
+      const { data: recurringData, error: recurringError } = await supabase
+        .from('sessions')
+        .insert(recurringSessionData)
+        .select()
+        .single();
+
+      if (recurringError || !recurringData) {
+        console.error('Error creating recurring appointment:', recurringError);
+        // Continue with other appointments even if one fails
+      } else {
+        createdSessions.push(recurringData);
+      }
+    }
+
+    return createdSessions;
+  } else {
+    // Single appointment
+    const sessionData: SessionInsert = {
+      user_id: userId,
+      clinic_id: clinicId,
+      patient_id: patientId || null,
+      title: title || null,
+      status: 'scheduled',
+      scheduled_at: scheduledAt,
+      duration_minutes: durationMinutes,
+      meeting_format: meetingFormat || null,
+      recurring_pattern: null,
+      recurring_end_date: null,
+      parent_appointment_id: null,
+    };
+
+    const { data, error } = await supabase
+      .from('sessions')
+      .insert(sessionData)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error creating appointment:', error);
+      throw new Error(`Failed to create appointment: ${error.message}`);
+    }
+
+    if (!data) {
+      throw new Error('Failed to create appointment: No data returned');
+    }
+
+    return [data];
+  }
+}
+
+/**
+ * Update appointment
+ */
+export interface UpdateAppointmentParams {
+  scheduledAt?: string;
+  durationMinutes?: number;
+  meetingFormat?: 'online' | 'in_person' | null;
+  title?: string | null;
+  patientId?: string | null;
+}
+
+export async function updateAppointment(
+  appointmentId: string,
+  updates: UpdateAppointmentParams
+): Promise<Session> {
+  const updateData: SessionUpdate = {
+    ...(updates.scheduledAt && { scheduled_at: updates.scheduledAt }),
+    ...(updates.durationMinutes !== undefined && { duration_minutes: updates.durationMinutes }),
+    ...(updates.meetingFormat !== undefined && { meeting_format: updates.meetingFormat }),
+    ...(updates.title !== undefined && { title: updates.title }),
+    ...(updates.patientId !== undefined && { patient_id: updates.patientId }),
+  };
+
+  return updateSession(appointmentId, updateData);
+}
+
+/**
+ * Delete appointment (soft delete)
+ */
+export async function deleteAppointment(appointmentId: string): Promise<void> {
+  return deleteSession(appointmentId);
+}
+
+/**
+ * Get recurring appointments by parent ID
+ */
+export async function getRecurringAppointments(parentId: string): Promise<Session[]> {
+  const { data, error } = await supabase
+    .from('sessions')
+    .select('*')
+    .or(`id.eq.${parentId},parent_appointment_id.eq.${parentId}`)
+    .is('deleted_at', null)
+    .order('scheduled_at', { ascending: true });
+
+  if (error) {
+    console.error('Error getting recurring appointments:', error);
+    throw new Error(`Failed to get recurring appointments: ${error.message}`);
+  }
+
+  return data || [];
+}
+
+/**
+ * Delete all recurring appointments (parent and all children)
+ */
+export async function deleteAllRecurringAppointments(appointmentId: string): Promise<void> {
+  // Get the appointment to check if it's a parent or child
+  const { data: appointment, error: fetchError } = await supabase
+    .from('sessions')
+    .select('*')
+    .eq('id', appointmentId)
+    .single();
+
+  if (fetchError || !appointment) {
+    throw new Error(`Failed to fetch appointment: ${fetchError?.message}`);
+  }
+
+  // Determine parent ID
+  const parentId = appointment.parent_appointment_id || appointmentId;
+
+  // Get all recurring appointments (parent + all children)
+  const recurringAppointments = await getRecurringAppointments(parentId);
+
+  // Delete all of them using deleteSession
+  for (const apt of recurringAppointments) {
+    await deleteSession(apt.id);
+  }
+}
+
+/**
+ * Reassign appointment to another doctor
+ * Also assigns patient to the new doctor if patientId is provided
+ */
+export interface ReassignAppointmentParams {
+  appointmentId: string;
+  newDoctorId: string;
+  patientId?: string | null;
+}
+
+export async function reassignAppointment(
+  params: ReassignAppointmentParams
+): Promise<Session> {
+  const { appointmentId, newDoctorId, patientId } = params;
+
+  // Update appointment's user_id
+  const updateData: SessionUpdate = {
+    user_id: newDoctorId,
+  };
+
+  const updatedSession = await updateSession(appointmentId, updateData);
+
+  // If patient is provided, assign patient to new doctor
+  if (patientId) {
+    const { assignPatientToDoctor } = await import('@/lib/supabase-patient-assignments');
+    const { error: assignError } = await assignPatientToDoctor(
+      patientId,
+      newDoctorId,
+      'primary'
+    );
+
+    if (assignError) {
+      console.error('Error assigning patient to doctor:', assignError);
+      // Don't throw - appointment is already reassigned, patient assignment can be done manually
+    }
+  }
+
+  return updatedSession;
+}
+
