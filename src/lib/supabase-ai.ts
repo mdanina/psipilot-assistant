@@ -79,7 +79,7 @@ export async function updateNoteTemplateBlockOrder(
   templateId: string,
   blockTemplateIds: string[]
 ): Promise<void> {
-  const { error } = await supabase
+  const { error } = await (supabase as any)
     .from('clinical_note_templates')
     .update({ block_template_ids: blockTemplateIds })
     .eq('id', templateId);
@@ -87,6 +87,138 @@ export async function updateNoteTemplateBlockOrder(
   if (error) {
     throw new Error(error.message);
   }
+}
+
+/**
+ * Добавить блок в шаблон клинической заметки
+ */
+export async function addBlockToTemplate(
+  templateId: string,
+  blockTemplateId: string
+): Promise<void> {
+  // Получаем текущий шаблон
+  const { data: template, error: fetchError } = await (supabase as any)
+    .from('clinical_note_templates')
+    .select('block_template_ids')
+    .eq('id', templateId)
+    .single();
+
+  if (fetchError) {
+    throw new Error(fetchError.message);
+  }
+
+  if (!template) {
+    throw new Error('Шаблон не найден');
+  }
+
+  // Проверяем, что блока еще нет в шаблоне
+  if (template.block_template_ids.includes(blockTemplateId)) {
+    throw new Error('Блок уже добавлен в шаблон');
+  }
+
+  // Добавляем блок в конец списка
+  const newBlockIds = [...template.block_template_ids, blockTemplateId];
+
+  const { error } = await (supabase as any)
+    .from('clinical_note_templates')
+    .update({ block_template_ids: newBlockIds })
+    .eq('id', templateId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+/**
+ * Удалить блок из шаблона клинической заметки
+ */
+export async function removeBlockFromTemplate(
+  templateId: string,
+  blockTemplateId: string
+): Promise<void> {
+  // Получаем текущий шаблон
+  const { data: template, error: fetchError } = await (supabase as any)
+    .from('clinical_note_templates')
+    .select('block_template_ids')
+    .eq('id', templateId)
+    .single();
+
+  if (fetchError) {
+    throw new Error(fetchError.message);
+  }
+
+  if (!template) {
+    throw new Error('Шаблон не найден');
+  }
+
+  // Удаляем блок из списка
+  const newBlockIds = template.block_template_ids.filter(
+    (id: string) => id !== blockTemplateId
+  );
+
+  const { error } = await (supabase as any)
+    .from('clinical_note_templates')
+    .update({ block_template_ids: newBlockIds })
+    .eq('id', templateId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+/**
+ * Создать новый шаблон клинической заметки
+ */
+export async function createNoteTemplate(
+  name: string,
+  nameEn: string | null,
+  description: string | null,
+  blockTemplateIds: string[],
+  isDefault: boolean = false
+): Promise<ClinicalNoteTemplate> {
+  // Получаем clinic_id текущего пользователя
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    throw new Error('Необходима авторизация');
+  }
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('clinic_id')
+    .eq('id', user.id)
+    .single();
+
+  const clinicId = profile?.clinic_id || null;
+
+  // Если устанавливаем как шаблон по умолчанию, снимаем флаг с других шаблонов клиники
+  if (isDefault && clinicId) {
+    await (supabase as any)
+      .from('clinical_note_templates')
+      .update({ is_default: false })
+      .eq('clinic_id', clinicId)
+      .eq('is_default', true);
+  }
+
+  const { data, error } = await (supabase as any)
+    .from('clinical_note_templates')
+    .insert({
+      clinic_id: clinicId,
+      name,
+      name_en: nameEn,
+      description,
+      block_template_ids: blockTemplateIds,
+      is_default: isDefault,
+      is_system: false,
+      is_active: true,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data as ClinicalNoteTemplate;
 }
 
 // ============================================================================
@@ -499,3 +631,4 @@ export async function getClinicalNotesForPatient(
 
   return (data || []) as GeneratedClinicalNote[];
 }
+

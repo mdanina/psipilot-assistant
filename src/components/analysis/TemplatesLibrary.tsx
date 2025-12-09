@@ -11,6 +11,8 @@ import {
 import { Loader2, GripVertical, Plus, ChevronDown } from 'lucide-react';
 import { getBlockTemplates, getNoteTemplates, updateNoteTemplateBlockOrder } from '@/lib/supabase-ai';
 import { useToast } from '@/hooks/use-toast';
+import { AddBlockDialog } from './AddBlockDialog';
+import { CreateTemplateDialog } from './CreateTemplateDialog';
 import {
   DndContext,
   closestCenter,
@@ -95,6 +97,8 @@ export function TemplatesLibrary({
   const [blockTemplates, setBlockTemplates] = useState<NoteBlockTemplate[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isReordering, setIsReordering] = useState(false);
+  const [isAddBlockDialogOpen, setIsAddBlockDialogOpen] = useState(false);
+  const [isCreateTemplateDialogOpen, setIsCreateTemplateDialogOpen] = useState(false);
   const { toast } = useToast();
 
   const sensors = useSensors(
@@ -196,6 +200,16 @@ export function TemplatesLibrary({
     }
   };
 
+  const handleBlockAdded = async () => {
+    // Перезагружаем шаблоны и блоки
+    await loadTemplates();
+  };
+
+  const handleTemplateCreated = async () => {
+    // Перезагружаем шаблоны
+    await loadTemplates();
+  };
+
   if (isLoading) {
     return (
       <div className="h-full flex items-center justify-center">
@@ -223,7 +237,13 @@ export function TemplatesLibrary({
               ))}
             </SelectContent>
           </Select>
-          <Button size="sm" variant="outline" className="h-8 w-8 p-0">
+          <Button 
+            size="sm" 
+            variant="outline" 
+            className="h-8 w-8 p-0"
+            onClick={() => setIsCreateTemplateDialogOpen(true)}
+            title="Создать новый шаблон"
+          >
             <Plus className="h-4 w-4" />
           </Button>
         </div>
@@ -265,6 +285,7 @@ export function TemplatesLibrary({
                       size="sm"
                       className="w-full mt-2 justify-start text-muted-foreground hover:text-foreground"
                       disabled={isReordering}
+                      onClick={() => setIsAddBlockDialogOpen(true)}
                     >
                       <Plus className="h-4 w-4 mr-2" />
                       New section
@@ -282,6 +303,24 @@ export function TemplatesLibrary({
           </div>
         </ScrollArea>
       </div>
+
+      {/* Диалоги */}
+      {selectedTemplate && (
+        <AddBlockDialog
+          open={isAddBlockDialogOpen}
+          onOpenChange={setIsAddBlockDialogOpen}
+          templateId={selectedTemplate.id}
+          existingBlockIds={selectedTemplate.block_template_ids}
+          onBlockAdded={handleBlockAdded}
+        />
+      )}
+
+      <CreateTemplateDialog
+        open={isCreateTemplateDialogOpen}
+        onOpenChange={setIsCreateTemplateDialogOpen}
+        onTemplateCreated={handleTemplateCreated}
+      />
     </div>
   );
 }
+
