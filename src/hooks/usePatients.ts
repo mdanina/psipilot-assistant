@@ -140,10 +140,14 @@ export function usePatient(patientId: string | undefined) {
     },
     // Only run query if patientId is provided
     enabled: !!patientId,
-    // Cache configuration
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    // Cache configuration - longer staleTime to prevent refetching
+    staleTime: Infinity, // Data is always fresh (never refetch automatically)
+    gcTime: 30 * 60 * 1000, // 30 minutes (keep in cache longer)
+    // Don't refetch on mount - use cache if available
     refetchOnMount: false,
     refetchOnWindowFocus: false,
+    // Don't refetch on reconnect
+    refetchOnReconnect: false,
     retry: 1,
     retryDelay: 1000,
   });

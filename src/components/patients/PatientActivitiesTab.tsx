@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Calendar, Clock, Loader2, ExternalLink, FileText, Sparkles, ChevronDown, ChevronUp, Search, Paperclip, X, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -14,11 +14,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { getPatientSessions, getSessionsContentCounts, searchPatientSessions, deleteSession, type SessionContentCounts } from "@/lib/supabase-sessions";
-import { getClinicalNotesForPatient, softDeleteClinicalNote } from "@/lib/supabase-ai";
 import { formatDateTime } from "@/lib/date-utils";
 import { useToast } from "@/hooks/use-toast";
 import { ClinicalNoteView } from "./ClinicalNoteView";
+import { 
+  usePatientActivities, 
+  useSearchPatientSessions, 
+  useDeleteSession, 
+  useDeleteClinicalNote 
+} from "@/hooks/usePatientActivities";
 import type { Database } from "@/types/database.types";
 import type { GeneratedClinicalNote } from "@/types/ai.types";
 
@@ -66,76 +70,52 @@ interface PatientActivitiesTabProps {
 export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [clinicalNotes, setClinicalNotes] = useState<GeneratedClinicalNote[]>([]);
-  const [contentCounts, setContentCounts] = useState<Map<string, SessionContentCounts>>(new Map());
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
-  const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-  const [filteredSessionIds, setFilteredSessionIds] = useState<Set<string> | null>(null);
-  const [isSearching, setIsSearching] = useState(false);
 
   // Delete dialog state
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ type: 'session' | 'note'; id: string; title: string } | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
 
-  useEffect(() => {
-    loadData();
-  }, [patientId]);
+  // React Query hooks for data fetching with automatic caching
+  const { 
+    data: activitiesData, 
+    isLoading, 
+    error: activitiesError 
+  } = usePatientActivities(patientId);
 
-  // Debounced search
+  const { 
+    data: searchResults = [], 
+    isLoading: isSearching 
+  } = useSearchPatientSessions(patientId, searchQuery);
+
+  const deleteSessionMutation = useDeleteSession();
+  const deleteNoteMutation = useDeleteClinicalNote();
+
+  // Extract data from activitiesData
+  const sessions = activitiesData?.sessions || [];
+  const clinicalNotes = activitiesData?.clinicalNotes || [];
+  const contentCounts = activitiesData?.contentCounts || new Map();
+
+  // Show error if activities query failed
   useEffect(() => {
+    if (activitiesError) {
+      console.error("Error loading activities:", activitiesError);
+      toast({
+        title: "Ошибка",
+        description: `Не удалось загрузить активности: ${activitiesError.message}`,
+        variant: "destructive",
+      });
+    }
+  }, [activitiesError, toast]);
+
+  // Convert search results to Set for filtering
+  const filteredSessionIds = useMemo(() => {
     if (!searchQuery.trim()) {
-      setFilteredSessionIds(null);
-      return;
+      return null;
     }
-
-    const timeoutId = setTimeout(async () => {
-      setIsSearching(true);
-      try {
-        const { data } = await searchPatientSessions(patientId, searchQuery);
-        if (data) {
-          setFilteredSessionIds(new Set(data));
-        }
-      } catch (error) {
-        console.error("Error searching sessions:", error);
-      } finally {
-        setIsSearching(false);
-      }
-    }, 300);
-
-    return () => clearTimeout(timeoutId);
-  }, [searchQuery, patientId]);
-
-  const loadData = async () => {
-    try {
-      setIsLoading(true);
-      const [sessionsData, notesData] = await Promise.all([
-        getPatientSessions(patientId),
-        getClinicalNotesForPatient(patientId),
-      ]);
-
-      if (sessionsData.error) {
-        console.error("Error loading sessions:", sessionsData.error);
-      } else {
-        setSessions(sessionsData.data || []);
-
-        // Load content counts for all sessions
-        if (sessionsData.data && sessionsData.data.length > 0) {
-          const sessionIds = sessionsData.data.map(s => s.id);
-          const counts = await getSessionsContentCounts(sessionIds);
-          setContentCounts(counts);
-        }
-      }
-
-      setClinicalNotes(notesData || []);
-    } catch (error) {
-      console.error("Error loading data:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    return searchResults.length > 0 ? new Set(searchResults) : null;
+  }, [searchQuery, searchResults]);
 
   const getStatusLabel = (status: string): string => {
     const labels: Record<string, string> = {
@@ -177,7 +157,6 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
 
   const clearSearch = () => {
     setSearchQuery("");
-    setFilteredSessionIds(null);
   };
 
   // Delete handlers
@@ -191,23 +170,48 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
   const handleConfirmDelete = async () => {
     if (!deleteTarget) return;
 
-    setIsDeleting(true);
     try {
       if (deleteTarget.type === 'session') {
-        await deleteSession(deleteTarget.id);
-        // Update local state
-        setSessions(prev => prev.filter(s => s.id !== deleteTarget.id));
-        toast({
-          title: "Сессия удалена",
-          description: "Сессия успешно удалена",
+        deleteSessionMutation.mutate(deleteTarget.id, {
+          onSuccess: () => {
+            toast({
+              title: "Сессия удалена",
+              description: "Сессия успешно удалена",
+            });
+            setDeleteDialogOpen(false);
+            setDeleteTarget(null);
+            // Cache will be automatically invalidated by useDeleteSession hook
+          },
+          onError: (error: Error) => {
+            toast({
+              title: "Ошибка",
+              description: error.message || "Не удалось удалить сессию",
+              variant: "destructive",
+            });
+            setDeleteDialogOpen(false);
+            setDeleteTarget(null);
+          },
         });
       } else {
-        await softDeleteClinicalNote(deleteTarget.id);
-        // Update local state
-        setClinicalNotes(prev => prev.filter(n => n.id !== deleteTarget.id));
-        toast({
-          title: "Заметка удалена",
-          description: "Клиническая заметка успешно удалена",
+        deleteNoteMutation.mutate(deleteTarget.id, {
+          onSuccess: () => {
+            toast({
+              title: "Заметка удалена",
+              description: "Клиническая заметка успешно удалена",
+            });
+            setDeleteDialogOpen(false);
+            setDeleteTarget(null);
+            // Cache will be automatically invalidated by useDeleteClinicalNote hook
+          },
+          onError: (error: Error) => {
+            toast({
+              title: "Ошибка",
+              description: error.message || "Не удалось удалить заметку",
+              variant: "destructive",
+            });
+            setDeleteDialogOpen(false);
+            setDeleteTarget(null);
+          },
         });
       }
     } catch (error) {
@@ -219,8 +223,6 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
           : "Не удалось удалить заметку",
         variant: "destructive",
       });
-    } finally {
-      setIsDeleting(false);
       setDeleteDialogOpen(false);
       setDeleteTarget(null);
     }
@@ -554,13 +556,13 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>Отмена</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleteSessionMutation.isPending || deleteNoteMutation.isPending}>Отмена</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleConfirmDelete}
-              disabled={isDeleting}
+              disabled={deleteSessionMutation.isPending || deleteNoteMutation.isPending}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {isDeleting ? (
+              {(deleteSessionMutation.isPending || deleteNoteMutation.isPending) ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   Удаление...

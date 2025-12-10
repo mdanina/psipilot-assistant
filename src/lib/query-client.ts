@@ -20,7 +20,8 @@ export const queryClient = new QueryClient({
       
       // Keep unused data in cache for 10 minutes
       // After 10 minutes of being unused, it's garbage collected
-      cacheTime: 10 * 60 * 1000, // 10 minutes
+      // Note: In React Query v5, this is called gcTime instead of cacheTime
+      gcTime: 10 * 60 * 1000, // 10 minutes (formerly cacheTime)
       
       // Don't refetch when window regains focus
       // This prevents annoying refetches when user switches tabs
