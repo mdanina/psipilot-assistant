@@ -6,7 +6,7 @@
  */
 
 import { supabase } from './supabase';
-import { encryptPHI, decryptPHI, isEncryptionConfigured, isEncryptionConfiguredAsync } from './encryption';
+import { encryptPHI, decryptPHI, decryptPHIBatch, isEncryptionConfigured, isEncryptionConfiguredAsync } from './encryption';
 import { format } from 'date-fns';
 import type { Database } from '@/types/database.types';
 
@@ -81,16 +81,34 @@ async function decryptPatientPII(patient: Patient): Promise<DecryptedPatient> {
   }
 
   // SECURITY: If data is encrypted, decryption MUST succeed
+  // Собираем все зашифрованные значения для batch расшифровки
+  const encryptedValues: Array<{ field: PIIField; value: string }> = [];
+  
   for (const field of PII_FIELDS) {
     const encryptedField = `${field}_encrypted`;
     const encryptedValue = (patient as Record<string, unknown>)[encryptedField];
 
     if (encryptedValue && typeof encryptedValue === 'string') {
-      // SECURITY: No try/catch - if decryption fails, operation should fail
-      // This prevents showing encrypted garbage to users
-      const decryptedValue = await decryptPHI(encryptedValue);
-      (decrypted as Record<string, unknown>)[field] = decryptedValue;
+      encryptedValues.push({ field, value: encryptedValue });
+    }
+  }
+
+  // Выполняем batch расшифровку
+  if (encryptedValues.length > 0) {
+    try {
+      const valuesToDecrypt = encryptedValues.map(v => v.value);
+      const decryptedValues = await decryptPHIBatch(valuesToDecrypt);
+      
+      // Применяем расшифрованные значения
+      encryptedValues.forEach((item, index) => {
+        (decrypted as Record<string, unknown>)[item.field] = decryptedValues[index];
+      });
+      
       decrypted._isDecrypted = true;
+    } catch (err) {
+      // SECURITY: If decryption fails, operation should fail
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      throw new Error(`Failed to decrypt patient PII data: ${errorMsg}`);
     }
   }
 

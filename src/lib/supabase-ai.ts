@@ -4,7 +4,7 @@
  */
 
 import { supabase } from './supabase';
-import { decryptPHI } from './encryption';
+import { decryptPHI, decryptPHIBatch } from './encryption';
 import type {
   NoteBlockTemplate,
   ClinicalNoteTemplate,
@@ -478,7 +478,12 @@ export async function getClinicalNote(
         try {
           section.ai_content = await decryptPHI(section.ai_content);
         } catch (err) {
-          console.warn('Failed to decrypt section ai_content:', err);
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          // Если расшифровка не удалась из-за отсутствия ключа, используем как есть
+          if (!errorMsg.includes('Encryption key is not configured')) {
+            console.warn('Failed to decrypt section ai_content:', err);
+          }
+          // Оставляем ai_content как есть - возможно, он уже расшифрован
         }
       }
       // Расшифровываем content, если он зашифрован
@@ -491,7 +496,10 @@ export async function getClinicalNote(
             section.content = await decryptPHI(section.content);
           }
         } catch (err) {
-          console.warn('Failed to decrypt section content:', err);
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          if (!errorMsg.includes('Encryption key is not configured')) {
+            console.warn('Failed to decrypt section content:', err);
+          }
         }
       }
     }
@@ -669,36 +677,65 @@ export async function getClinicalNotesForSession(
     });
   }
 
-  // Расшифровываем ai_content и content в секциях
+  // Расшифровываем ai_content и content в секциях используя batch расшифровку
   if (data) {
     for (const note of data) {
       if (note.sections) {
+        // Собираем все зашифрованные значения для batch расшифровки
+        const encryptedValues: Array<{ section: any; field: 'ai_content' | 'content'; value: string }> = [];
+        
         for (const section of note.sections) {
-          // Расшифровываем ai_content
+          // Проверяем ai_content
           if (section.ai_content) {
-            try {
-              section.ai_content = await decryptPHI(section.ai_content);
-            } catch (err) {
-              // Если расшифровка не удалась (например, нет ключа), используем как есть
-              const errorMsg = err instanceof Error ? err.message : String(err);
-              if (!errorMsg.includes('Encryption key is not configured')) {
-                console.warn('Failed to decrypt section ai_content:', err);
-              }
-              // Оставляем ai_content как есть - возможно, он уже расшифрован
+            const hasUnicodeChars = /[а-яА-ЯёЁ\u0400-\u04FF]/.test(section.ai_content);
+            const isLikelyEncrypted = !hasUnicodeChars &&
+                                     section.ai_content.length > 50 &&
+                                     /^[A-Za-z0-9+/=]+$/.test(section.ai_content) &&
+                                     !section.ai_content.includes('\n') &&
+                                     !section.ai_content.includes(' ') &&
+                                     !section.ai_content.includes(':');
+            
+            if (isLikelyEncrypted) {
+              encryptedValues.push({ section, field: 'ai_content', value: section.ai_content });
             }
           }
-          // Расшифровываем content, если он зашифрован
+          
+          // Проверяем content
           if (section.content) {
-            try {
-              const isLikelyEncrypted = section.content.length > 50 && 
-                                       /^[A-Za-z0-9+/=]+$/.test(section.content) &&
-                                       !section.content.includes('\n');
-              if (isLikelyEncrypted) {
-                section.content = await decryptPHI(section.content);
-              }
-            } catch (err) {
-              console.warn('Failed to decrypt section content:', err);
+            const hasUnicodeChars = /[а-яА-ЯёЁ\u0400-\u04FF]/.test(section.content);
+            const isLikelyEncrypted = !hasUnicodeChars &&
+                                     section.content.length > 50 && 
+                                     /^[A-Za-z0-9+/=]+$/.test(section.content) &&
+                                     !section.content.includes('\n') &&
+                                     !section.content.includes(' ') &&
+                                     !section.content.includes(':');
+            
+            if (isLikelyEncrypted) {
+              encryptedValues.push({ section, field: 'content', value: section.content });
             }
+          }
+        }
+        
+        // Выполняем batch расшифровку
+        if (encryptedValues.length > 0) {
+          try {
+            console.log(`[getClinicalNotesForSession] Batch decrypting ${encryptedValues.length} values`);
+            const valuesToDecrypt = encryptedValues.map(v => v.value);
+            const decryptedValues = await decryptPHIBatch(valuesToDecrypt);
+            
+            // Применяем расшифрованные значения
+            encryptedValues.forEach((item, index) => {
+              item.section[item.field] = decryptedValues[index];
+            });
+            
+            console.log(`[getClinicalNotesForSession] Successfully batch decrypted ${decryptedValues.length} values`);
+          } catch (err) {
+            const errorMsg = err instanceof Error ? err.message : String(err);
+            console.warn('[getClinicalNotesForSession] Batch decryption failed:', {
+              error: errorMsg,
+              count: encryptedValues.length,
+            });
+            // При ошибке оставляем значения как есть (возможно уже расшифрованы)
           }
         }
       }
@@ -735,38 +772,67 @@ export async function getClinicalNotesForPatient(
 
   if (error) throw error;
 
-  // Расшифровываем ai_content и content в секциях
+  // Расшифровываем ai_content и content в секциях используя batch расшифровку
   if (data) {
+    // Собираем все зашифрованные значения для batch расшифровки
+    const encryptedValues: Array<{ note: any; section: any; field: 'ai_content' | 'content'; value: string }> = [];
+    
     for (const note of data) {
       if (note.sections) {
         for (const section of note.sections) {
-          // Расшифровываем ai_content
+          // Проверяем ai_content
           if (section.ai_content) {
-            try {
-              section.ai_content = await decryptPHI(section.ai_content);
-            } catch (err) {
-              // Если расшифровка не удалась (например, нет ключа), используем как есть
-              const errorMsg = err instanceof Error ? err.message : String(err);
-              if (!errorMsg.includes('Encryption key is not configured')) {
-                console.warn('Failed to decrypt section ai_content:', err);
-              }
-              // Оставляем ai_content как есть - возможно, он уже расшифрован
+            const hasUnicodeChars = /[а-яА-ЯёЁ\u0400-\u04FF]/.test(section.ai_content);
+            const isLikelyEncrypted = !hasUnicodeChars &&
+                                     section.ai_content.length > 50 &&
+                                     /^[A-Za-z0-9+/=]+$/.test(section.ai_content) &&
+                                     !section.ai_content.includes('\n') &&
+                                     !section.ai_content.includes(' ') &&
+                                     !section.ai_content.includes(':');
+            
+            if (isLikelyEncrypted) {
+              encryptedValues.push({ note, section, field: 'ai_content', value: section.ai_content });
             }
           }
-          // Расшифровываем content, если он зашифрован
+          
+          // Проверяем content
           if (section.content) {
-            try {
-              const isLikelyEncrypted = section.content.length > 50 &&
-                                       /^[A-Za-z0-9+/=]+$/.test(section.content) &&
-                                       !section.content.includes('\n');
-              if (isLikelyEncrypted) {
-                section.content = await decryptPHI(section.content);
-              }
-            } catch (err) {
-              console.warn('Failed to decrypt section content:', err);
+            const hasUnicodeChars = /[а-яА-ЯёЁ\u0400-\u04FF]/.test(section.content);
+            const isLikelyEncrypted = !hasUnicodeChars &&
+                                     section.content.length > 50 && 
+                                     /^[A-Za-z0-9+/=]+$/.test(section.content) &&
+                                     !section.content.includes('\n') &&
+                                     !section.content.includes(' ') &&
+                                     !section.content.includes(':');
+            
+            if (isLikelyEncrypted) {
+              encryptedValues.push({ note, section, field: 'content', value: section.content });
             }
           }
         }
+      }
+    }
+    
+    // Выполняем batch расшифровку
+    if (encryptedValues.length > 0) {
+      try {
+        console.log(`[getClinicalNotesForPatient] Batch decrypting ${encryptedValues.length} values`);
+        const valuesToDecrypt = encryptedValues.map(v => v.value);
+        const decryptedValues = await decryptPHIBatch(valuesToDecrypt);
+        
+        // Применяем расшифрованные значения
+        encryptedValues.forEach((item, index) => {
+          item.section[item.field] = decryptedValues[index];
+        });
+        
+        console.log(`[getClinicalNotesForPatient] Successfully batch decrypted ${decryptedValues.length} values`);
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        console.warn('[getClinicalNotesForPatient] Batch decryption failed:', {
+          error: errorMsg,
+          count: encryptedValues.length,
+        });
+        // При ошибке оставляем значения как есть (возможно уже расшифрованы)
       }
     }
   }

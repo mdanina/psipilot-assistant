@@ -77,10 +77,10 @@ const transcriptionLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Crypto operations limiter
+// Crypto operations limiter - увеличен лимит для batch операций
 const cryptoLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
-  max: 100, // 100 crypto operations per minute
+  max: 500, // 500 crypto operations per minute (увеличено для batch расшифровки)
   message: { success: false, error: 'Crypto rate limit exceeded. Please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -89,6 +89,14 @@ const cryptoLimiter = rateLimit({
 // Middleware
 app.use(cors(corsOptions));
 app.use(express.json());
+
+// Устанавливаем правильную кодировку для JSON ответов
+app.use((req, res, next) => {
+  // Устанавливаем charset=utf-8 для всех JSON ответов
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  next();
+});
+
 // Apply general rate limiting to all API routes
 app.use('/api', generalLimiter);
 

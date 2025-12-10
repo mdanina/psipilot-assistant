@@ -170,6 +170,11 @@ export function TemplatesLibrary({
       }
     } catch (error) {
       console.error('Error loading templates:', error);
+      toast({
+        title: 'Ошибка загрузки шаблонов',
+        description: error instanceof Error ? error.message : 'Не удалось загрузить шаблоны',
+        variant: 'destructive',
+      });
     } finally {
       setIsLoading(false);
     }
