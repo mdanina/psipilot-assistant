@@ -458,87 +458,7 @@ const SessionsPage = () => {
     }
   }, [location.state, searchParams, navigate, location.pathname, isLoading, sessions, user?.id, setSearchParams]);
 
-  // Проверка не загруженных записей при загрузке страницы
-  useEffect(() => {
-    const checkUnuploadedRecordings = async () => {
-      try {
-        const unuploaded = await getUnuploadedRecordings();
-        if (unuploaded.length > 0) {
-          setUnuploadedRecordings(unuploaded);
-          setShowRecoveryDialog(true);
-        }
-      } catch (error) {
-        console.error('Error checking unuploaded recordings:', error);
-      }
-    };
-
-    if (user && profile) {
-      checkUnuploadedRecordings();
-    }
-  }, [user, profile]);
-
-  // Автоматическая повторная загрузка при восстановлении соединения
-  useEffect(() => {
-    const handleOnline = async () => {
-      if (!user || !profile || !profile.clinic_id) return;
-
-      try {
-        const unuploaded = await getUnuploadedRecordings();
-        if (unuploaded.length === 0) return;
-
-        console.log('[SessionsPage] Connection restored, attempting to upload', unuploaded.length, 'recordings');
-
-        // Дедупликация: загружаем только уникальные записи
-        const processedIds = new Set<string>();
-        for (const recordingMeta of unuploaded) {
-          // Пропускаем checkpoint'ы - они будут удалены после успешной загрузки основной записи
-          if (recordingMeta.fileName.includes('checkpoint') || recordingMeta.fileName.includes('hidden')) {
-            continue;
-          }
-          
-          // Пропускаем дубликаты
-          if (processedIds.has(recordingMeta.id)) {
-            continue;
-          }
-          
-          try {
-            const recording = await getLocalRecording(recordingMeta.id);
-            if (!recording || recording.uploaded) continue;
-
-            // Try to upload
-            await retryUploadRecording(recordingMeta.id, recording);
-            processedIds.add(recordingMeta.id);
-          } catch (error) {
-            console.error(`[SessionsPage] Failed to retry upload for ${recordingMeta.id}:`, error);
-          }
-        }
-        
-        // Удаляем checkpoint'ы после успешной загрузки
-        for (const recordingMeta of unuploaded) {
-          if ((recordingMeta.fileName.includes('checkpoint') || recordingMeta.fileName.includes('hidden')) && processedIds.size > 0) {
-            try {
-              await deleteLocalRecording(recordingMeta.id);
-            } catch (error) {
-              console.warn(`[SessionsPage] Failed to delete checkpoint ${recordingMeta.id}:`, error);
-            }
-          }
-        }
-
-        // Refresh unuploaded list
-        const updated = await getUnuploadedRecordings();
-        setUnuploadedRecordings(updated);
-      } catch (error) {
-        console.error('[SessionsPage] Error in automatic retry:', error);
-      }
-    };
-
-    window.addEventListener('online', handleOnline);
-    return () => {
-      window.removeEventListener('online', handleOnline);
-    };
-  }, [user, profile, activeSession, retryUploadRecording]);
-
-  // Функция для повторной загрузки записи
+  // Функция для повторной загрузки записи (объявлена до использования)
   const retryUploadRecording = useCallback(async (localId: string, recording: {
     blob: Blob;
     fileName: string;
@@ -629,6 +549,86 @@ const SessionsPage = () => {
       throw error;
     }
   }, [user, profile, activeSession, transcriptionApiUrl, toast, setRecordings]);
+
+  // Проверка не загруженных записей при загрузке страницы
+  useEffect(() => {
+    const checkUnuploadedRecordings = async () => {
+      try {
+        const unuploaded = await getUnuploadedRecordings();
+        if (unuploaded.length > 0) {
+          setUnuploadedRecordings(unuploaded);
+          setShowRecoveryDialog(true);
+        }
+      } catch (error) {
+        console.error('Error checking unuploaded recordings:', error);
+      }
+    };
+
+    if (user && profile) {
+      checkUnuploadedRecordings();
+    }
+  }, [user, profile]);
+
+  // Автоматическая повторная загрузка при восстановлении соединения
+  useEffect(() => {
+    const handleOnline = async () => {
+      if (!user || !profile || !profile.clinic_id) return;
+
+      try {
+        const unuploaded = await getUnuploadedRecordings();
+        if (unuploaded.length === 0) return;
+
+        console.log('[SessionsPage] Connection restored, attempting to upload', unuploaded.length, 'recordings');
+
+        // Дедупликация: загружаем только уникальные записи
+        const processedIds = new Set<string>();
+        for (const recordingMeta of unuploaded) {
+          // Пропускаем checkpoint'ы - они будут удалены после успешной загрузки основной записи
+          if (recordingMeta.fileName.includes('checkpoint') || recordingMeta.fileName.includes('hidden')) {
+            continue;
+          }
+          
+          // Пропускаем дубликаты
+          if (processedIds.has(recordingMeta.id)) {
+            continue;
+          }
+          
+          try {
+            const recording = await getLocalRecording(recordingMeta.id);
+            if (!recording || recording.uploaded) continue;
+
+            // Try to upload
+            await retryUploadRecording(recordingMeta.id, recording);
+            processedIds.add(recordingMeta.id);
+          } catch (error) {
+            console.error(`[SessionsPage] Failed to retry upload for ${recordingMeta.id}:`, error);
+          }
+        }
+        
+        // Удаляем checkpoint'ы после успешной загрузки
+        for (const recordingMeta of unuploaded) {
+          if ((recordingMeta.fileName.includes('checkpoint') || recordingMeta.fileName.includes('hidden')) && processedIds.size > 0) {
+            try {
+              await deleteLocalRecording(recordingMeta.id);
+            } catch (error) {
+              console.warn(`[SessionsPage] Failed to delete checkpoint ${recordingMeta.id}:`, error);
+            }
+          }
+        }
+
+        // Refresh unuploaded list
+        const updated = await getUnuploadedRecordings();
+        setUnuploadedRecordings(updated);
+      } catch (error) {
+        console.error('[SessionsPage] Error in automatic retry:', error);
+      }
+    };
+
+    window.addEventListener('online', handleOnline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [user, profile, activeSession, retryUploadRecording]);
 
   // Периодическое сохранение во время записи (каждые 10 минут)
   useEffect(() => {
