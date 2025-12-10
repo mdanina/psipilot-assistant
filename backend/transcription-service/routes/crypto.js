@@ -79,16 +79,47 @@ router.post('/decrypt', async (req, res) => {
 
     // Обработка массива данных для batch расшифровки
     if (Array.isArray(data)) {
-      const decrypted = data.map((item) => {
+      const decrypted = [];
+      const errors = [];
+      
+      for (let i = 0; i < data.length; i++) {
+        const item = data[i];
+        
+        // Пропускаем не-строки и пустые значения
         if (typeof item !== 'string') {
-          throw new Error('Each item in array must be a string');
+          console.warn(`[Batch decrypt] Item ${i} is not a string, skipping`);
+          decrypted.push('');
+          errors.push({ index: i, error: 'Not a string' });
+          continue;
         }
-        return item ? decrypt(item) : '';
-      });
+        
+        if (!item) {
+          decrypted.push('');
+          continue;
+        }
+        
+        // Пытаемся расшифровать каждый элемент отдельно
+        try {
+          const result = decrypt(item);
+          decrypted.push(result);
+        } catch (error) {
+          // Логируем ошибку, но не падаем - возвращаем пустую строку для проблемного элемента
+          const errorMsg = error.message || 'Unknown decryption error';
+          console.warn(`[Batch decrypt] Failed to decrypt item ${i}:`, errorMsg);
+          decrypted.push(''); // Возвращаем пустую строку для нерасшифрованных элементов
+          errors.push({ index: i, error: errorMsg });
+        }
+      }
+      
+      // Если были ошибки, возвращаем предупреждение, но не падаем
+      if (errors.length > 0) {
+        console.warn(`[Batch decrypt] ${errors.length} out of ${data.length} items failed to decrypt`);
+      }
 
       return res.json({
         success: true,
         data: { decrypted },
+        ...(errors.length > 0 && { warnings: { failedCount: errors.length, errors } }),
       });
     }
 

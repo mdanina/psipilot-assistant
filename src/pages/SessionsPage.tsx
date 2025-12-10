@@ -19,9 +19,11 @@ import { PatientCombobox } from "@/components/ui/patient-combobox";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
-import { linkSessionToPatient, getSession, createSession, deleteSession, completeSession, checkSessionClinicalNotes } from "@/lib/supabase-sessions";
+import { getSession, checkSessionClinicalNotes } from "@/lib/supabase-sessions";
 import { getSessionRecordings, getRecordingStatus, createRecording, uploadAudioFile, updateRecording, startTranscription, syncTranscriptionStatus, deleteRecording } from "@/lib/supabase-recordings";
-import { getPatients } from "@/lib/supabase-patients";
+import { usePatients } from "@/hooks/usePatients";
+import { useSessions, useCreateSession, useDeleteSession as useDeleteSessionMutation, useCompleteSession, useLinkSessionToPatient, useInvalidateSessions } from "@/hooks/useSessions";
+import { useQueryClient } from "@tanstack/react-query";
 import { getSessionNotes, createSessionNote, deleteSessionNote, getCombinedTranscriptWithNotes } from "@/lib/supabase-session-notes";
 import { getClinicalNotesForSession, generateClinicalNote } from "@/lib/supabase-ai";
 import { SessionNotesDialog } from "@/components/sessions/SessionNotesDialog";
@@ -47,13 +49,55 @@ const SessionsPage = () => {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   
-  const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSession, setActiveSession] = useState<string | null>(null);
   const [openTabs, setOpenTabs] = useState<Set<string>>(new Set());
   const [recordings, setRecordings] = useState<Recording[]>([]);
-  const [patients, setPatients] = useState<Patient[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [isLinking, setIsLinking] = useState(false);
+  
+  // Stabilize clinicId to prevent queryKey changes
+  // This ensures React Query doesn't treat it as a new query when profile loads
+  const stableClinicId = useMemo(() => profile?.clinic_id, [profile?.clinic_id]);
+  
+  // React Query hooks for data fetching with automatic caching
+  const { 
+    data: sessions = [], 
+    isLoading: isLoadingSessions, 
+    error: sessionsError 
+  } = useSessions(stableClinicId);
+  
+  const { 
+    data: patientsData = [], 
+    isLoading: isLoadingPatients 
+  } = usePatients();
+  
+  // Extract patients from React Query data (patients have documentCount, but we need just Patient[])
+  const patients = patientsData.map(p => ({
+    id: p.id,
+    clinic_id: p.clinic_id,
+    created_by: p.created_by,
+    name: p.name,
+    email: p.email,
+    phone: p.phone,
+    date_of_birth: p.date_of_birth,
+    gender: p.gender,
+    address: p.address,
+    notes: p.notes,
+    tags: p.tags,
+    last_activity_at: p.last_activity_at,
+    created_at: p.created_at,
+    updated_at: p.updated_at,
+    deleted_at: p.deleted_at,
+  })) as Patient[];
+  
+  const isLoading = isLoadingSessions || isLoadingPatients;
+  
+  // Mutations
+  const createSessionMutation = useCreateSession();
+  const deleteSessionMutation = useDeleteSessionMutation();
+  const completeSessionMutation = useCompleteSession();
+  const linkSessionMutation = useLinkSessionToPatient();
+  const invalidateSessions = useInvalidateSessions();
+  const queryClient = useQueryClient();
   const [selectedPatientId, setSelectedPatientId] = useState<string>("");
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [relinkWarning, setRelinkWarning] = useState<{
@@ -199,14 +243,23 @@ const SessionsPage = () => {
   useEffect(() => {
     if (user?.id) {
       console.log('[Tabs] useEffect triggered, user.id:', user.id);
+      // Always reload tabs from DB when component mounts or user changes
+      // This ensures tabs are always restored from DB, even after long navigation
       loadOpenTabs().then(tabs => {
-        console.log('[Tabs] Setting openTabs to:', Array.from(tabs));
+        console.log('[Tabs] ✅ Loaded tabs from DB:', Array.from(tabs), '(count:', tabs.size, ')');
+        // Always set tabs from DB - they are the source of truth
+        // Don't merge with existing tabs, as DB tabs are authoritative
         setOpenTabs(tabs);
+        tabsLoadedFromDBRef.current = true;
+        console.log('[Tabs] ✅ Tabs set and flag marked as loaded');
       }).catch(err => {
-        console.error('[Tabs] Error in loadOpenTabs promise:', err);
+        console.error('[Tabs] ❌ Error in loadOpenTabs promise:', err);
+        // Don't reset flag on error - keep previous state
       });
     } else {
       console.log('[Tabs] useEffect triggered, but no user.id');
+      // Reset flag when user logs out
+      tabsLoadedFromDBRef.current = false;
     }
   }, [user?.id]);
 
@@ -266,46 +319,88 @@ const SessionsPage = () => {
     }
   }, [sessions, openTabs, activeSession]);
 
-  // Load sessions and filter open tabs after sessions are loaded
-  // This removes tabs for deleted/non-existent sessions
+  // Track if we've loaded tabs from DB to prevent premature filtering
+  const tabsLoadedFromDBRef = useRef(false);
+  
+  // Mark tabs as loaded when they're loaded from DB
   useEffect(() => {
-    const loadData = async () => {
-      if (!profile?.clinic_id) {
-        console.log('[Sessions] No profile.clinic_id, skipping session load');
-        return;
+    if (openTabs.size > 0 && !tabsLoadedFromDBRef.current) {
+      // Check if these tabs came from DB by checking if they were set recently
+      // This is a simple heuristic - in practice, tabs from DB are set in loadOpenTabs
+      tabsLoadedFromDBRef.current = true;
+      console.log('[Tabs] Marked tabs as loaded from DB:', Array.from(openTabs));
+    }
+  }, [openTabs]);
+
+  // Filter openTabs to only include existing sessions (when sessions are loaded)
+  // This ensures we remove tabs for deleted sessions
+  // BUT: Don't filter if sessions are still loading OR if tabs haven't been loaded from DB yet
+  // CRITICAL: Don't filter if sessions array is empty - this could mean cache was cleared
+  // and we should wait for sessions to reload before filtering
+  useEffect(() => {
+    // Don't filter if sessions are still loading - wait for them to load
+    if (isLoadingSessions) {
+      console.log('[Tabs] Sessions still loading, skipping filter');
+      return;
+    }
+    
+    // Don't filter if tabs haven't been loaded from DB yet
+    // This prevents filtering before tabs are restored from DB on page refresh
+    if (!tabsLoadedFromDBRef.current) {
+      console.log('[Tabs] Tabs not loaded from DB yet, skipping filter');
+      return;
+    }
+    
+    // CRITICAL: Don't filter if sessions array is empty
+    // This could mean:
+    // 1. Cache was cleared and sessions are being reloaded
+    // 2. No sessions exist (but tabs from DB should still be preserved)
+    // We should only filter when we have actual session data
+    // IMPORTANT: Never filter tabs if sessions are empty - tabs from DB are authoritative
+    if (sessions.length === 0) {
+      console.log('[Tabs] ⚠️ Sessions array is empty, skipping filter (preserving tabs from DB)');
+      return;
+    }
+    
+    // Additional safety: if we have tabs but no matching sessions, don't filter
+    // This prevents removing tabs that might be valid but not yet loaded
+    const hasMatchingSessions = Array.from(openTabs).some(tabId => 
+      sessions.some(s => s.id === tabId)
+    );
+    
+    // If we have tabs but none match sessions, wait - sessions might still be loading
+    if (openTabs.size > 0 && !hasMatchingSessions) {
+      console.log('[Tabs] ⚠️ No matching sessions found for tabs, skipping filter (sessions might still be loading)');
+      return;
+    }
+    
+    // Only filter if we have tabs to filter
+    if (openTabs.size === 0) {
+      return;
+    }
+    
+    // After sessions are loaded, filter openTabs to only include existing sessions
+    setOpenTabs(prev => {
+      const validSessionIds = new Set(sessions.map(s => s.id));
+      const filteredTabs = new Set<string>();
+      
+      prev.forEach(id => {
+        if (validSessionIds.has(id)) {
+          filteredTabs.add(id);
+        }
+      });
+      
+      // Only update if something changed (to avoid infinite loops)
+      if (filteredTabs.size !== prev.size || 
+          Array.from(filteredTabs).some(id => !prev.has(id)) ||
+          Array.from(prev).some(id => !filteredTabs.has(id))) {
+        console.log('[Tabs] Filtered tabs from', prev.size, 'to', filteredTabs.size, ':', Array.from(filteredTabs));
+        return filteredTabs;
       }
       
-      console.log('[Sessions] Loading sessions for clinic:', profile.clinic_id);
-      const sessionsData = await loadSessions();
-      await loadPatients();
-      
-      console.log('[Sessions] Loaded', sessionsData.length, 'sessions');
-      
-      // After sessions are loaded, filter openTabs to only include existing sessions
-      // This ensures we remove tabs for deleted sessions, but we don't reload tabs
-      // because they were already loaded when user became available
-      setOpenTabs(prev => {
-        const validSessionIds = new Set(sessionsData.map(s => s.id));
-        const filteredTabs = new Set<string>();
-        const prevArray = Array.from(prev);
-        
-        console.log('[Sessions] Filtering tabs. Before:', prevArray.length, 'tabs:', prevArray);
-        console.log('[Sessions] Valid session IDs:', Array.from(validSessionIds));
-        
-        prev.forEach(id => {
-          if (validSessionIds.has(id)) {
-            filteredTabs.add(id);
-          }
-        });
-        
-        console.log('[Sessions] After filtering:', Array.from(filteredTabs).length, 'tabs:', Array.from(filteredTabs));
-        
-        return filteredTabs;
-      });
-    };
-    
-    loadData();
-  }, [profile]);
+      return prev;
+    });
+  }, [sessions, isLoadingSessions, openTabs]); // Depend on openTabs to know when they're loaded
 
   // Handle navigation with session ID from patient card or other pages
   useEffect(() => {
@@ -424,45 +519,10 @@ const SessionsPage = () => {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [activeSession]);
 
-  const loadSessions = async (): Promise<Session[]> => {
-    if (!profile?.clinic_id) return [];
-
-    try {
-      const { data, error } = await supabase
-        .from('sessions')
-        .select('*')
-        .eq('clinic_id', profile.clinic_id)
-        .is('deleted_at', null) // Only get non-deleted sessions
-        .order('created_at', { ascending: false })
-        .limit(50);
-
-      if (error) throw error;
-
-      const sessionsData = data || [];
-      setSessions(sessionsData);
-
-      return sessionsData;
-    } catch (error) {
-      console.error('Error loading sessions:', error);
-      toast({
-        title: "Ошибка",
-        description: "Не удалось загрузить сессии",
-        variant: "destructive",
-      });
-      return [];
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const loadPatients = async () => {
-    try {
-      const { data, error } = await getPatients();
-      if (error) throw error;
-      setPatients(data || []);
-    } catch (error) {
-      console.error('Error loading patients:', error);
-    }
+  // Helper to refresh sessions (for manual refresh button)
+  const refreshSessions = async () => {
+    // Invalidate and refetch sessions
+    invalidateSessions(profile?.clinic_id);
   };
 
   const loadRecordings = async (sessionId: string) => {
@@ -642,13 +702,8 @@ const SessionsPage = () => {
     // If session is linked to patient, complete it and close the tab
     if (session.patient_id) {
       try {
-        // Complete the session (set status to 'completed', set end time, calculate duration)
-        await completeSession(sessionId);
-
-        // Update session status locally (don't reload to avoid race condition)
-        setSessions(prev => prev.map(s =>
-          s.id === sessionId ? { ...s, status: 'completed' } : s
-        ));
+        // Complete the session using React Query mutation
+        await completeSessionMutation.mutateAsync(sessionId);
 
         // Remove from open tabs
         setOpenTabs(prev => {
@@ -693,17 +748,13 @@ const SessionsPage = () => {
 
     try {
       // First link session to patient
-      await linkSessionToPatient(closingSessionId, selectedPatientId);
+      await linkSessionMutation.mutateAsync({ 
+        sessionId: closingSessionId, 
+        patientId: selectedPatientId 
+      });
 
       // Then complete the session
-      await completeSession(closingSessionId);
-
-      // Update session locally (don't reload to avoid race condition)
-      setSessions(prev => prev.map(s =>
-        s.id === closingSessionId
-          ? { ...s, patient_id: selectedPatientId, status: 'completed' }
-          : s
-      ));
+      await completeSessionMutation.mutateAsync(closingSessionId);
 
       // Remove from open tabs (close the tab)
       setOpenTabs(prev => {
@@ -745,7 +796,8 @@ const SessionsPage = () => {
     if (!closingSessionId) return;
     
     try {
-      await deleteSession(closingSessionId);
+      await deleteSessionMutation.mutateAsync(closingSessionId);
+      
       toast({
         title: "Успешно",
         description: "Сессия удалена",
@@ -761,7 +813,7 @@ const SessionsPage = () => {
         }
       }
       
-      await loadSessions();
+      // Cache will be automatically invalidated by useDeleteSessionMutation
       setCloseSessionDialogOpen(false);
       setClosingSessionId(null);
     } catch (error) {
@@ -870,9 +922,13 @@ const SessionsPage = () => {
         }
       }
 
-      await linkSessionToPatient(activeSession, selectedPatientId, {
-        allowRelinkFinalized,
-        allowRelinkSigned,
+      await linkSessionMutation.mutateAsync({
+        sessionId: activeSession,
+        patientId: selectedPatientId,
+        options: {
+          allowRelinkFinalized,
+          allowRelinkSigned,
+        },
       });
       
       toast({
@@ -886,16 +942,22 @@ const SessionsPage = () => {
       setSelectedPatientId("");
       setRelinkWarning(null);
       
-      // Reload sessions and restore active session
-      const updatedSessions = await loadSessions();
-      const sessionToSelect = updatedSessions.find(s => s.id === savedSessionId) || updatedSessions[0];
-      if (sessionToSelect) {
-        setActiveSession(sessionToSelect.id);
-      } else if (updatedSessions.length > 0) {
-        setActiveSession(updatedSessions[0].id);
-      } else {
-        setActiveSession(null);
-      }
+      // Cache will be automatically invalidated by useLinkSessionToPatient mutation
+      // Restore active session after cache update
+      const savedSessionId = activeSession;
+      await queryClient.invalidateQueries({ queryKey: ['sessions', profile?.clinic_id] });
+      
+      // Wait a bit for cache to update, then find the session
+      setTimeout(() => {
+        const sessionToSelect = sessions.find(s => s.id === savedSessionId) || sessions[0];
+        if (sessionToSelect) {
+          setActiveSession(sessionToSelect.id);
+        } else if (sessions.length > 0) {
+          setActiveSession(sessions[0].id);
+        } else {
+          setActiveSession(null);
+        }
+      }, 100);
       
       // Reload clinical notes if they exist
       if (activeSession) {
@@ -929,8 +991,8 @@ const SessionsPage = () => {
       // Generate default title if not provided
       const sessionTitle = title || `Сессия ${new Date().toLocaleString('ru-RU')}`;
 
-      // Create session
-      const newSession = await createSession({
+      // Create session using React Query mutation
+      const newSession = await createSessionMutation.mutateAsync({
         userId: user.id,
         clinicId: profile.clinic_id,
         patientId: patientId || undefined,
@@ -939,7 +1001,10 @@ const SessionsPage = () => {
 
       // If patient is selected, link session to patient (creates consents)
       if (patientId) {
-        await linkSessionToPatient(newSession.id, patientId);
+        await linkSessionMutation.mutateAsync({ 
+          sessionId: newSession.id, 
+          patientId 
+        });
       }
 
       toast({
@@ -952,8 +1017,9 @@ const SessionsPage = () => {
       // Add new session to open tabs
       setOpenTabs(prev => new Set(prev).add(newSession.id));
       
-      // Reload sessions and select the new one
-      await loadSessions();
+      // Cache will be automatically invalidated by useCreateSession mutation
+      // Wait for cache to update and select the new session
+      await queryClient.invalidateQueries({ queryKey: ['sessions', profile.clinic_id] });
       setActiveSession(newSession.id);
     } catch (error) {
       console.error('Error creating session:', error);

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import { Clock, Video, Users, Pencil, Trash2, Repeat } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -37,6 +38,7 @@ export function AppointmentList({
   onCreateAtTime,
   onReassign,
 }: AppointmentListProps) {
+  const navigate = useNavigate();
   const [doctorsMap, setDoctorsMap] = useState<Map<string, Profile>>(new Map());
   const [reassignDialogOpen, setReassignDialogOpen] = useState(false);
   const [appointmentToReassign, setAppointmentToReassign] = useState<Session | null>(null);
@@ -126,6 +128,10 @@ export function AppointmentList({
     return format(end, "HH:mm", { locale: ru });
   };
 
+  const handleAppointmentDoubleClick = (appointmentId: string) => {
+    navigate(`/sessions?sessionId=${appointmentId}`);
+  };
+
   return (
     <div className="space-y-1">
       {timeSlots.map((timeSlot) => {
@@ -159,11 +165,13 @@ export function AppointmentList({
                     <div
                       key={appointment.id}
                       className={cn(
-                        "p-3 rounded-md border bg-card",
+                        "p-3 rounded-md border bg-card cursor-pointer",
                         formatType === 'online' && "border-border bg-muted/30",
                         formatType === 'in_person' && "border-primary/30 bg-primary/5",
                         !formatType && "border-border bg-muted/50"
                       )}
+                      onDoubleClick={() => handleAppointmentDoubleClick(appointment.id)}
+                      title="Двойной клик для открытия сессии"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 space-y-1">

@@ -30,6 +30,15 @@ import { createPatient } from "@/lib/supabase-patients";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 
+// Helper to get timezone from browser or default
+function getBrowserTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    return 'UTC';
+  }
+}
+
 type Patient = Database['public']['Tables']['patients']['Row'];
 
 interface CreateAppointmentDialogProps {
@@ -41,6 +50,7 @@ interface CreateAppointmentDialogProps {
   defaultTime?: string;
   isAdmin?: boolean;
   currentUserId?: string;
+  timezone?: string; // Timezone from profile settings (selected in TimezoneSelector)
   onCreateAppointment: (params: {
     patientId: string | null;
     patientName?: string;
@@ -66,8 +76,14 @@ export function CreateAppointmentDialog({
   defaultTime,
   isAdmin = false,
   currentUserId,
+  timezone: propTimezone,
   onCreateAppointment,
 }: CreateAppointmentDialogProps) {
+  const { profile } = useAuth();
+  
+  // Use timezone from props (from profile) or fallback to browser/default
+  const userTimezone = propTimezone || getBrowserTimezone();
+  
   const [clientType, setClientType] = useState<'existing' | 'new'>('existing');
   const [selectedPatientId, setSelectedPatientId] = useState<string>("");
   const [newPatientName, setNewPatientName] = useState("");
@@ -241,6 +257,13 @@ export function CreateAppointmentDialog({
         ? new Date(scheduledDateTime.getTime() + 90 * 24 * 60 * 60 * 1000).toISOString() // 90 days from now
         : undefined;
 
+      console.log('[CreateAppointmentDialog] Calling onCreateAppointment with params:', {
+        patientId,
+        scheduledAt: scheduledDateTime.toISOString(),
+        durationMinutes,
+        meetingFormat,
+      });
+
       await onCreateAppointment({
         patientId,
         patientName,
@@ -254,10 +277,12 @@ export function CreateAppointmentDialog({
         timezone: userTimezone,
       });
 
+      console.log('[CreateAppointmentDialog] ✅ Appointment created, closing dialog');
       handleClose();
     } catch (error) {
-      console.error('Error creating appointment:', error);
-      throw error;
+      console.error('[CreateAppointmentDialog] ❌ Error creating appointment:', error);
+      // Error is already handled by parent component (CalendarPage)
+      // Don't throw - let parent handle it
     } finally {
       setIsCreating(false);
     }

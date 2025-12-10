@@ -685,32 +685,39 @@ export async function getClinicalNotesForSession(
         const encryptedValues: Array<{ section: any; field: 'ai_content' | 'content'; value: string }> = [];
         
         for (const section of note.sections) {
-          // Проверяем ai_content
-          if (section.ai_content) {
+          // Приоритет: сначала проверяем _encrypted поля (новый формат)
+          // Если их нет, проверяем обычные поля (старый формат или уже расшифрованные данные)
+          
+          // Проверяем ai_content_encrypted (новый формат)
+          if (section.ai_content_encrypted && typeof section.ai_content_encrypted === 'string') {
+            encryptedValues.push({ section, field: 'ai_content', value: section.ai_content_encrypted });
+          }
+          // Если нет _encrypted поля, но есть ai_content, проверяем эвристикой (старый формат)
+          else if (section.ai_content && typeof section.ai_content === 'string') {
+            // Улучшенная проверка: base64 строка достаточной длины
+            const isBase64 = /^[A-Za-z0-9+/=]+$/.test(section.ai_content);
+            const minLength = 40; // Минимальная длина для зашифрованных данных
             const hasUnicodeChars = /[а-яА-ЯёЁ\u0400-\u04FF]/.test(section.ai_content);
-            const isLikelyEncrypted = !hasUnicodeChars &&
-                                     section.ai_content.length > 50 &&
-                                     /^[A-Za-z0-9+/=]+$/.test(section.ai_content) &&
-                                     !section.ai_content.includes('\n') &&
-                                     !section.ai_content.includes(' ') &&
-                                     !section.ai_content.includes(':');
             
-            if (isLikelyEncrypted) {
+            // Если это base64 без unicode и достаточной длины - вероятно зашифровано
+            if (isBase64 && !hasUnicodeChars && section.ai_content.length >= minLength) {
               encryptedValues.push({ section, field: 'ai_content', value: section.ai_content });
             }
           }
           
-          // Проверяем content
-          if (section.content) {
+          // Проверяем content_encrypted (новый формат)
+          if (section.content_encrypted && typeof section.content_encrypted === 'string') {
+            encryptedValues.push({ section, field: 'content', value: section.content_encrypted });
+          }
+          // Если нет _encrypted поля, но есть content, проверяем эвристикой (старый формат)
+          else if (section.content && typeof section.content === 'string') {
+            // Улучшенная проверка: base64 строка достаточной длины
+            const isBase64 = /^[A-Za-z0-9+/=]+$/.test(section.content);
+            const minLength = 40; // Минимальная длина для зашифрованных данных
             const hasUnicodeChars = /[а-яА-ЯёЁ\u0400-\u04FF]/.test(section.content);
-            const isLikelyEncrypted = !hasUnicodeChars &&
-                                     section.content.length > 50 && 
-                                     /^[A-Za-z0-9+/=]+$/.test(section.content) &&
-                                     !section.content.includes('\n') &&
-                                     !section.content.includes(' ') &&
-                                     !section.content.includes(':');
             
-            if (isLikelyEncrypted) {
+            // Если это base64 без unicode и достаточной длины - вероятно зашифровано
+            if (isBase64 && !hasUnicodeChars && section.content.length >= minLength) {
               encryptedValues.push({ section, field: 'content', value: section.content });
             }
           }
@@ -725,7 +732,12 @@ export async function getClinicalNotesForSession(
             
             // Применяем расшифрованные значения
             encryptedValues.forEach((item, index) => {
-              item.section[item.field] = decryptedValues[index];
+              const decryptedValue = decryptedValues[index];
+              // Применяем только если расшифровка успешна (не пустая строка)
+              if (decryptedValue) {
+                item.section[item.field] = decryptedValue;
+              }
+              // Если расшифровка вернула пустую строку, оставляем исходное значение
             });
             
             console.log(`[getClinicalNotesForSession] Successfully batch decrypted ${decryptedValues.length} values`);
@@ -780,32 +792,39 @@ export async function getClinicalNotesForPatient(
     for (const note of data) {
       if (note.sections) {
         for (const section of note.sections) {
-          // Проверяем ai_content
-          if (section.ai_content) {
+          // Приоритет: сначала проверяем _encrypted поля (новый формат)
+          // Если их нет, проверяем обычные поля (старый формат или уже расшифрованные данные)
+          
+          // Проверяем ai_content_encrypted (новый формат)
+          if (section.ai_content_encrypted && typeof section.ai_content_encrypted === 'string') {
+            encryptedValues.push({ note, section, field: 'ai_content', value: section.ai_content_encrypted });
+          }
+          // Если нет _encrypted поля, но есть ai_content, проверяем эвристикой (старый формат)
+          else if (section.ai_content && typeof section.ai_content === 'string') {
+            // Улучшенная проверка: base64 строка достаточной длины
+            const isBase64 = /^[A-Za-z0-9+/=]+$/.test(section.ai_content);
+            const minLength = 40; // Минимальная длина для зашифрованных данных
             const hasUnicodeChars = /[а-яА-ЯёЁ\u0400-\u04FF]/.test(section.ai_content);
-            const isLikelyEncrypted = !hasUnicodeChars &&
-                                     section.ai_content.length > 50 &&
-                                     /^[A-Za-z0-9+/=]+$/.test(section.ai_content) &&
-                                     !section.ai_content.includes('\n') &&
-                                     !section.ai_content.includes(' ') &&
-                                     !section.ai_content.includes(':');
             
-            if (isLikelyEncrypted) {
+            // Если это base64 без unicode и достаточной длины - вероятно зашифровано
+            if (isBase64 && !hasUnicodeChars && section.ai_content.length >= minLength) {
               encryptedValues.push({ note, section, field: 'ai_content', value: section.ai_content });
             }
           }
           
-          // Проверяем content
-          if (section.content) {
+          // Проверяем content_encrypted (новый формат)
+          if (section.content_encrypted && typeof section.content_encrypted === 'string') {
+            encryptedValues.push({ note, section, field: 'content', value: section.content_encrypted });
+          }
+          // Если нет _encrypted поля, но есть content, проверяем эвристикой (старый формат)
+          else if (section.content && typeof section.content === 'string') {
+            // Улучшенная проверка: base64 строка достаточной длины
+            const isBase64 = /^[A-Za-z0-9+/=]+$/.test(section.content);
+            const minLength = 40; // Минимальная длина для зашифрованных данных
             const hasUnicodeChars = /[а-яА-ЯёЁ\u0400-\u04FF]/.test(section.content);
-            const isLikelyEncrypted = !hasUnicodeChars &&
-                                     section.content.length > 50 && 
-                                     /^[A-Za-z0-9+/=]+$/.test(section.content) &&
-                                     !section.content.includes('\n') &&
-                                     !section.content.includes(' ') &&
-                                     !section.content.includes(':');
             
-            if (isLikelyEncrypted) {
+            // Если это base64 без unicode и достаточной длины - вероятно зашифровано
+            if (isBase64 && !hasUnicodeChars && section.content.length >= minLength) {
               encryptedValues.push({ note, section, field: 'content', value: section.content });
             }
           }
@@ -822,7 +841,12 @@ export async function getClinicalNotesForPatient(
         
         // Применяем расшифрованные значения
         encryptedValues.forEach((item, index) => {
-          item.section[item.field] = decryptedValues[index];
+          const decryptedValue = decryptedValues[index];
+          // Применяем только если расшифровка успешна (не пустая строка)
+          if (decryptedValue) {
+            item.section[item.field] = decryptedValue;
+          }
+          // Если расшифровка вернула пустую строку, оставляем исходное значение
         });
         
         console.log(`[getClinicalNotesForPatient] Successfully batch decrypted ${decryptedValues.length} values`);

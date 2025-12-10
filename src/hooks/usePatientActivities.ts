@@ -125,18 +125,17 @@ export function useDeleteSession() {
 
   return useMutation({
     mutationFn: async (sessionId: string) => {
-      const { success, error } = await deleteSession(sessionId);
-      
-      if (error || !success) {
-        throw error || new Error('Не удалось удалить сессию');
-      }
-      
+      // deleteSession returns Promise<void> and throws on error
+      await deleteSession(sessionId);
       return { success: true };
     },
     // Invalidate activities cache after successful deletion
     onSuccess: (_, sessionId) => {
       // Invalidate all patient activities queries
+      queryClient.invalidateQueries({ queryKey: ['patientActivities'] });
       queryClient.invalidateQueries({ queryKey: ['patients'] });
+      // Also invalidate sessions cache to ensure deleted session is removed
+      queryClient.invalidateQueries({ queryKey: ['sessions'] });
     },
   });
 }

@@ -24,14 +24,17 @@ export function usePatients() {
   return useQuery<PatientWithDocuments[], Error>({
     queryKey: ['patients'],
     queryFn: async () => {
+      console.log('[usePatients] Fetching patients from server');
       // Get patients
       const { data: patientsData, error: patientsError } = await getPatients();
       
       if (patientsError) {
+        console.error('[usePatients] Error fetching patients:', patientsError);
         throw patientsError;
       }
 
       if (!patientsData || patientsData.length === 0) {
+        console.log('[usePatients] No patients found');
         return [];
       }
 
@@ -45,17 +48,24 @@ export function usePatients() {
         documentCount: documentCounts[patient.id] || 0,
       }));
 
+      console.log('[usePatients] Fetched', patientsWithDocs.length, 'patients from server');
       return patientsWithDocs;
     },
-    // Cache configuration
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    // Don't refetch on mount if data is fresh
+    // Cache configuration - data is always fresh (never refetch automatically)
+    staleTime: Infinity,
+    gcTime: 30 * 60 * 1000, // 30 minutes
     refetchOnMount: false,
-    // Don't refetch on window focus (reduces unnecessary requests)
     refetchOnWindowFocus: false,
-    // Retry only once (reduces retry requests)
+    refetchOnReconnect: false,
     retry: 1,
     retryDelay: 1000,
+    // Keep previous data while new data is loading (prevents flicker)
+    placeholderData: (previousData) => {
+      if (previousData) {
+        console.log('[usePatients] Using cached data,', previousData.length, 'patients');
+      }
+      return previousData;
+    },
   });
 }
 

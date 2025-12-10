@@ -693,20 +693,47 @@ export async function createAppointment(
   // Note: RLS policies allow admins to create appointments for any patient, so we skip this check
   // The assignment will be created in CalendarPage if admin assigns appointment to another doctor
   if (patientId) {
+    console.log('[createAppointment] Checking patient assignment for patientId:', patientId, 'userId:', userId);
+    
     // Get current user to check if they are admin
-    const { data: { user: currentUser } } = await supabase.auth.getUser();
+    const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
+    
+    if (userError) {
+      console.error('[createAppointment] Error getting current user:', userError);
+      throw new Error(`Ошибка аутентификации: ${userError.message}`);
+    }
+    
     if (currentUser) {
-      const { data: currentUserProfile } = await supabase
+      console.log('[createAppointment] Current user:', currentUser.id);
+      
+      // Add timeout to prevent hanging
+      const profilePromise = supabase
         .from('profiles')
         .select('role')
         .eq('id', currentUser.id)
         .single();
+      
+      const timeoutPromise = new Promise<null>((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout: проверка роли пользователя заняла слишком много времени')), 5000)
+      );
+      
+      let currentUserProfile;
+      try {
+        const result = await Promise.race([profilePromise, timeoutPromise]) as any;
+        currentUserProfile = result.data;
+      } catch (err) {
+        console.error('[createAppointment] Error or timeout getting user profile:', err);
+        // If timeout or error, assume not admin and continue (RLS will enforce)
+        currentUserProfile = null;
+      }
 
       const isAdmin = currentUserProfile?.role === 'admin';
+      console.log('[createAppointment] Is admin:', isAdmin);
 
       // Only check assignment if current user is not admin
       // If admin is creating appointment for another doctor, the patient will be assigned in CalendarPage
       if (!isAdmin) {
+        console.log('[createAppointment] Checking patient assignment...');
         const { data: assignment, error: assignmentError } = await supabase
           .from('patient_assignments')
           .select('id')
@@ -716,10 +743,16 @@ export async function createAppointment(
           .single();
 
         if (assignmentError || !assignment) {
+          console.error('[createAppointment] Assignment check failed:', assignmentError);
           throw new Error('Пациент не назначен вам. Вы можете создавать встречи только с назначенными пациентами.');
         }
+        console.log('[createAppointment] ✅ Assignment verified');
+      } else {
+        console.log('[createAppointment] ✅ Admin user, skipping assignment check');
       }
     }
+  } else {
+    console.log('[createAppointment] No patientId, skipping assignment check');
   }
 
   const sessions: Session[] = [];

@@ -3,6 +3,7 @@ import { Plus, RefreshCw, Calendar as CalendarIcon, ChevronLeft, ChevronRight } 
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { getScheduledSessions, createAppointment, deleteAppointment, deleteAllRecurringAppointments, getRecurringAppointments, reassignAppointment } from "@/lib/supabase-sessions";
+import { useQueryClient } from "@tanstack/react-query";
 import { getPatients, type DecryptedPatient } from "@/lib/supabase-patients";
 import { getAssignedPatients } from "@/lib/supabase-patient-assignments";
 import { assignPatientToDoctor } from "@/lib/supabase-patient-assignments";
@@ -31,6 +32,7 @@ type Session = Database['public']['Tables']['sessions']['Row'];
 const CalendarPage = () => {
   const { user, profile } = useAuth();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [appointments, setAppointments] = useState<Session[]>([]);
@@ -44,6 +46,23 @@ const CalendarPage = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [appointmentToDelete, setAppointmentToDelete] = useState<Session | null>(null);
   const [deleteAllRecurring, setDeleteAllRecurring] = useState(false);
+  
+  // Get timezone from profile settings
+  const userTimezone = (() => {
+    if (profile?.settings && typeof profile.settings === 'object') {
+      const settings = profile.settings as { timezone?: string };
+      if (settings.timezone) {
+        return settings.timezone;
+      }
+    }
+    // Default to browser timezone or Moscow for Russian users
+    try {
+      const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      return browserTz || 'Europe/Moscow';
+    } catch {
+      return 'Europe/Moscow';
+    }
+  })();
 
   // Load assigned patients only
   const loadPatients = useCallback(async () => {
@@ -135,6 +154,7 @@ const CalendarPage = () => {
     recurringPattern?: 'weekly' | 'monthly' | null;
     recurringEndDate?: string | null;
     assignedDoctorId?: string;
+    timezone?: string;
   }) => {
     if (!user?.id || !profile?.clinic_id) {
       toast({
@@ -148,6 +168,15 @@ const CalendarPage = () => {
     try {
       // Определить userId для встречи
       const appointmentUserId = params.assignedDoctorId || user.id;
+      
+      console.log('[Calendar] Creating appointment with params:', {
+        userId: appointmentUserId,
+        clinicId: profile.clinic_id,
+        patientId: params.patientId,
+        scheduledAt: params.scheduledAt,
+        durationMinutes: params.durationMinutes,
+        meetingFormat: params.meetingFormat,
+      });
       
       // Если админ назначает встречу другому врачу, нужно назначить пациента этому врачу ПЕРЕД созданием встречи
       if (params.assignedDoctorId && params.assignedDoctorId !== user.id && params.patientId) {
@@ -164,7 +193,7 @@ const CalendarPage = () => {
         // благодаря RLS политикам в БД
       }
 
-      await createAppointment({
+      const createdSessions = await createAppointment({
         userId: appointmentUserId, // использовать выбранного врача для админа
         clinicId: profile.clinic_id,
         patientId: params.patientId,
@@ -177,6 +206,11 @@ const CalendarPage = () => {
         timezone: params.timezone || 'UTC',
       });
 
+      console.log('[Calendar] ✅ Appointment created successfully:', createdSessions.length, 'sessions');
+
+      // Invalidate React Query cache for sessions to ensure new appointment appears
+      queryClient.invalidateQueries({ queryKey: ['sessions'] });
+      
       // Reload appointments after creation
       await loadAppointments();
 
@@ -184,8 +218,11 @@ const CalendarPage = () => {
         title: "Успешно",
         description: "Встреча создана",
       });
+      
+      // Close dialog
+      setCreateDialogOpen(false);
     } catch (error) {
-      console.error('Error creating appointment:', error);
+      console.error('[Calendar] ❌ Error creating appointment:', error);
       toast({
         title: "Ошибка",
         description: error instanceof Error ? error.message : "Не удалось создать встречу",
@@ -412,6 +449,7 @@ const CalendarPage = () => {
           defaultTime={defaultAppointmentTime}
           isAdmin={profile?.role === 'admin'}
           currentUserId={user?.id || undefined}
+          timezone={userTimezone}
           onCreateAppointment={handleCreateAppointment}
         />
       )}
