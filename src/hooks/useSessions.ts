@@ -150,17 +150,65 @@ export function useLinkSessionToPatient() {
 }
 
 /**
+ * React Query hook for fetching sessions by their IDs
+ * Used for loading sessions that are open in tabs (independent of the 50 limit)
+ *
+ * Usage:
+ * ```tsx
+ * const { data: tabSessions, isLoading } = useSessionsByIds(sessionIds);
+ * ```
+ */
+export function useSessionsByIds(sessionIds: string[]) {
+  // Create stable key from sorted IDs
+  const stableIds = useMemo(() => [...sessionIds].sort(), [sessionIds]);
+  const idsKey = stableIds.join(',');
+
+  return useQuery<Session[], Error>({
+    queryKey: ['sessions', 'byIds', idsKey],
+    queryFn: async () => {
+      if (stableIds.length === 0) {
+        return [];
+      }
+
+      console.log('[useSessionsByIds] Fetching', stableIds.length, 'sessions by IDs');
+      const { data, error } = await supabase
+        .from('sessions')
+        .select('*')
+        .in('id', stableIds)
+        .is('deleted_at', null);
+
+      if (error) {
+        console.error('[useSessionsByIds] Error fetching sessions:', error);
+        throw error;
+      }
+
+      console.log('[useSessionsByIds] ✅ Fetched', data?.length || 0, 'sessions');
+      return data || [];
+    },
+    enabled: stableIds.length > 0,
+    staleTime: Infinity,
+    gcTime: 30 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: 1,
+  });
+}
+
+/**
  * Invalidate sessions cache
  */
 export function useInvalidateSessions() {
   const queryClient = useQueryClient();
-  
+
   return (clinicId?: string) => {
     if (clinicId) {
       queryClient.invalidateQueries({ queryKey: ['sessions', clinicId] });
     } else {
       queryClient.invalidateQueries({ queryKey: ['sessions'] });
     }
+    // Also invalidate sessions by IDs cache
+    queryClient.invalidateQueries({ queryKey: ['sessions', 'byIds'] });
   };
 }
 
