@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import { transcribeRoute } from './routes/transcribe.js';
 import { webhookRoute } from './routes/webhook.js';
 import { aiRoute } from './routes/ai.js';
+import { cryptoRoute } from './routes/crypto.js';
 import { verifyAuthToken } from './middleware/auth.js';
 
 dotenv.config();
@@ -36,6 +37,11 @@ app.get('/', (req, res) => {
         regenerateSection: 'POST /api/ai/regenerate-section/:sectionId',
         caseSummary: 'POST /api/ai/case-summary',
         patientCaseSummary: 'POST /api/ai/patient-case-summary'
+      },
+      crypto: {
+        encrypt: 'POST /api/crypto/encrypt',
+        decrypt: 'POST /api/crypto/decrypt',
+        status: 'GET /api/crypto/status'
       }
     },
     timestamp: new Date().toISOString()
@@ -52,6 +58,8 @@ app.use('/api', transcribeRoute);
 app.use('/api', webhookRoute);
 // AI routes с аутентификацией
 app.use('/api/ai', verifyAuthToken, aiRoute);
+// Crypto routes с аутентификацией (шифрование/расшифровка PHI данных)
+app.use('/api/crypto', verifyAuthToken, cryptoRoute);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
