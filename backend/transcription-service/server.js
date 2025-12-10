@@ -7,7 +7,9 @@ import { transcribeRoute } from './routes/transcribe.js';
 import { webhookRoute } from './routes/webhook.js';
 import { aiRoute } from './routes/ai.js';
 import { cryptoRoute } from './routes/crypto.js';
+import researchRoute from './routes/research.js';
 import { verifyAuthToken } from './middleware/auth.js';
+import { authenticateResearcher } from './middleware/research-auth.js';
 
 dotenv.config();
 
@@ -125,6 +127,11 @@ app.get('/', (req, res) => {
         encrypt: 'POST /api/crypto/encrypt',
         decrypt: 'POST /api/crypto/decrypt',
         status: 'GET /api/crypto/status'
+      },
+      research: {
+        health: 'GET /api/research/health',
+        stats: 'GET /api/research/stats',
+        anonymizedTranscripts: 'GET /api/research/anonymized-transcripts'
       }
     },
     timestamp: new Date().toISOString()
@@ -155,6 +162,10 @@ app.use('/api/ai', verifyAuthToken, aiRoute);
 
 // Crypto routes с аутентификацией и rate limiting
 app.use('/api/crypto', cryptoLimiter, verifyAuthToken, cryptoRoute);
+
+// Research routes с аутентификацией исследователей
+// Rate limiting уже включен в authenticateResearcher middleware
+app.use('/api/research', authenticateResearcher, researchRoute);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
