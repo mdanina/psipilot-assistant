@@ -19,7 +19,7 @@ import { PatientCombobox } from "@/components/ui/patient-combobox";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
-import { getSession, checkSessionClinicalNotes } from "@/lib/supabase-sessions";
+import { getSession, checkSessionClinicalNotes, createSession } from "@/lib/supabase-sessions";
 import { getSessionRecordings, getRecordingStatus, createRecording, uploadAudioFile, updateRecording, startTranscription, syncTranscriptionStatus, deleteRecording } from "@/lib/supabase-recordings";
 import { usePatients } from "@/hooks/usePatients";
 import { useSessions, useCreateSession, useDeleteSession as useDeleteSessionMutation, useCompleteSession, useLinkSessionToPatient, useInvalidateSessions } from "@/hooks/useSessions";
@@ -34,6 +34,16 @@ import { GenerationProgress } from "@/components/analysis/GenerationProgress";
 import { useToast } from "@/hooks/use-toast";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
+import {
+  saveRecordingLocally,
+  markRecordingUploaded,
+  markRecordingUploadFailed,
+  getUnuploadedRecordings,
+  getLocalRecording,
+  deleteLocalRecording,
+} from "@/lib/local-recording-storage";
+import { logLocalStorageOperation } from "@/lib/local-recording-audit";
+import { RecoveryDialog } from "@/components/scribe/RecoveryDialog";
 import type { Database } from "@/types/database.types";
 import type { GeneratedClinicalNote } from "@/types/ai.types";
 
@@ -111,6 +121,16 @@ const SessionsPage = () => {
   const [closingSessionId, setClosingSessionId] = useState<string | null>(null);
   const [closeSessionDialogOpen, setCloseSessionDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  
+  // Local storage state
+  const [showRecoveryDialog, setShowRecoveryDialog] = useState(false);
+  const [unuploadedRecordings, setUnuploadedRecordings] = useState<Array<{
+    id: string;
+    fileName: string;
+    duration: number;
+    createdAt: number;
+    uploadError?: string;
+  }>>([]);
 
   // Session notes state
   const [sessionNotes, setSessionNotes] = useState<SessionNote[]>([]);
@@ -131,6 +151,7 @@ const SessionsPage = () => {
   const [uploadingFileName, setUploadingFileName] = useState<string | null>(null);
   const currentRecordingSessionIdRef = useRef<string | null>(null);
   const audioFileInputRef = useRef<HTMLInputElement>(null);
+  const lastCheckpointRef = useRef<string | null>(null);
   const transcriptionApiUrl = import.meta.env.VITE_TRANSCRIPTION_API_URL || 'http://localhost:3001';
 
   // Audio recorder hook
@@ -147,6 +168,8 @@ const SessionsPage = () => {
     stopRecording,
     cancelRecording,
     reset,
+    getCurrentChunks,
+    getCurrentMimeType,
   } = useAudioRecorder();
   
   // Show recorder errors
@@ -462,6 +485,348 @@ const SessionsPage = () => {
         });
     }
   }, [location.state, searchParams, navigate, location.pathname, isLoading, sessions, user?.id, setSearchParams]);
+
+  // Проверка не загруженных записей при загрузке страницы
+  useEffect(() => {
+    const checkUnuploadedRecordings = async () => {
+      try {
+        const unuploaded = await getUnuploadedRecordings();
+        if (unuploaded.length > 0) {
+          setUnuploadedRecordings(unuploaded);
+          setShowRecoveryDialog(true);
+        }
+      } catch (error) {
+        console.error('Error checking unuploaded recordings:', error);
+      }
+    };
+
+    if (user && profile) {
+      checkUnuploadedRecordings();
+    }
+  }, [user, profile]);
+
+  // Автоматическая повторная загрузка при восстановлении соединения
+  useEffect(() => {
+    const handleOnline = async () => {
+      if (!user || !profile || !profile.clinic_id) return;
+
+      try {
+        const unuploaded = await getUnuploadedRecordings();
+        if (unuploaded.length === 0) return;
+
+        console.log('[SessionsPage] Connection restored, attempting to upload', unuploaded.length, 'recordings');
+
+        // Дедупликация: загружаем только уникальные записи
+        const processedIds = new Set<string>();
+        for (const recordingMeta of unuploaded) {
+          // Пропускаем checkpoint'ы - они будут удалены после успешной загрузки основной записи
+          if (recordingMeta.fileName.includes('checkpoint') || recordingMeta.fileName.includes('hidden')) {
+            continue;
+          }
+          
+          // Пропускаем дубликаты
+          if (processedIds.has(recordingMeta.id)) {
+            continue;
+          }
+          
+          try {
+            const recording = await getLocalRecording(recordingMeta.id);
+            if (!recording || recording.uploaded) continue;
+
+            // Try to upload
+            await retryUploadRecording(recordingMeta.id, recording);
+            processedIds.add(recordingMeta.id);
+          } catch (error) {
+            console.error(`[SessionsPage] Failed to retry upload for ${recordingMeta.id}:`, error);
+          }
+        }
+        
+        // Удаляем checkpoint'ы после успешной загрузки
+        for (const recordingMeta of unuploaded) {
+          if ((recordingMeta.fileName.includes('checkpoint') || recordingMeta.fileName.includes('hidden')) && processedIds.size > 0) {
+            try {
+              await deleteLocalRecording(recordingMeta.id);
+            } catch (error) {
+              console.warn(`[SessionsPage] Failed to delete checkpoint ${recordingMeta.id}:`, error);
+            }
+          }
+        }
+
+        // Refresh unuploaded list
+        const updated = await getUnuploadedRecordings();
+        setUnuploadedRecordings(updated);
+      } catch (error) {
+        console.error('[SessionsPage] Error in automatic retry:', error);
+      }
+    };
+
+    window.addEventListener('online', handleOnline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [user, profile, activeSession, retryUploadRecording]);
+
+  // Функция для повторной загрузки записи
+  const retryUploadRecording = useCallback(async (localId: string, recording: {
+    blob: Blob;
+    fileName: string;
+    duration: number;
+    mimeType: string;
+    recordingId?: string;
+    sessionId?: string;
+  }) => {
+    if (!user || !profile || !profile.clinic_id) return;
+
+    try {
+      // If we have existing recordingId, check if it already exists
+      if (recording.recordingId && recording.sessionId) {
+        // Recording already exists in DB, just mark as uploaded
+        await markRecordingUploaded(localId, recording.recordingId, recording.sessionId);
+        await logLocalStorageOperation('local_storage_upload_success', recording.recordingId, {
+          fileName: recording.fileName,
+          duration: recording.duration,
+        });
+        return;
+      }
+
+      // Use saved sessionId or active session or create new one
+      let sessionId = recording.sessionId || activeSession;
+      if (!sessionId) {
+        const newSession = await createSession({
+          userId: user.id,
+          clinicId: profile.clinic_id,
+          patientId: null,
+          title: `Сессия ${new Date(recording.duration * 1000).toLocaleString('ru-RU')}`,
+        });
+        sessionId = newSession.id;
+      }
+
+      // Create recording record
+      const newRecording = await createRecording({
+        sessionId,
+        userId: user.id,
+        fileName: recording.fileName,
+      });
+
+      // Upload audio file
+      await uploadAudioFile({
+        recordingId: newRecording.id,
+        audioBlob: recording.blob,
+        fileName: newRecording.file_name || recording.fileName,
+        mimeType: recording.mimeType,
+      });
+
+      // Update recording with duration
+      await updateRecording(newRecording.id, {
+        duration_seconds: recording.duration,
+      });
+
+      // Mark as uploaded
+      await markRecordingUploaded(localId, newRecording.id, sessionId);
+      await logLocalStorageOperation('local_storage_upload_success', newRecording.id, {
+        fileName: recording.fileName,
+        duration: recording.duration,
+      });
+
+      // Start transcription
+      try {
+        await startTranscription(newRecording.id, transcriptionApiUrl);
+      } catch (transcriptionError) {
+        console.warn('Transcription not started for retried recording:', transcriptionError);
+      }
+
+      // Reload recordings if this is the active session
+      if (sessionId === activeSession) {
+        // Use getSessionRecordings directly to avoid dependency issues
+        const recordingsData = await getSessionRecordings(sessionId);
+        setRecordings(recordingsData);
+      }
+
+      toast({
+        title: "Запись восстановлена",
+        description: `Запись "${recording.fileName}" успешно загружена`,
+      });
+    } catch (error) {
+      console.error('[SessionsPage] Retry upload failed:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Неизвестная ошибка';
+      await markRecordingUploadFailed(localId, errorMessage);
+      await logLocalStorageOperation('local_storage_upload_failed', null, {
+        fileName: recording.fileName,
+        error: errorMessage,
+      });
+      throw error;
+    }
+  }, [user, profile, activeSession, transcriptionApiUrl, toast, setRecordings]);
+
+  // Периодическое сохранение во время записи (каждые 10 минут)
+  useEffect(() => {
+    if (!isRecording || !currentRecordingSessionIdRef.current) {
+      lastCheckpointRef.current = null;
+      return;
+    }
+
+    const intervalId = setInterval(async () => {
+      try {
+        const chunks = getCurrentChunks();
+        if (chunks.length === 0) {
+          return; // Нет данных для сохранения
+        }
+
+        const mimeType = getCurrentMimeType();
+        const blob = new Blob(chunks, { type: mimeType });
+        const sessionId = currentRecordingSessionIdRef.current;
+        
+        if (!sessionId) {
+          return;
+        }
+
+        // Удаляем предыдущий checkpoint, если есть
+        if (lastCheckpointRef.current) {
+          try {
+            await deleteLocalRecording(lastCheckpointRef.current);
+          } catch (error) {
+            console.warn('[SessionsPage] Failed to delete old checkpoint:', error);
+          }
+        }
+
+        // Сохранить новый checkpoint
+        const fileName = `recording-${Date.now()}-checkpoint.webm`;
+        const checkpointId = await saveRecordingLocally(
+          blob,
+          fileName,
+          recordingTime,
+          mimeType,
+          sessionId
+        );
+        
+        lastCheckpointRef.current = checkpointId;
+        console.log('[SessionsPage] Periodic checkpoint saved:', fileName, 'duration:', recordingTime);
+        await logLocalStorageOperation('local_storage_checkpoint', null, {
+          fileName,
+          duration: recordingTime,
+          sessionId,
+        });
+      } catch (error) {
+        console.warn('[SessionsPage] Failed to save periodic checkpoint:', error);
+        // Не прерываем запись из-за ошибки сохранения
+      }
+    }, 10 * 60 * 1000); // 10 минут
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [isRecording, recordingTime, getCurrentChunks, getCurrentMimeType]);
+
+  // Сохранение при закрытии вкладки или потере фокуса
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isRecording && currentRecordingSessionIdRef.current) {
+        // Используем синхронный подход для beforeunload
+        // Сохраняем в sessionStorage как fallback
+        try {
+          const chunks = getCurrentChunks();
+          if (chunks.length > 0) {
+            const mimeType = getCurrentMimeType();
+            const blob = new Blob(chunks, { type: mimeType });
+            const sessionId = currentRecordingSessionIdRef.current;
+            
+            // Сохраняем метаданные в sessionStorage для восстановления после перезагрузки
+            const metadata = {
+              chunksCount: chunks.length,
+              mimeType,
+              sessionId,
+              duration: recordingTime,
+              timestamp: Date.now(),
+            };
+            sessionStorage.setItem('pending_recording_metadata', JSON.stringify(metadata));
+            
+            // Показываем предупреждение пользователю
+            e.preventDefault();
+            e.returnValue = 'Идет запись. Вы уверены, что хотите закрыть страницу?';
+            return e.returnValue;
+          }
+        } catch (error) {
+          console.error('[SessionsPage] Failed to save on unload:', error);
+        }
+      }
+    };
+
+    const handleVisibilityChange = async () => {
+      if (document.hidden && isRecording && currentRecordingSessionIdRef.current) {
+        try {
+          const chunks = getCurrentChunks();
+          if (chunks.length > 0) {
+            const mimeType = getCurrentMimeType();
+            const blob = new Blob(chunks, { type: mimeType });
+            const sessionId = currentRecordingSessionIdRef.current;
+            
+            // Удаляем предыдущий checkpoint, если есть
+            if (lastCheckpointRef.current) {
+              try {
+                await deleteLocalRecording(lastCheckpointRef.current);
+              } catch (error) {
+                // Игнорируем ошибки удаления
+              }
+            }
+            
+            const checkpointId = await saveRecordingLocally(
+              blob,
+              `recording-${Date.now()}-hidden.webm`,
+              recordingTime,
+              mimeType,
+              sessionId
+            );
+            
+            lastCheckpointRef.current = checkpointId;
+            console.log('[SessionsPage] Saved recording on visibility change');
+          }
+        } catch (error) {
+          console.error('[SessionsPage] Failed to save on visibility change:', error);
+        }
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isRecording, recordingTime, getCurrentChunks, getCurrentMimeType]);
+
+  // Восстановление записи после перезагрузки страницы
+  useEffect(() => {
+    const restorePendingRecording = async () => {
+      const metadataStr = sessionStorage.getItem('pending_recording_metadata');
+      if (!metadataStr) return;
+
+      try {
+        const metadata = JSON.parse(metadataStr);
+        // Проверяем, что метаданные не старше 1 часа
+        if (Date.now() - metadata.timestamp > 60 * 60 * 1000) {
+          sessionStorage.removeItem('pending_recording_metadata');
+          return;
+        }
+
+        // Показываем уведомление пользователю
+        toast({
+          title: "Восстановление записи",
+          description: "Обнаружена незавершенная запись. Проверьте локальные записи.",
+          variant: "default",
+        });
+
+        sessionStorage.removeItem('pending_recording_metadata');
+      } catch (error) {
+        console.error('[SessionsPage] Failed to restore pending recording:', error);
+        sessionStorage.removeItem('pending_recording_metadata');
+      }
+    };
+
+    if (user && profile) {
+      restorePendingRecording();
+    }
+  }, [user, profile, toast]);
 
   // Load recordings and notes when session changes
   // Load clinical notes for active session
@@ -1151,6 +1516,8 @@ const SessionsPage = () => {
 
     setIsSavingRecording(true);
 
+    let localRecordingId: string | null = null;
+
     try {
       // Stop recording and get the blob directly
       const blob = await stopRecording();
@@ -1159,28 +1526,58 @@ const SessionsPage = () => {
         throw new Error('Не удалось получить аудио данные');
       }
 
-      // Create recording record
+      // 1. СНАЧАЛА сохраняем локально (независимо от интернета)
+      const fileName = `recording-${Date.now()}.webm`;
+      const mimeType = blob.type || 'audio/webm';
+      
+      try {
+        localRecordingId = await saveRecordingLocally(
+          blob,
+          fileName,
+          duration,
+          mimeType,
+          sessionId
+        );
+        console.log('[SessionsPage] Recording saved locally:', localRecordingId);
+        await logLocalStorageOperation('local_storage_save', null, {
+          fileName,
+          duration,
+        });
+      } catch (localError) {
+        console.warn('[SessionsPage] Failed to save locally (non-critical):', localError);
+        // Продолжаем даже если локальное сохранение не удалось
+      }
+
+      // 2. Теперь пытаемся загрузить в Supabase
       const recording = await createRecording({
         sessionId,
         userId: user.id,
-        fileName: `recording-${Date.now()}.webm`,
+        fileName,
       });
 
-      // Determine MIME type from blob
-      const mimeType = blob.type || 'audio/webm';
-
-      // Upload audio file
       await uploadAudioFile({
         recordingId: recording.id,
         audioBlob: blob,
-        fileName: recording.file_name || `recording-${recording.id}.webm`,
+        fileName: recording.file_name || fileName,
         mimeType,
       });
 
-      // Update recording with duration
       await updateRecording(recording.id, {
         duration_seconds: duration,
       });
+
+      // 3. Если загрузка успешна, помечаем локальную запись как загруженную
+      if (localRecordingId) {
+        try {
+          await markRecordingUploaded(localRecordingId, recording.id, sessionId);
+          await logLocalStorageOperation('local_storage_upload_success', recording.id, {
+            fileName,
+            duration,
+          });
+        } catch (markError) {
+          console.warn('[SessionsPage] Failed to mark as uploaded:', markError);
+        }
+      }
 
       // Start transcription
       try {
@@ -1208,21 +1605,54 @@ const SessionsPage = () => {
       console.error('Error saving recording:', error);
       const errorMessage = error instanceof Error ? error.message : 'Неизвестная ошибка';
 
+      // 4. Если загрузка не удалась, помечаем локальную запись как не загруженную
+      if (localRecordingId) {
+        try {
+          await markRecordingUploadFailed(localRecordingId, errorMessage);
+          await logLocalStorageOperation('local_storage_upload_failed', null, {
+            fileName,
+            error: errorMessage,
+          });
+          console.log('[SessionsPage] Recording saved locally but upload failed:', localRecordingId);
+          
+          // Refresh unuploaded list
+          const unuploaded = await getUnuploadedRecordings();
+          setUnuploadedRecordings(unuploaded);
+          if (unuploaded.length > 0) {
+            setShowRecoveryDialog(true);
+          }
+        } catch (markError) {
+          console.warn('[SessionsPage] Failed to mark upload error:', markError);
+        }
+      }
+
       // More detailed error messages
       let userFriendlyMessage = errorMessage;
       if (errorMessage.includes('Failed to create recording')) {
-        userFriendlyMessage = 'Не удалось создать сессию в базе данных. Проверьте подключение к Supabase.';
+        userFriendlyMessage = 'Не удалось создать сессию в базе данных. Запись сохранена локально и будет загружена автоматически при восстановлении соединения.';
       } else if (errorMessage.includes('Failed to upload audio file')) {
-        userFriendlyMessage = 'Не удалось загрузить аудио файл. Проверьте, что bucket "recordings" создан в Supabase Storage.';
+        userFriendlyMessage = 'Не удалось загрузить аудио файл. Запись сохранена локально и будет загружена автоматически при восстановлении соединения.';
       } else if (errorMessage.includes('row-level security')) {
-        userFriendlyMessage = 'Ошибка прав доступа. Убедитесь, что вы авторизованы и имеете права на создание записей.';
+        userFriendlyMessage = 'Ошибка прав доступа. Запись сохранена локально.';
+      } else {
+        userFriendlyMessage = `Ошибка: ${errorMessage}. Запись сохранена локально.`;
       }
 
       toast({
-        title: "Ошибка",
+        title: "Ошибка загрузки",
         description: userFriendlyMessage,
         variant: "destructive",
       });
+
+      // Удаляем checkpoint при ошибке (он все равно не нужен)
+      if (lastCheckpointRef.current) {
+        try {
+          await deleteLocalRecording(lastCheckpointRef.current);
+          lastCheckpointRef.current = null;
+        } catch (error) {
+          // Игнорируем ошибки удаления
+        }
+      }
 
       reset();
       setIsRecordingInSession(false);
@@ -2169,6 +2599,47 @@ const SessionsPage = () => {
         onOpenChange={setCreateSessionDialogOpen}
         patients={patients}
         onCreateSession={handleCreateNewSession}
+      />
+
+      {/* Recovery Dialog */}
+      <RecoveryDialog
+        open={showRecoveryDialog}
+        onOpenChange={setShowRecoveryDialog}
+        recordings={unuploadedRecordings}
+        onRetryUpload={async (localId: string) => {
+          try {
+            const recording = await getLocalRecording(localId);
+            if (!recording) {
+              toast({
+                title: "Ошибка",
+                description: "Запись не найдена",
+                variant: "destructive",
+              });
+              return;
+            }
+            await retryUploadRecording(localId, recording);
+            // Refresh list
+            const updated = await getUnuploadedRecordings();
+            setUnuploadedRecordings(updated);
+            if (updated.length === 0) {
+              setShowRecoveryDialog(false);
+            }
+          } catch (error) {
+            console.error('Error retrying upload:', error);
+            toast({
+              title: "Ошибка",
+              description: "Не удалось загрузить запись",
+              variant: "destructive",
+            });
+          }
+        }}
+        onRefresh={async () => {
+          const updated = await getUnuploadedRecordings();
+          setUnuploadedRecordings(updated);
+          if (updated.length === 0) {
+            setShowRecoveryDialog(false);
+          }
+        }}
       />
     </>
   );

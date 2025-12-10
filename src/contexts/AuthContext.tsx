@@ -242,6 +242,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
     profileRequests.clear();
     clinicRequests.clear();
     
+    // Clear local recordings on logout
+    try {
+      const { clearAllLocalRecordings } = await import('@/lib/local-recording-storage');
+      const { clearSessionKey } = await import('@/lib/recording-encryption');
+      await clearAllLocalRecordings();
+      clearSessionKey();
+      console.log('[AuthContext] Local recordings and session key cleared on logout');
+    } catch (error) {
+      console.error('[AuthContext] Error clearing local recordings:', error);
+      // Don't throw - cleanup failure shouldn't prevent logout
+    }
+    
     setState({
       user: null,
       profile: null,
