@@ -428,16 +428,27 @@ router.get('/transcribe/:recordingId/status', async (req, res) => {
 
     // Get Supabase client
     const supabase = getSupabaseAdmin();
-    
+
     // Get recording from database (need transcript_id and created_at for sync check)
     const { data: recording, error: recordingError } = await supabase
       .from('recordings')
-      .select('id, transcription_status, transcription_text, transcription_error, transcript_id, created_at, updated_at')
+      .select('id, transcription_status, transcription_text, transcription_error, transcript_id, created_at, updated_at, session_id')
       .eq('id', recordingId)
       .single();
 
     if (recordingError || !recording) {
       return res.status(404).json({ error: 'Recording not found' });
+    }
+
+    // SECURITY: Verify user has access to this recording
+    const { data: session } = await supabase
+      .from('sessions')
+      .select('user_id')
+      .eq('id', recording.session_id)
+      .single();
+
+    if (!session || session.user_id !== user.id) {
+      return res.status(403).json({ error: 'Forbidden: Access denied' });
     }
 
     // Auto-sync if status is processing and enough time has passed, or if sync=true

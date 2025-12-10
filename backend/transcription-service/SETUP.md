@@ -17,8 +17,9 @@ npm install
 # Server Configuration
 PORT=3001
 
-# AssemblyAI API Key (уже настроен)
-ASSEMBLYAI_API_KEY=8bda602db37e4887ba24d711f4c75c8b
+# AssemblyAI API Key
+# Получите ключ на https://www.assemblyai.com/
+ASSEMBLYAI_API_KEY=your-assemblyai-api-key
 
 # Supabase Configuration
 # Замените на ваши реальные значения из Supabase Dashboard
@@ -65,7 +66,7 @@ npm start
 
 ## Важные замечания
 
-1. **API ключ AssemblyAI уже настроен** - используйте предоставленный ключ
+1. **API ключ AssemblyAI** - получите свой ключ на https://www.assemblyai.com/
 2. **Service Role Key** - используйте именно service_role key, а не anon key, так как сервису нужны права для чтения файлов из Storage
 3. **Безопасность** - файл `.env` уже в `.gitignore`, не коммитьте его в git
 4. **Порт** - по умолчанию используется порт 3001, измените при необходимости

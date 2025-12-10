@@ -6,7 +6,7 @@
  */
 
 import { supabase } from './supabase';
-import { encryptPHI, decryptPHI, isEncryptionConfigured } from './encryption';
+import { encryptPHI, decryptPHI, isEncryptionConfigured, isEncryptionConfiguredAsync } from './encryption';
 import { format } from 'date-fns';
 import type { Database } from '@/types/database.types';
 
@@ -32,13 +32,15 @@ export interface DecryptedPatient extends Omit<Patient, 'name'> {
 
 /**
  * Encrypt PII fields for storage
+ * SECURITY: Fails if encryption is not configured or fails - NO plaintext fallback
  */
 async function encryptPatientPII(
   data: Partial<PatientInsert>
 ): Promise<Partial<PatientInsert> & { [key: string]: unknown }> {
-  if (!isEncryptionConfigured()) {
-    console.warn('Encryption not configured, storing PII in plaintext');
-    return data;
+  // SECURITY: Check encryption configuration before proceeding
+  const encryptionReady = await isEncryptionConfiguredAsync();
+  if (!encryptionReady) {
+    throw new Error('SECURITY: Encryption not configured. Cannot store PHI data without encryption.');
   }
 
   const encrypted: Partial<PatientInsert> & { [key: string]: unknown } = { ...data };
@@ -46,15 +48,11 @@ async function encryptPatientPII(
   for (const field of PII_FIELDS) {
     const value = data[field as keyof typeof data];
     if (value && typeof value === 'string') {
-      try {
-        const encryptedValue = await encryptPHI(value);
-        // Store encrypted value in _encrypted column, keep original for backward compat
-        encrypted[`${field}_encrypted`] = encryptedValue;
-        encrypted.pii_encryption_version = 1;
-      } catch (error) {
-        console.error(`Failed to encrypt ${field}:`, error);
-        // Fall back to plaintext
-      }
+      // SECURITY: No try/catch - if encryption fails, operation should fail
+      const encryptedValue = await encryptPHI(value);
+      // Store encrypted value in _encrypted column, keep original for backward compat
+      encrypted[`${field}_encrypted`] = encryptedValue;
+      encrypted.pii_encryption_version = 1;
     }
   }
 
@@ -63,6 +61,7 @@ async function encryptPatientPII(
 
 /**
  * Decrypt PII fields from storage
+ * SECURITY: Fails if encryption is configured but decryption fails - NO silent failures
  */
 async function decryptPatientPII(patient: Patient): Promise<DecryptedPatient> {
   const decrypted: DecryptedPatient = {
@@ -70,33 +69,28 @@ async function decryptPatientPII(patient: Patient): Promise<DecryptedPatient> {
     _isDecrypted: false,
   };
 
-  if (!isEncryptionConfigured()) {
-    decrypted._isDecrypted = false;
-    return decrypted;
-  }
-
   // Check if patient has encrypted data
   const hasEncryptedData = (patient as Record<string, unknown>).pii_encryption_version;
 
   if (!hasEncryptedData) {
-    // Patient data is in plaintext (pre-encryption)
+    // Patient data is in plaintext (legacy pre-encryption data)
+    // Log warning for monitoring - this patient needs migration
+    console.warn(`Patient ${patient.id} has unencrypted PII data - needs migration`);
     decrypted._isDecrypted = false;
     return decrypted;
   }
 
+  // SECURITY: If data is encrypted, decryption MUST succeed
   for (const field of PII_FIELDS) {
     const encryptedField = `${field}_encrypted`;
     const encryptedValue = (patient as Record<string, unknown>)[encryptedField];
 
     if (encryptedValue && typeof encryptedValue === 'string') {
-      try {
-        const decryptedValue = await decryptPHI(encryptedValue);
-        (decrypted as Record<string, unknown>)[field] = decryptedValue;
-        decrypted._isDecrypted = true;
-      } catch (error) {
-        console.error(`Failed to decrypt ${field}:`, error);
-        // Keep original value as fallback
-      }
+      // SECURITY: No try/catch - if decryption fails, operation should fail
+      // This prevents showing encrypted garbage to users
+      const decryptedValue = await decryptPHI(encryptedValue);
+      (decrypted as Record<string, unknown>)[field] = decryptedValue;
+      decrypted._isDecrypted = true;
     }
   }
 
