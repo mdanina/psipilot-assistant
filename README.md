@@ -183,6 +183,42 @@ npm run dev
 3. Проверьте, что ваш Supabase доступен по указанному URL
 4. Запустите `npm run check:connection` для диагностики
 
+### Шаг 6: Создание пользователей для тестирования
+
+Поскольку открытая регистрация отключена, используйте скрипт для создания тестовых пользователей:
+
+**1. Получите Service Role Key:**
+- Откройте Supabase Dashboard
+- Перейдите в **Settings** → **API**
+- Скопируйте `service_role` ключ (⚠️ **НИКОГДА не коммитьте его!**)
+
+**2. Добавьте ключ в `.env.local`:**
+```env
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
+```
+
+**3. Создайте пользователя:**
+```bash
+# Базовое использование
+npm run create:user user@example.com password123
+
+# С указанием имени и роли
+npm run create:user user@example.com password123 --name "Иван Иванов" --role admin
+
+# С привязкой к клинике
+npm run create:user user@example.com password123 \
+  --name "Иван Иванов" \
+  --role specialist \
+  --clinic-id "uuid-клиники-здесь"
+```
+
+**Доступные роли:**
+- `admin` - Администратор клиники (полный доступ)
+- `specialist` - Специалист (работа с пациентами и сессиями)
+- `assistant` - Ассистент (ограниченный доступ)
+
+📖 **Подробная документация:** [docs/USER_CREATION.md](./docs/USER_CREATION.md)
+
 ## Development
 
 ```bash
@@ -206,6 +242,9 @@ npm run check:app
 
 # Check for Git updates
 npm run check:updates
+
+# Create test user (requires SUPABASE_SERVICE_ROLE_KEY in .env.local)
+npm run create:user <email> <password> [options]
 ```
 
 ## Project Structure
@@ -240,6 +279,9 @@ supabase/
 
 ### Database
 - [supabase/README.md](./supabase/README.md) - Документация по миграциям БД
+
+### User Management
+- [docs/USER_CREATION.md](./docs/USER_CREATION.md) - Создание пользователей для тестирования
 
 ### Troubleshooting
 - [TROUBLESHOOTING_LOADING.md](./TROUBLESHOOTING_LOADING.md) - Решение проблем с загрузкой приложения
