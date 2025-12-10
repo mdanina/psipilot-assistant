@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Plus, RefreshCw, Search, Mail, Phone, FileText, Pencil, Trash2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -22,139 +22,61 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/contexts/AuthContext";
-import { getPatients, searchPatients, deletePatient, type DecryptedPatient } from "@/lib/supabase-patients";
-import { getPatientDocumentCounts } from "@/lib/supabase-patients";
+import { usePatients, useSearchPatients, useDeletePatient, type PatientWithDocuments } from "@/hooks/usePatients";
 import { formatRelativeTime } from "@/lib/date-utils";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-
-interface PatientWithDocuments extends DecryptedPatient {
-  documentCount: number;
-}
 
 const PatientsPage = () => {
   const { profile } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
 
-  const [patients, setPatients] = useState<PatientWithDocuments[]>([]);
-  const [filteredPatients, setFilteredPatients] = useState<PatientWithDocuments[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [deletingPatientId, setDeletingPatientId] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
-  // Load patients from database
-  const loadPatients = useCallback(async () => {
-    if (!profile?.clinic_id) {
-      setIsLoading(false);
-      return;
-    }
+  // React Query hooks for data fetching with automatic caching
+  const { 
+    data: patients = [], 
+    isLoading: isLoadingPatients, 
+    error: patientsError,
+    refetch: refetchPatients,
+    isRefetching: isRefreshing
+  } = usePatients();
 
-    try {
-      setIsLoading(true);
-      const { data, error } = await getPatients();
+  const { 
+    data: searchResults = [], 
+    isLoading: isLoadingSearch 
+  } = useSearchPatients(searchQuery);
 
-      if (error) {
-        toast({
-          title: "Ошибка",
-          description: `Не удалось загрузить пациентов: ${error.message}`,
-          variant: "destructive",
-        });
-        return;
-      }
+  const deletePatientMutation = useDeletePatient();
 
-      if (!data) {
-        setPatients([]);
-        setFilteredPatients([]);
-        return;
-      }
-
-      // Get document counts for all patients
-      const patientIds = data.map((p) => p.id);
-      const documentCounts = await getPatientDocumentCounts(patientIds);
-
-      // Combine patient data with document counts
-      const patientsWithDocs: PatientWithDocuments[] = data.map((patient) => ({
-        ...patient,
-        documentCount: documentCounts[patient.id] || 0,
-      }));
-
-      setPatients(patientsWithDocs);
-      setFilteredPatients(patientsWithDocs);
-    } catch (error) {
-      console.error("Error loading patients:", error);
+  // Show error if patients query failed
+  useEffect(() => {
+    if (patientsError) {
       toast({
         title: "Ошибка",
-        description: "Произошла ошибка при загрузке пациентов",
+        description: `Не удалось загрузить пациентов: ${patientsError.message}`,
         variant: "destructive",
       });
-    } finally {
-      setIsLoading(false);
     }
-  }, [profile?.clinic_id, toast]);
+  }, [patientsError, toast]);
 
-  // Initial load
-  useEffect(() => {
-    loadPatients();
-  }, [loadPatients]);
+  // Determine which patients to display (search results or all patients)
+  const filteredPatients = useMemo(() => {
+    if (searchQuery.trim()) {
+      return searchResults;
+    }
+    return patients;
+  }, [searchQuery, searchResults, patients]);
 
-  // Search functionality - search across all patient fields
-  useEffect(() => {
-    const performSearch = async () => {
-      if (!searchQuery.trim()) {
-        setFilteredPatients(patients);
-        return;
-      }
-
-      setIsLoading(true);
-      try {
-        const { data, error } = await searchPatients(searchQuery);
-
-        if (error) {
-          toast({
-            title: "Ошибка поиска",
-            description: error.message,
-            variant: "destructive",
-          });
-          setFilteredPatients(patients);
-          return;
-        }
-
-        if (!data) {
-          setFilteredPatients([]);
-          return;
-        }
-
-        // Get document counts for filtered patients
-        const patientIds = data.map((p) => p.id);
-        const documentCounts = await getPatientDocumentCounts(patientIds);
-
-        const patientsWithDocs: PatientWithDocuments[] = data.map((patient) => ({
-          ...patient,
-          documentCount: documentCounts[patient.id] || 0,
-        }));
-
-        setFilteredPatients(patientsWithDocs);
-      } catch (error) {
-        console.error("Error searching patients:", error);
-        setFilteredPatients(patients);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    // Debounce search
-    const timeoutId = setTimeout(performSearch, 300);
-    return () => clearTimeout(timeoutId);
-  }, [searchQuery, patients, toast]);
+  // Combined loading state
+  const isLoading = isLoadingPatients || (searchQuery.trim() ? isLoadingSearch : false);
 
   // Handle refresh
   const handleRefresh = async () => {
-    setIsRefreshing(true);
-    await loadPatients();
-    setIsRefreshing(false);
+    await refetchPatients();
     toast({
       title: "Обновлено",
       description: "Список пациентов обновлен",
@@ -176,36 +98,26 @@ const PatientsPage = () => {
   const handleDeleteConfirm = async () => {
     if (!deletingPatientId) return;
 
-    try {
-      const { success, error } = await deletePatient(deletingPatientId);
-
-      if (error || !success) {
+    deletePatientMutation.mutate(deletingPatientId, {
+      onSuccess: () => {
+        toast({
+          title: "Успешно",
+          description: "Пациент удален",
+        });
+        setDeleteDialogOpen(false);
+        setDeletingPatientId(null);
+        // Cache will be automatically invalidated by useDeletePatient hook
+      },
+      onError: (error: Error) => {
         toast({
           title: "Ошибка",
-          description: error?.message || "Не удалось удалить пациента",
+          description: error.message || "Не удалось удалить пациента",
           variant: "destructive",
         });
-        return;
-      }
-
-      toast({
-        title: "Успешно",
-        description: "Пациент удален",
-      });
-
-      // Reload patients
-      await loadPatients();
-    } catch (error) {
-      console.error("Error deleting patient:", error);
-      toast({
-        title: "Ошибка",
-        description: "Произошла ошибка при удалении пациента",
-        variant: "destructive",
-      });
-    } finally {
-      setDeleteDialogOpen(false);
-      setDeletingPatientId(null);
-    }
+        setDeleteDialogOpen(false);
+        setDeletingPatientId(null);
+      },
+    });
   };
 
   // Handle edit click

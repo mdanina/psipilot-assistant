@@ -46,6 +46,92 @@ const SESSION_TIMEOUT = 15 * 60 * 1000; // 15 minutes in milliseconds
 const SESSION_WARNING_TIME = 2 * 60 * 1000; // 2 minutes before timeout
 const ACTIVITY_DEBOUNCE = 5000; // Only update activity every 5 seconds max
 
+// Simple in-memory cache for profiles and clinics to prevent duplicate requests
+const profileCache = new Map<string, { data: ProfileWithClinic | null; timestamp: number }>();
+const clinicCache = new Map<string, { data: any; timestamp: number }>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
+
+// Request deduplication: track in-flight requests to prevent parallel duplicate requests
+const profileRequests = new Map<string, Promise<ProfileWithClinic | null>>();
+const clinicRequests = new Map<string, Promise<any | null>>();
+
+// Helper to get cached profile or fetch if not cached
+async function getCachedProfile(userId: string): Promise<ProfileWithClinic | null> {
+  const cached = profileCache.get(userId);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data;
+  }
+  return null;
+}
+
+// Helper to cache profile
+function setCachedProfile(userId: string, profile: ProfileWithClinic | null) {
+  profileCache.set(userId, { data: profile, timestamp: Date.now() });
+}
+
+// Helper to get cached clinic or fetch if not cached
+async function getCachedClinic(clinicId: string): Promise<any | null> {
+  const cached = clinicCache.get(clinicId);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data;
+  }
+  return null;
+}
+
+// Helper to cache clinic
+function setCachedClinic(clinicId: string, clinic: any) {
+  clinicCache.set(clinicId, { data: clinic, timestamp: Date.now() });
+}
+
+// Helper to load clinic with caching and request deduplication
+async function loadClinicWithCache(clinicId: string): Promise<any | null> {
+  // Check cache first
+  const cached = await getCachedClinic(clinicId);
+  if (cached !== null) {
+    console.log('✅ Clinic loaded from cache:', clinicId);
+    return cached;
+  }
+
+  // Check if request is already in-flight (deduplication)
+  const inFlightRequest = clinicRequests.get(clinicId);
+  if (inFlightRequest) {
+    console.log('⏳ Clinic request already in-flight, waiting...', clinicId);
+    return inFlightRequest;
+  }
+
+  // Create new request
+  const requestPromise = (async () => {
+    try {
+      const { data: clinicData, error: clinicError } = await supabase
+        .from('clinics')
+        .select('*')
+        .eq('id', clinicId)
+        .single();
+
+      if (clinicError || !clinicData) {
+        console.warn('⚠️  Could not load clinic:', clinicError?.message);
+        return null;
+      }
+
+      // Cache the clinic
+      setCachedClinic(clinicId, clinicData);
+      console.log('✅ Clinic loaded from database:', clinicId);
+      return clinicData;
+    } catch (err) {
+      console.warn('⚠️  Error loading clinic:', err);
+      return null;
+    } finally {
+      // Remove from in-flight requests
+      clinicRequests.delete(clinicId);
+    }
+  })();
+
+  // Store in-flight request
+  clinicRequests.set(clinicId, requestPromise);
+
+  return requestPromise;
+}
+
 export function AuthProvider({ children }: AuthProviderProps) {
   const [state, setState] = useState<AuthState>({
     user: null,
@@ -63,61 +149,99 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const lastActivityUpdateRef = useRef<number>(0);
 
   // Fetch user profile with clinic data (simple version - load separately)
+  // ✅ OPTIMIZED: Uses cache and request deduplication to prevent duplicate requests
   const fetchProfile = useCallback(async (userId: string): Promise<ProfileWithClinic | null> => {
     console.log('🔍 Fetching profile for user:', userId);
 
-    try {
-      // Add timeout to prevent hanging
-      const profilePromise = supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
-
-      const timeoutPromise = new Promise<null>((_, reject) => 
-        setTimeout(() => reject(new Error('Profile fetch timeout after 5 seconds')), 5000)
-      );
-
-      const result = await Promise.race([profilePromise, timeoutPromise]) as any;
-      
-      if (result.error) {
-        console.error('❌ Error fetching profile:', result.error);
-        return null;
-      }
-
-      if (!result.data) {
-        console.warn('⚠️  Profile query returned no data for user:', userId);
-        return null;
-      }
-
-      const data = result.data;
-
-      // Don't fetch clinic during initial load - load it asynchronously later
-      // This prevents blocking on RLS policies
-      let clinic = null;
-
-      console.log('✅ Profile fetched successfully:', {
-        id: data.id,
-        email: data.email,
-        clinic_id: data.clinic_id,
-        has_clinic: !!clinic
-      });
-
-      return {
-        ...data,
-        clinic: clinic || null
-      } as ProfileWithClinic & { mfa_enabled?: boolean };
-    } catch (err) {
-      console.error('❌ Error fetching profile (timeout or error):', err);
-      // Return null to allow app to continue - user can still use app without profile
-      return null;
+    // Check cache first
+    const cached = await getCachedProfile(userId);
+    if (cached !== null) {
+      console.log('✅ Profile loaded from cache');
+      return cached;
     }
+
+    // Check if request is already in-flight (deduplication)
+    const inFlightRequest = profileRequests.get(userId);
+    if (inFlightRequest) {
+      console.log('⏳ Profile request already in-flight, waiting...', userId);
+      return inFlightRequest;
+    }
+
+    // Create new request
+    const requestPromise = (async () => {
+      try {
+        // Add timeout to prevent hanging
+        const profilePromise = supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', userId)
+          .single();
+
+        const timeoutPromise = new Promise<null>((_, reject) => 
+          setTimeout(() => reject(new Error('Profile fetch timeout after 5 seconds')), 5000)
+        );
+
+        const result = await Promise.race([profilePromise, timeoutPromise]) as any;
+        
+        if (result.error) {
+          console.error('❌ Error fetching profile:', result.error);
+          return null;
+        }
+
+        if (!result.data) {
+          console.warn('⚠️  Profile query returned no data for user:', userId);
+          return null;
+        }
+
+        const data = result.data;
+
+        // Don't fetch clinic during initial load - load it asynchronously later
+        // This prevents blocking on RLS policies
+        let clinic = null;
+
+        const profile = {
+          ...data,
+          clinic: clinic || null
+        } as ProfileWithClinic & { mfa_enabled?: boolean };
+
+        // Cache the profile
+        setCachedProfile(userId, profile);
+
+        console.log('✅ Profile fetched successfully:', {
+          id: data.id,
+          email: data.email,
+          clinic_id: data.clinic_id,
+          has_clinic: !!clinic
+        });
+
+        return profile;
+      } catch (err) {
+        console.error('❌ Error fetching profile (timeout or error):', err);
+        // Return null to allow app to continue - user can still use app without profile
+        return null;
+      } finally {
+        // Remove from in-flight requests
+        profileRequests.delete(userId);
+      }
+    })();
+
+    // Store in-flight request
+    profileRequests.set(userId, requestPromise);
+
+    return requestPromise;
   }, []);
 
   // Sign out - defined early for use in useEffect
   const signOut = useCallback(async () => {
     setState(prev => ({ ...prev, isLoading: true }));
     await supabase.auth.signOut();
+    
+    // Clear caches on sign out
+    profileCache.clear();
+    clinicCache.clear();
+    profileRequests.clear();
+    clinicRequests.clear();
+    
     setState({
       user: null,
       profile: null,
@@ -235,21 +359,27 @@ export function AuthProvider({ children }: AuthProviderProps) {
           console.log('✅ Auth initialized successfully');
           
           // Load clinic asynchronously after profile is loaded (non-blocking)
+          // ✅ OPTIMIZED: Uses cache to prevent duplicate requests
           if (profile?.clinic_id) {
             (async () => {
               try {
-                const { data: clinicData, error: clinicError } = await supabase
-                  .from('clinics')
-                  .select('*')
-                  .eq('id', profile.clinic_id)
-                  .single();
+                // Check cache first
+                const cachedClinic = await getCachedClinic(profile.clinic_id);
+                if (cachedClinic && isMounted) {
+                  setState(prev => ({
+                    ...prev,
+                    profile: prev.profile ? { ...prev.profile, clinic: cachedClinic } : null
+                  }));
+                  console.log('✅ Clinic loaded from cache');
+                  return;
+                }
 
-                if (!clinicError && clinicData && isMounted) {
+                const clinicData = await loadClinicWithCache(profile.clinic_id);
+                if (clinicData && isMounted) {
                   setState(prev => ({
                     ...prev,
                     profile: prev.profile ? { ...prev.profile, clinic: clinicData } : null
                   }));
-                  console.log('✅ Clinic loaded asynchronously');
                 }
               } catch (err) {
                 console.warn('⚠️  Error loading clinic asynchronously:', err);
@@ -339,18 +469,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
               if (profile?.clinic_id) {
                 (async () => {
                   try {
-                    const { data: clinicData, error: clinicError } = await supabase
-                      .from('clinics')
-                      .select('*')
-                      .eq('id', profile.clinic_id)
-                      .single();
-
-                    if (!clinicError && clinicData && isMounted) {
+                    const clinicData = await loadClinicWithCache(profile.clinic_id);
+                    if (clinicData && isMounted) {
                       setState(prev => ({
                         ...prev,
                         profile: prev.profile ? { ...prev.profile, clinic: clinicData } : null
                       }));
-                      console.log('✅ Clinic loaded asynchronously');
                     }
                   } catch (err) {
                     console.warn('⚠️  Error loading clinic asynchronously:', err);
@@ -391,6 +515,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [fetchProfile]);
 
   // Auto-load clinic when profile has clinic_id but clinic is not loaded
+  // ✅ OPTIMIZED: Uses cache to prevent duplicate requests
   useEffect(() => {
     if (!state.profile?.clinic_id || state.profile.clinic) {
       return; // No clinic_id or clinic already loaded
@@ -399,20 +524,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // Load clinic asynchronously
     (async () => {
       try {
-        const { data: clinicData, error: clinicError } = await supabase
-          .from('clinics')
-          .select('*')
-          .eq('id', state.profile!.clinic_id)
-          .single();
+        // Check cache first
+        const cachedClinic = await getCachedClinic(state.profile.clinic_id);
+        if (cachedClinic) {
+          setState(prev => ({
+            ...prev,
+            profile: prev.profile ? { ...prev.profile, clinic: cachedClinic } : null
+          }));
+          console.log('✅ Clinic auto-loaded from cache');
+          return;
+        }
 
-        if (!clinicError && clinicData) {
+        const clinicData = await loadClinicWithCache(state.profile.clinic_id);
+        if (clinicData) {
           setState(prev => ({
             ...prev,
             profile: prev.profile ? { ...prev.profile, clinic: clinicData } : null
           }));
-          console.log('✅ Clinic auto-loaded after profile update');
-        } else {
-          console.warn('⚠️  Could not auto-load clinic:', clinicError?.message);
         }
       } catch (err) {
         console.warn('⚠️  Error auto-loading clinic:', err);
@@ -469,18 +597,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
             if (profile?.clinic_id) {
               (async () => {
                 try {
-                  const { data: clinicData, error: clinicError } = await supabase
-                    .from('clinics')
-                    .select('*')
-                    .eq('id', profile.clinic_id)
-                    .single();
-
-                  if (!clinicError && clinicData) {
+                  const clinicData = await loadClinicWithCache(profile.clinic_id);
+                  if (clinicData) {
                     setState(prev => ({
                       ...prev,
                       profile: prev.profile ? { ...prev.profile, clinic: clinicData } : null
                     }));
-                    console.log('✅ Clinic loaded asynchronously');
                   }
                 } catch (err) {
                   console.warn('⚠️  Error loading clinic asynchronously:', err);
@@ -651,18 +773,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // Load clinic if profile has clinic_id
       if (profile?.clinic_id && !profile.clinic) {
         try {
-          const { data: clinicData, error: clinicError } = await supabase
-            .from('clinics')
-            .select('*')
-            .eq('id', profile.clinic_id)
-            .single();
-
-          if (!clinicError && clinicData) {
+          const clinicData = await loadClinicWithCache(profile.clinic_id);
+          if (clinicData) {
             setState(prev => ({
               ...prev,
               profile: prev.profile ? { ...prev.profile, clinic: clinicData } : null
             }));
-            console.log('✅ Clinic loaded via refreshProfile');
           }
         } catch (err) {
           console.warn('⚠️  Error loading clinic in refreshProfile:', err);
