@@ -57,7 +57,7 @@ export type Database = {
           full_name: string | null;
           avatar_url: string | null;
           clinic_id: string | null;
-          role: 'specialist' | 'admin' | 'assistant';
+          role: 'specialist' | 'admin' | 'assistant' | 'researcher' | 'patient';
           specialization: string | null;
           settings: Json;
           created_at: string;
@@ -69,7 +69,7 @@ export type Database = {
           full_name?: string | null;
           avatar_url?: string | null;
           clinic_id?: string | null;
-          role?: 'specialist' | 'admin' | 'assistant';
+          role?: 'specialist' | 'admin' | 'assistant' | 'researcher' | 'patient';
           specialization?: string | null;
           settings?: Json;
           created_at?: string;
@@ -81,7 +81,7 @@ export type Database = {
           full_name?: string | null;
           avatar_url?: string | null;
           clinic_id?: string | null;
-          role?: 'specialist' | 'admin' | 'assistant';
+          role?: 'specialist' | 'admin' | 'assistant' | 'researcher' | 'patient';
           settings?: Json;
           created_at?: string;
           updated_at?: string;

@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "check:connection": "node scripts/check-connection.js",
     "check:updates": "node scripts/check-git-updates.js",
-    "check:app": "node scripts/check-app-issues.js"
+    "check:app": "node scripts/check-app-issues.js",
+    "create:user": "node scripts/create-user.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

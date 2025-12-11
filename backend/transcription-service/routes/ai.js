@@ -29,6 +29,94 @@ function getSupabaseAdmin() {
   });
 }
 
+// ============================================
+// AUTHORIZATION HELPERS - Проверка владельца ресурсов
+// ============================================
+
+/**
+ * Проверяет, что сессия принадлежит клинике пользователя
+ */
+async function verifySessionOwnership(supabase, sessionId, clinicId) {
+  const { data: session, error } = await supabase
+    .from('sessions')
+    .select('id, clinic_id')
+    .eq('id', sessionId)
+    .single();
+
+  if (error || !session) {
+    return { authorized: false, error: 'Сессия не найдена' };
+  }
+
+  if (session.clinic_id !== clinicId) {
+    return { authorized: false, error: 'Нет доступа к данной сессии' };
+  }
+
+  return { authorized: true, session };
+}
+
+/**
+ * Проверяет, что пациент принадлежит клинике пользователя
+ */
+async function verifyPatientOwnership(supabase, patientId, clinicId) {
+  const { data: patient, error } = await supabase
+    .from('patients')
+    .select('id, clinic_id')
+    .eq('id', patientId)
+    .single();
+
+  if (error || !patient) {
+    return { authorized: false, error: 'Пациент не найден' };
+  }
+
+  if (patient.clinic_id !== clinicId) {
+    return { authorized: false, error: 'Нет доступа к данному пациенту' };
+  }
+
+  return { authorized: true, patient };
+}
+
+/**
+ * Проверяет, что клиническая заметка принадлежит клинике пользователя
+ */
+async function verifyClinicalNoteOwnership(supabase, clinicalNoteId, clinicId) {
+  const { data: note, error } = await supabase
+    .from('clinical_notes')
+    .select('id, session:sessions(clinic_id)')
+    .eq('id', clinicalNoteId)
+    .single();
+
+  if (error || !note) {
+    return { authorized: false, error: 'Клиническая заметка не найдена' };
+  }
+
+  if (note.session?.clinic_id !== clinicId) {
+    return { authorized: false, error: 'Нет доступа к данной клинической заметке' };
+  }
+
+  return { authorized: true, note };
+}
+
+/**
+ * Проверяет, что секция принадлежит клинике пользователя
+ */
+async function verifySectionOwnership(supabase, sectionId, clinicId) {
+  const { data: section, error } = await supabase
+    .from('sections')
+    .select('id, clinical_note:clinical_notes(session:sessions(clinic_id))')
+    .eq('id', sectionId)
+    .single();
+
+  if (error || !section) {
+    return { authorized: false, error: 'Секция не найдена' };
+  }
+
+  if (section.clinical_note?.session?.clinic_id !== clinicId) {
+    return { authorized: false, error: 'Нет доступа к данной секции' };
+  }
+
+  return { authorized: true, section };
+}
+
 /**
  * GET /api/ai/block-templates
  * Получение списка доступных блоков
@@ -140,6 +228,12 @@ router.post('/generate', async (req, res) => {
     const { session_id, template_id, source_type } = req.body;
     const { id: user_id, clinic_id } = req.user;
     const supabase = getSupabaseAdmin();
+
+    // SECURITY: Проверяем, что сессия принадлежит клинике пользователя
+    const ownership = await verifySessionOwnership(supabase, session_id, clinic_id);
+    if (!ownership.authorized) {
+      return res.status(403).json({ success: false, error: ownership.error });
+    }
 
     // 1. Получаем сессию с данными пациента
     const { data: session, error: sessionError } = await supabase
@@ -443,7 +537,14 @@ async function generateSectionsInBackground(
 router.get('/generate/:clinicalNoteId/status', async (req, res) => {
   try {
     const { clinicalNoteId } = req.params;
+    const { clinic_id } = req.user;
     const supabase = getSupabaseAdmin();
+
+    // SECURITY: Проверяем, что клиническая заметка принадлежит клинике пользователя
+    const ownership = await verifyClinicalNoteOwnership(supabase, clinicalNoteId, clinic_id);
+    if (!ownership.authorized) {
+      return res.status(403).json({ success: false, error: ownership.error });
+    }
 
     const { data: clinicalNote, error } = await supabase
       .from('clinical_notes')
@@ -496,8 +597,14 @@ router.post('/regenerate-section/:sectionId', async (req, res) => {
   try {
     const { sectionId } = req.params;
     const { custom_prompt } = req.body;
-    const { id: user_id } = req.user;
+    const { id: user_id, clinic_id } = req.user;
     const supabase = getSupabaseAdmin();
+
+    // SECURITY: Проверяем, что секция принадлежит клинике пользователя
+    const ownership = await verifySectionOwnership(supabase, sectionId, clinic_id);
+    if (!ownership.authorized) {
+      return res.status(403).json({ success: false, error: ownership.error });
+    }
 
     // Получаем секцию с блоком и заметкой
     const { data: section, error } = await supabase
@@ -596,7 +703,7 @@ router.post('/regenerate-section/:sectionId', async (req, res) => {
 router.post('/case-summary', async (req, res) => {
   try {
     const { session_id } = req.body;
-    const { id: user_id } = req.user;
+    const { id: user_id, clinic_id } = req.user;
     const supabase = getSupabaseAdmin();
 
     if (!session_id) {
@@ -604,6 +711,12 @@ router.post('/case-summary', async (req, res) => {
         success: false,
         error: 'session_id обязателен',
       });
+    }
+
+    // SECURITY: Проверяем, что сессия принадлежит клинике пользователя
+    const ownership = await verifySessionOwnership(supabase, session_id, clinic_id);
+    if (!ownership.authorized) {
+      return res.status(403).json({ success: false, error: ownership.error });
     }
 
     // Получаем сессию с данными пациента
@@ -733,7 +846,7 @@ router.post('/case-summary', async (req, res) => {
 router.post('/patient-case-summary', async (req, res) => {
   try {
     const { patient_id } = req.body;
-    const { id: user_id } = req.user;
+    const { id: user_id, clinic_id } = req.user;
     const supabase = getSupabaseAdmin();
 
     if (!patient_id) {
@@ -741,6 +854,12 @@ router.post('/patient-case-summary', async (req, res) => {
         success: false,
         error: 'patient_id обязателен',
       });
+    }
+
+    // SECURITY: Проверяем, что пациент принадлежит клинике пользователя
+    const ownership = await verifyPatientOwnership(supabase, patient_id, clinic_id);
+    if (!ownership.authorized) {
+      return res.status(403).json({ success: false, error: ownership.error });
     }
 
     // Получаем пациента

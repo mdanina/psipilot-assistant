@@ -3,12 +3,14 @@
  *
  * SECURITY: Шифрование выполняется на backend сервере.
  * Ключ шифрования НИКОГДА не передается в браузер.
+ *
+ * Этот модуль является клиентом для backend crypto API.
  */
 
 import { supabase } from './supabase';
 
 // URL backend сервиса
-const CRYPTO_API_URL = import.meta.env.VITE_TRANSCRIPTION_API_URL || 'http://localhost:3001';
+const CRYPTO_API_URL = import.meta.env.VITE_AI_API_URL || import.meta.env.VITE_TRANSCRIPTION_API_URL || 'http://localhost:3001';
 
 // Кэш статуса шифрования
 let encryptionStatusCache: boolean | null = null;
@@ -16,50 +18,24 @@ let encryptionStatusCacheTime = 0;
 const CACHE_TTL = 60000; // 1 минута
 
 /**
- * Получить токен авторизации для запросов к backend
+ * Получить заголовки для аутентификации
  */
-async function getAuthToken(): Promise<string | null> {
+async function getAuthHeaders(): Promise<HeadersInit> {
   const { data: { session } } = await supabase.auth.getSession();
-  return session?.access_token || null;
+  if (!session?.access_token) {
+    throw new Error('Not authenticated');
+  }
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${session.access_token}`,
+  };
 }
 
 /**
- * Проверить статус шифрования на сервере
- */
-export async function isEncryptionConfigured(): Promise<boolean> {
-  // Используем кэш
-  if (encryptionStatusCache !== null && Date.now() - encryptionStatusCacheTime < CACHE_TTL) {
-    return encryptionStatusCache;
-  }
-
-  try {
-    const token = await getAuthToken();
-    if (!token) {
-      return false;
-    }
-
-    const response = await fetch(`${CRYPTO_API_URL}/api/crypto/status`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-      },
-    });
-
-    if (!response.ok) {
-      return false;
-    }
-
-    const result = await response.json();
-    encryptionStatusCache = result.data?.configured || false;
-    encryptionStatusCacheTime = Date.now();
-    return encryptionStatusCache;
-  } catch (error) {
-    console.error('Failed to check encryption status:', error);
-    return false;
-  }
-}
-
-/**
- * Шифрование PHI данных через backend API
+ * Encrypt PHI data using backend service
+ *
+ * @param plaintext - Plain text data to encrypt
+ * @returns Base64 encoded encrypted data
  */
 export async function encryptPHI(plaintext: string): Promise<string> {
   if (!plaintext) {
@@ -67,35 +43,35 @@ export async function encryptPHI(plaintext: string): Promise<string> {
   }
 
   try {
-    const token = await getAuthToken();
-    if (!token) {
-      throw new Error('Not authenticated');
-    }
-
     const response = await fetch(`${CRYPTO_API_URL}/api/crypto/encrypt`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
+      headers: await getAuthHeaders(),
       body: JSON.stringify({ data: plaintext }),
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Encryption failed');
+      const error = await response.json().catch(() => ({ error: response.statusText }));
+      throw new Error(error.error || `HTTP ${response.status}: ${response.statusText}`);
     }
 
     const result = await response.json();
+    if (!result.success) {
+      throw new Error(result.error || 'Encryption failed');
+    }
+
     return result.data.encrypted;
   } catch (error) {
-    console.error('Encryption error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Encryption error:', message);
     throw new Error('Failed to encrypt PHI data');
   }
 }
 
 /**
- * Расшифровка PHI данных через backend API
+ * Decrypt PHI data using backend service
+ *
+ * @param encryptedData - Base64 encoded encrypted data
+ * @returns Decrypted plain text
  */
 export async function decryptPHI(encryptedData: string): Promise<string> {
   if (!encryptedData) {
@@ -103,116 +79,155 @@ export async function decryptPHI(encryptedData: string): Promise<string> {
   }
 
   try {
-    const token = await getAuthToken();
-    if (!token) {
-      throw new Error('Not authenticated');
-    }
-
     const response = await fetch(`${CRYPTO_API_URL}/api/crypto/decrypt`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
+      headers: await getAuthHeaders(),
       body: JSON.stringify({ data: encryptedData }),
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Decryption failed');
+      const error = await response.json().catch(() => ({ error: response.statusText }));
+      throw new Error(error.error || `HTTP ${response.status}: ${response.statusText}`);
     }
 
     const result = await response.json();
+    if (!result.success) {
+      throw new Error(result.error || 'Decryption failed');
+    }
+
     return result.data.decrypted;
   } catch (error) {
-    console.error('Decryption error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Decryption error:', message);
     throw new Error('Failed to decrypt PHI data');
   }
 }
 
 /**
- * Batch шифрование массива данных
+ * Batch encrypt multiple values
+ * More efficient than calling encryptPHI multiple times
+ *
+ * @param values - Array of plain text values to encrypt
+ * @returns Array of encrypted values
  */
-export async function encryptPHIBatch(items: string[]): Promise<string[]> {
-  if (!items || items.length === 0) {
+export async function encryptPHIBatch(values: string[]): Promise<string[]> {
+  if (!values || values.length === 0) {
     return [];
   }
 
   try {
-    const token = await getAuthToken();
-    if (!token) {
-      throw new Error('Not authenticated');
-    }
-
     const response = await fetch(`${CRYPTO_API_URL}/api/crypto/encrypt`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
-      body: JSON.stringify({ data: items }),
+      headers: await getAuthHeaders(),
+      body: JSON.stringify({ data: values }),
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Batch encryption failed');
+      const error = await response.json().catch(() => ({ error: response.statusText }));
+      throw new Error(error.error || `HTTP ${response.status}: ${response.statusText}`);
     }
 
     const result = await response.json();
+    if (!result.success) {
+      throw new Error(result.error || 'Batch encryption failed');
+    }
+
     return result.data.encrypted;
   } catch (error) {
-    console.error('Batch encryption error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Batch encryption error:', message);
     throw new Error('Failed to encrypt PHI data batch');
   }
 }
 
 /**
- * Batch расшифровка массива данных
+ * Batch decrypt multiple values
+ * More efficient than calling decryptPHI multiple times
+ *
+ * @param values - Array of encrypted values to decrypt
+ * @returns Array of decrypted values
  */
-export async function decryptPHIBatch(items: string[]): Promise<string[]> {
-  if (!items || items.length === 0) {
+export async function decryptPHIBatch(values: string[]): Promise<string[]> {
+  if (!values || values.length === 0) {
     return [];
   }
 
   try {
-    const token = await getAuthToken();
-    if (!token) {
-      throw new Error('Not authenticated');
-    }
-
     const response = await fetch(`${CRYPTO_API_URL}/api/crypto/decrypt`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
-      body: JSON.stringify({ data: items }),
+      headers: await getAuthHeaders(),
+      body: JSON.stringify({ data: values }),
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Batch decryption failed');
+      const error = await response.json().catch(() => ({ error: response.statusText }));
+      throw new Error(error.error || `HTTP ${response.status}: ${response.statusText}`);
     }
 
     const result = await response.json();
+    if (!result.success) {
+      throw new Error(result.error || 'Batch decryption failed');
+    }
+
     return result.data.decrypted;
   } catch (error) {
-    console.error('Batch decryption error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Batch decryption error:', message);
     throw new Error('Failed to decrypt PHI data batch');
   }
 }
 
 /**
- * Generate a new encryption key (for setup/rotation)
- * Returns base64 encoded 32-byte key
- *
- * WARNING: Only use this for key generation, not in production code
+ * Check if encryption is properly configured on the backend
+ * Results are cached for 1 minute to reduce API calls
  */
-export async function generateEncryptionKey(): Promise<string> {
-  const key = crypto.getRandomValues(new Uint8Array(32));
-  let binary = '';
-  for (let i = 0; i < key.byteLength; i++) {
-    binary += String.fromCharCode(key[i]);
+export async function isEncryptionConfiguredAsync(): Promise<boolean> {
+  // Проверяем кэш
+  const now = Date.now();
+  if (encryptionStatusCache !== null && (now - encryptionStatusCacheTime) < CACHE_TTL) {
+    return encryptionStatusCache;
   }
-  return btoa(binary);
+
+  try {
+    const response = await fetch(`${CRYPTO_API_URL}/api/crypto/status`, {
+      headers: await getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      encryptionStatusCache = false;
+      encryptionStatusCacheTime = now;
+      return false;
+    }
+
+    const result = await response.json();
+    encryptionStatusCache = result.success && result.data?.configured === true;
+    encryptionStatusCacheTime = now;
+    return encryptionStatusCache;
+  } catch {
+    encryptionStatusCache = false;
+    encryptionStatusCacheTime = now;
+    return false;
+  }
+}
+
+/**
+ * Check if encryption is properly configured
+ * Returns cached value or true by default (assumes backend is configured)
+ *
+ * This is a synchronous version for backward compatibility.
+ * For accurate check, use isEncryptionConfiguredAsync()
+ */
+export function isEncryptionConfigured(): boolean {
+  // Возвращаем кэшированное значение или true по умолчанию
+  // Шифрование теперь на backend, так что предполагаем что настроено
+  return encryptionStatusCache ?? true;
+}
+
+/**
+ * Clear the encryption status cache
+ * Call this if you need to force a fresh check
+ */
+export function clearEncryptionStatusCache(): void {
+  encryptionStatusCache = null;
+  encryptionStatusCacheTime = 0;
 }

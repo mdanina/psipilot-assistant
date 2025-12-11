@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -23,10 +24,10 @@ import {
 } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
-  getPatient,
   updatePatient,
   type DecryptedPatient,
 } from "@/lib/supabase-patients";
+import { usePatient } from "@/hooks/usePatients";
 import { formatDate } from "@/lib/date-utils";
 import { useToast } from "@/hooks/use-toast";
 import { PatientForm } from "@/components/patients/PatientForm";
@@ -44,9 +45,8 @@ const PatientDetailPage = () => {
   const [searchParams] = useSearchParams();
   const { toast } = useToast();
   const { profile } = useAuth();
+  const queryClient = useQueryClient();
 
-  const [patient, setPatient] = useState<DecryptedPatient | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [activeTab, setActiveTab] = useState("info");
@@ -54,6 +54,34 @@ const PatientDetailPage = () => {
 
   const shouldEdit = searchParams.get("edit") === "true";
   const initialTab = searchParams.get("tab");
+
+  // React Query hook for fetching patient data with automatic caching
+  const { 
+    data: patient, 
+    isLoading, 
+    error: patientError,
+    refetch: refetchPatient
+  } = usePatient(id);
+
+  // Show error if patient query failed
+  useEffect(() => {
+    if (patientError) {
+      toast({
+        title: "Ошибка",
+        description: `Не удалось загрузить данные пациента: ${patientError.message}`,
+        variant: "destructive",
+      });
+      navigate("/patients");
+    } else if (patient === null && !isLoading && id) {
+      // Patient not found
+      toast({
+        title: "Пациент не найден",
+        description: "Пациент с указанным ID не существует",
+        variant: "destructive",
+      });
+      navigate("/patients");
+    }
+  }, [patientError, patient, isLoading, id, navigate, toast]);
 
   useEffect(() => {
     if (shouldEdit) {
@@ -69,50 +97,7 @@ const PatientDetailPage = () => {
       navigate("/patients");
       return;
     }
-
-    loadPatient();
-  }, [id]);
-
-  const loadPatient = async () => {
-    if (!id) return;
-
-    try {
-      setIsLoading(true);
-      const { data, error } = await getPatient(id);
-
-      if (error) {
-        toast({
-          title: "Ошибка",
-          description: `Не удалось загрузить данные пациента: ${error.message}`,
-          variant: "destructive",
-        });
-        navigate("/patients");
-        return;
-      }
-
-      if (!data) {
-        toast({
-          title: "Пациент не найден",
-          description: "Пациент с указанным ID не существует",
-          variant: "destructive",
-        });
-        navigate("/patients");
-        return;
-      }
-
-      setPatient(data);
-    } catch (error) {
-      console.error("Error loading patient:", error);
-      toast({
-        title: "Ошибка",
-        description: "Произошла ошибка при загрузке данных пациента",
-        variant: "destructive",
-      });
-      navigate("/patients");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  }, [id, navigate]);
 
   const handleSave = async (formData: any) => {
     if (!id || !patient) return;
@@ -131,7 +116,10 @@ const PatientDetailPage = () => {
       }
 
       if (data) {
-        setPatient(data);
+        // Invalidate patient cache to refetch updated data
+        queryClient.invalidateQueries({ queryKey: ['patients', id] });
+        queryClient.invalidateQueries({ queryKey: ['patients'] }); // Also invalidate list
+        
         setIsEditing(false);
         toast({
           title: "Успешно",

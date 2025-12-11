@@ -19,9 +19,11 @@ import { PatientCombobox } from "@/components/ui/patient-combobox";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
-import { linkSessionToPatient, getSession, createSession, deleteSession, completeSession, checkSessionClinicalNotes } from "@/lib/supabase-sessions";
+import { getSession, checkSessionClinicalNotes, createSession } from "@/lib/supabase-sessions";
 import { getSessionRecordings, getRecordingStatus, createRecording, uploadAudioFile, updateRecording, startTranscription, syncTranscriptionStatus, deleteRecording } from "@/lib/supabase-recordings";
-import { getPatients } from "@/lib/supabase-patients";
+import { usePatients } from "@/hooks/usePatients";
+import { useSessions, useSessionsByIds, useCreateSession, useDeleteSession as useDeleteSessionMutation, useCompleteSession, useLinkSessionToPatient, useInvalidateSessions } from "@/hooks/useSessions";
+import { useQueryClient } from "@tanstack/react-query";
 import { getSessionNotes, createSessionNote, deleteSessionNote, getCombinedTranscriptWithNotes } from "@/lib/supabase-session-notes";
 import { getClinicalNotesForSession, generateClinicalNote } from "@/lib/supabase-ai";
 import { SessionNotesDialog } from "@/components/sessions/SessionNotesDialog";
@@ -32,6 +34,16 @@ import { GenerationProgress } from "@/components/analysis/GenerationProgress";
 import { useToast } from "@/hooks/use-toast";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
+import {
+  saveRecordingLocally,
+  markRecordingUploaded,
+  markRecordingUploadFailed,
+  getUnuploadedRecordings,
+  getLocalRecording,
+  deleteLocalRecording,
+} from "@/lib/local-recording-storage";
+import { logLocalStorageOperation } from "@/lib/local-recording-audit";
+import { RecoveryDialog } from "@/components/scribe/RecoveryDialog";
 import type { Database } from "@/types/database.types";
 import type { GeneratedClinicalNote } from "@/types/ai.types";
 
@@ -47,13 +59,62 @@ const SessionsPage = () => {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   
-  const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSession, setActiveSession] = useState<string | null>(null);
   const [openTabs, setOpenTabs] = useState<Set<string>>(new Set());
   const [recordings, setRecordings] = useState<Recording[]>([]);
-  const [patients, setPatients] = useState<Patient[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [isLinking, setIsLinking] = useState(false);
+  
+  // Stabilize clinicId to prevent queryKey changes
+  // This ensures React Query doesn't treat it as a new query when profile loads
+  const stableClinicId = useMemo(() => profile?.clinic_id, [profile?.clinic_id]);
+  
+  // React Query hooks for data fetching with automatic caching
+  const {
+    data: sessions = [],
+    isLoading: isLoadingSessions,
+    error: sessionsError
+  } = useSessions(stableClinicId);
+
+  // Load sessions for open tabs separately (not limited by 50)
+  const openTabIds = useMemo(() => Array.from(openTabs), [openTabs]);
+  const {
+    data: tabSessions = [],
+    isLoading: isLoadingTabSessions,
+  } = useSessionsByIds(openTabIds);
+
+  const {
+    data: patientsData = [],
+    isLoading: isLoadingPatients
+  } = usePatients();
+  
+  // Extract patients from React Query data (patients have documentCount, but we need just Patient[])
+  const patients = patientsData.map(p => ({
+    id: p.id,
+    clinic_id: p.clinic_id,
+    created_by: p.created_by,
+    name: p.name,
+    email: p.email,
+    phone: p.phone,
+    date_of_birth: p.date_of_birth,
+    gender: p.gender,
+    address: p.address,
+    notes: p.notes,
+    tags: p.tags,
+    last_activity_at: p.last_activity_at,
+    created_at: p.created_at,
+    updated_at: p.updated_at,
+    deleted_at: p.deleted_at,
+  })) as Patient[];
+  
+  const isLoading = isLoadingSessions || isLoadingPatients;
+  
+  // Mutations
+  const createSessionMutation = useCreateSession();
+  const deleteSessionMutation = useDeleteSessionMutation();
+  const completeSessionMutation = useCompleteSession();
+  const linkSessionMutation = useLinkSessionToPatient();
+  const invalidateSessions = useInvalidateSessions();
+  const queryClient = useQueryClient();
   const [selectedPatientId, setSelectedPatientId] = useState<string>("");
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [relinkWarning, setRelinkWarning] = useState<{
@@ -67,6 +128,16 @@ const SessionsPage = () => {
   const [closingSessionId, setClosingSessionId] = useState<string | null>(null);
   const [closeSessionDialogOpen, setCloseSessionDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  
+  // Local storage state
+  const [showRecoveryDialog, setShowRecoveryDialog] = useState(false);
+  const [unuploadedRecordings, setUnuploadedRecordings] = useState<Array<{
+    id: string;
+    fileName: string;
+    duration: number;
+    createdAt: number;
+    uploadError?: string;
+  }>>([]);
 
   // Session notes state
   const [sessionNotes, setSessionNotes] = useState<SessionNote[]>([]);
@@ -87,6 +158,7 @@ const SessionsPage = () => {
   const [uploadingFileName, setUploadingFileName] = useState<string | null>(null);
   const currentRecordingSessionIdRef = useRef<string | null>(null);
   const audioFileInputRef = useRef<HTMLInputElement>(null);
+  const lastCheckpointRef = useRef<string | null>(null);
   const transcriptionApiUrl = import.meta.env.VITE_TRANSCRIPTION_API_URL || 'http://localhost:3001';
 
   // Audio recorder hook
@@ -103,6 +175,8 @@ const SessionsPage = () => {
     stopRecording,
     cancelRecording,
     reset,
+    getCurrentChunks,
+    getCurrentMimeType,
   } = useAudioRecorder();
   
   // Show recorder errors
@@ -199,14 +273,23 @@ const SessionsPage = () => {
   useEffect(() => {
     if (user?.id) {
       console.log('[Tabs] useEffect triggered, user.id:', user.id);
+      // Always reload tabs from DB when component mounts or user changes
+      // This ensures tabs are always restored from DB, even after long navigation
       loadOpenTabs().then(tabs => {
-        console.log('[Tabs] Setting openTabs to:', Array.from(tabs));
+        console.log('[Tabs] ✅ Loaded tabs from DB:', Array.from(tabs), '(count:', tabs.size, ')');
+        // Always set tabs from DB - they are the source of truth
+        // Don't merge with existing tabs, as DB tabs are authoritative
         setOpenTabs(tabs);
+        tabsLoadedFromDBRef.current = true;
+        console.log('[Tabs] ✅ Tabs set and flag marked as loaded');
       }).catch(err => {
-        console.error('[Tabs] Error in loadOpenTabs promise:', err);
+        console.error('[Tabs] ❌ Error in loadOpenTabs promise:', err);
+        // Don't reset flag on error - keep previous state
       });
     } else {
       console.log('[Tabs] useEffect triggered, but no user.id');
+      // Reset flag when user logs out
+      tabsLoadedFromDBRef.current = false;
     }
   }, [user?.id]);
 
@@ -248,64 +331,71 @@ const SessionsPage = () => {
     
     // Если активная сессия больше не в открытых вкладках - выбрать первую открытую
     if (activeSession && !openTabs.has(activeSession)) {
-      const firstOpenTab = Array.from(openTabs).find(id => 
-        sessions.some(s => s.id === id)
+      const firstOpenTab = Array.from(openTabs).find(id =>
+        tabSessions.some(s => s.id === id)
       );
       setActiveSession(firstOpenTab || null);
       return;
     }
-    
+
     // Если нет активной сессии, но есть открытые вкладки - выбрать первую
-    if (sessions.length > 0 && !activeSession && openTabs.size > 0) {
-      const firstOpenTab = Array.from(openTabs).find(id => 
-        sessions.some(s => s.id === id)
+    if (tabSessions.length > 0 && !activeSession && openTabs.size > 0) {
+      const firstOpenTab = Array.from(openTabs).find(id =>
+        tabSessions.some(s => s.id === id)
       );
       if (firstOpenTab) {
         setActiveSession(firstOpenTab);
       }
     }
-  }, [sessions, openTabs, activeSession]);
+  }, [tabSessions, openTabs, activeSession]);
 
-  // Load sessions and filter open tabs after sessions are loaded
-  // This removes tabs for deleted/non-existent sessions
+  // Track if we've loaded tabs from DB to prevent premature filtering
+  const tabsLoadedFromDBRef = useRef(false);
+  
+  // Mark tabs as loaded when they're loaded from DB
   useEffect(() => {
-    const loadData = async () => {
-      if (!profile?.clinic_id) {
-        console.log('[Sessions] No profile.clinic_id, skipping session load');
-        return;
-      }
-      
-      console.log('[Sessions] Loading sessions for clinic:', profile.clinic_id);
-      const sessionsData = await loadSessions();
-      await loadPatients();
-      
-      console.log('[Sessions] Loaded', sessionsData.length, 'sessions');
-      
-      // After sessions are loaded, filter openTabs to only include existing sessions
-      // This ensures we remove tabs for deleted sessions, but we don't reload tabs
-      // because they were already loaded when user became available
+    if (openTabs.size > 0 && !tabsLoadedFromDBRef.current) {
+      // Check if these tabs came from DB by checking if they were set recently
+      // This is a simple heuristic - in practice, tabs from DB are set in loadOpenTabs
+      tabsLoadedFromDBRef.current = true;
+      console.log('[Tabs] Marked tabs as loaded from DB:', Array.from(openTabs));
+    }
+  }, [openTabs]);
+
+  // Filter openTabs to remove ONLY deleted sessions (sessions that don't exist in DB anymore)
+  // We use tabSessions (loaded by ID) instead of sessions (limited to 50) to determine validity
+  useEffect(() => {
+    // Don't filter if tab sessions are still loading
+    if (isLoadingTabSessions) {
+      console.log('[Tabs] Tab sessions still loading, skipping filter');
+      return;
+    }
+
+    // Don't filter if tabs haven't been loaded from DB yet
+    if (!tabsLoadedFromDBRef.current) {
+      console.log('[Tabs] Tabs not loaded from DB yet, skipping filter');
+      return;
+    }
+
+    // Only filter if we have tabs and tabSessions query has completed
+    if (openTabs.size === 0) {
+      return;
+    }
+
+    // Find tabs that were NOT found in the database (deleted sessions)
+    const loadedSessionIds = new Set(tabSessions.map(s => s.id));
+    const deletedTabs = Array.from(openTabs).filter(tabId => !loadedSessionIds.has(tabId));
+
+    // Only remove tabs for sessions that were definitely deleted (queried but not found)
+    if (deletedTabs.length > 0 && tabSessions.length > 0) {
+      console.log('[Tabs] Removing tabs for deleted sessions:', deletedTabs);
       setOpenTabs(prev => {
-        const validSessionIds = new Set(sessionsData.map(s => s.id));
-        const filteredTabs = new Set<string>();
-        const prevArray = Array.from(prev);
-        
-        console.log('[Sessions] Filtering tabs. Before:', prevArray.length, 'tabs:', prevArray);
-        console.log('[Sessions] Valid session IDs:', Array.from(validSessionIds));
-        
-        prev.forEach(id => {
-          if (validSessionIds.has(id)) {
-            filteredTabs.add(id);
-          }
-        });
-        
-        console.log('[Sessions] After filtering:', Array.from(filteredTabs).length, 'tabs:', Array.from(filteredTabs));
-        
-        return filteredTabs;
+        const newTabs = new Set(prev);
+        deletedTabs.forEach(id => newTabs.delete(id));
+        return newTabs;
       });
-    };
-    
-    loadData();
-  }, [profile]);
+    }
+  }, [tabSessions, isLoadingTabSessions, openTabs]);
 
   // Handle navigation with session ID from patient card or other pages
   useEffect(() => {
@@ -368,6 +458,348 @@ const SessionsPage = () => {
     }
   }, [location.state, searchParams, navigate, location.pathname, isLoading, sessions, user?.id, setSearchParams]);
 
+  // Функция для повторной загрузки записи (объявлена до использования)
+  const retryUploadRecording = useCallback(async (localId: string, recording: {
+    blob: Blob;
+    fileName: string;
+    duration: number;
+    mimeType: string;
+    recordingId?: string;
+    sessionId?: string;
+  }) => {
+    if (!user || !profile || !profile.clinic_id) return;
+
+    try {
+      // If we have existing recordingId, check if it already exists
+      if (recording.recordingId && recording.sessionId) {
+        // Recording already exists in DB, just mark as uploaded
+        await markRecordingUploaded(localId, recording.recordingId, recording.sessionId);
+        await logLocalStorageOperation('local_storage_upload_success', recording.recordingId, {
+          fileName: recording.fileName,
+          duration: recording.duration,
+        });
+        return;
+      }
+
+      // Use saved sessionId or active session or create new one
+      let sessionId = recording.sessionId || activeSession;
+      if (!sessionId) {
+        const newSession = await createSession({
+          userId: user.id,
+          clinicId: profile.clinic_id,
+          patientId: null,
+          title: `Сессия ${new Date(recording.duration * 1000).toLocaleString('ru-RU')}`,
+        });
+        sessionId = newSession.id;
+      }
+
+      // Create recording record
+      const newRecording = await createRecording({
+        sessionId,
+        userId: user.id,
+        fileName: recording.fileName,
+      });
+
+      // Upload audio file
+      await uploadAudioFile({
+        recordingId: newRecording.id,
+        audioBlob: recording.blob,
+        fileName: newRecording.file_name || recording.fileName,
+        mimeType: recording.mimeType,
+      });
+
+      // Update recording with duration
+      await updateRecording(newRecording.id, {
+        duration_seconds: recording.duration,
+      });
+
+      // Mark as uploaded
+      await markRecordingUploaded(localId, newRecording.id, sessionId);
+      await logLocalStorageOperation('local_storage_upload_success', newRecording.id, {
+        fileName: recording.fileName,
+        duration: recording.duration,
+      });
+
+      // Start transcription
+      try {
+        await startTranscription(newRecording.id, transcriptionApiUrl);
+      } catch (transcriptionError) {
+        console.warn('Transcription not started for retried recording:', transcriptionError);
+      }
+
+      // Reload recordings if this is the active session
+      if (sessionId === activeSession) {
+        // Use getSessionRecordings directly to avoid dependency issues
+        const recordingsData = await getSessionRecordings(sessionId);
+        setRecordings(recordingsData);
+      }
+
+      toast({
+        title: "Запись восстановлена",
+        description: `Запись "${recording.fileName}" успешно загружена`,
+      });
+    } catch (error) {
+      console.error('[SessionsPage] Retry upload failed:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Неизвестная ошибка';
+      await markRecordingUploadFailed(localId, errorMessage);
+      await logLocalStorageOperation('local_storage_upload_failed', null, {
+        fileName: recording.fileName,
+        error: errorMessage,
+      });
+      throw error;
+    }
+  }, [user, profile, activeSession, transcriptionApiUrl, toast, setRecordings]);
+
+  // Проверка не загруженных записей при загрузке страницы
+  useEffect(() => {
+    const checkUnuploadedRecordings = async () => {
+      try {
+        const unuploaded = await getUnuploadedRecordings();
+        if (unuploaded.length > 0) {
+          setUnuploadedRecordings(unuploaded);
+          setShowRecoveryDialog(true);
+        }
+      } catch (error) {
+        console.error('Error checking unuploaded recordings:', error);
+      }
+    };
+
+    if (user && profile) {
+      checkUnuploadedRecordings();
+    }
+  }, [user, profile]);
+
+  // Автоматическая повторная загрузка при восстановлении соединения
+  useEffect(() => {
+    const handleOnline = async () => {
+      if (!user || !profile || !profile.clinic_id) return;
+
+      try {
+        const unuploaded = await getUnuploadedRecordings();
+        if (unuploaded.length === 0) return;
+
+        console.log('[SessionsPage] Connection restored, attempting to upload', unuploaded.length, 'recordings');
+
+        // Дедупликация: загружаем только уникальные записи
+        const processedIds = new Set<string>();
+        for (const recordingMeta of unuploaded) {
+          // Пропускаем checkpoint'ы - они будут удалены после успешной загрузки основной записи
+          if (recordingMeta.fileName.includes('checkpoint') || recordingMeta.fileName.includes('hidden')) {
+            continue;
+          }
+          
+          // Пропускаем дубликаты
+          if (processedIds.has(recordingMeta.id)) {
+            continue;
+          }
+          
+          try {
+            const recording = await getLocalRecording(recordingMeta.id);
+            if (!recording || recording.uploaded) continue;
+
+            // Try to upload
+            await retryUploadRecording(recordingMeta.id, recording);
+            processedIds.add(recordingMeta.id);
+          } catch (error) {
+            console.error(`[SessionsPage] Failed to retry upload for ${recordingMeta.id}:`, error);
+          }
+        }
+        
+        // Удаляем checkpoint'ы после успешной загрузки
+        for (const recordingMeta of unuploaded) {
+          if ((recordingMeta.fileName.includes('checkpoint') || recordingMeta.fileName.includes('hidden')) && processedIds.size > 0) {
+            try {
+              await deleteLocalRecording(recordingMeta.id);
+            } catch (error) {
+              console.warn(`[SessionsPage] Failed to delete checkpoint ${recordingMeta.id}:`, error);
+            }
+          }
+        }
+
+        // Refresh unuploaded list
+        const updated = await getUnuploadedRecordings();
+        setUnuploadedRecordings(updated);
+      } catch (error) {
+        console.error('[SessionsPage] Error in automatic retry:', error);
+      }
+    };
+
+    window.addEventListener('online', handleOnline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [user, profile, activeSession, retryUploadRecording]);
+
+  // Периодическое сохранение во время записи (каждые 10 минут)
+  useEffect(() => {
+    if (!isRecording || !currentRecordingSessionIdRef.current) {
+      lastCheckpointRef.current = null;
+      return;
+    }
+
+    const intervalId = setInterval(async () => {
+      try {
+        const chunks = getCurrentChunks();
+        if (chunks.length === 0) {
+          return; // Нет данных для сохранения
+        }
+
+        const mimeType = getCurrentMimeType();
+        const blob = new Blob(chunks, { type: mimeType });
+        const sessionId = currentRecordingSessionIdRef.current;
+        
+        if (!sessionId) {
+          return;
+        }
+
+        // Удаляем предыдущий checkpoint, если есть
+        if (lastCheckpointRef.current) {
+          try {
+            await deleteLocalRecording(lastCheckpointRef.current);
+          } catch (error) {
+            console.warn('[SessionsPage] Failed to delete old checkpoint:', error);
+          }
+        }
+
+        // Сохранить новый checkpoint
+        const fileName = `recording-${Date.now()}-checkpoint.webm`;
+        const checkpointId = await saveRecordingLocally(
+          blob,
+          fileName,
+          recordingTime,
+          mimeType,
+          sessionId
+        );
+        
+        lastCheckpointRef.current = checkpointId;
+        console.log('[SessionsPage] Periodic checkpoint saved:', fileName, 'duration:', recordingTime);
+        await logLocalStorageOperation('local_storage_checkpoint', null, {
+          fileName,
+          duration: recordingTime,
+          sessionId,
+        });
+      } catch (error) {
+        console.warn('[SessionsPage] Failed to save periodic checkpoint:', error);
+        // Не прерываем запись из-за ошибки сохранения
+      }
+    }, 10 * 60 * 1000); // 10 минут
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [isRecording, recordingTime, getCurrentChunks, getCurrentMimeType]);
+
+  // Сохранение при закрытии вкладки или потере фокуса
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isRecording && currentRecordingSessionIdRef.current) {
+        // Используем синхронный подход для beforeunload
+        // Сохраняем в sessionStorage как fallback
+        try {
+          const chunks = getCurrentChunks();
+          if (chunks.length > 0) {
+            const mimeType = getCurrentMimeType();
+            const blob = new Blob(chunks, { type: mimeType });
+            const sessionId = currentRecordingSessionIdRef.current;
+            
+            // Сохраняем метаданные в sessionStorage для восстановления после перезагрузки
+            const metadata = {
+              chunksCount: chunks.length,
+              mimeType,
+              sessionId,
+              duration: recordingTime,
+              timestamp: Date.now(),
+            };
+            sessionStorage.setItem('pending_recording_metadata', JSON.stringify(metadata));
+            
+            // Показываем предупреждение пользователю
+            e.preventDefault();
+            e.returnValue = 'Идет запись. Вы уверены, что хотите закрыть страницу?';
+            return e.returnValue;
+          }
+        } catch (error) {
+          console.error('[SessionsPage] Failed to save on unload:', error);
+        }
+      }
+    };
+
+    const handleVisibilityChange = async () => {
+      if (document.hidden && isRecording && currentRecordingSessionIdRef.current) {
+        try {
+          const chunks = getCurrentChunks();
+          if (chunks.length > 0) {
+            const mimeType = getCurrentMimeType();
+            const blob = new Blob(chunks, { type: mimeType });
+            const sessionId = currentRecordingSessionIdRef.current;
+            
+            // Удаляем предыдущий checkpoint, если есть
+            if (lastCheckpointRef.current) {
+              try {
+                await deleteLocalRecording(lastCheckpointRef.current);
+              } catch (error) {
+                // Игнорируем ошибки удаления
+              }
+            }
+            
+            const checkpointId = await saveRecordingLocally(
+              blob,
+              `recording-${Date.now()}-hidden.webm`,
+              recordingTime,
+              mimeType,
+              sessionId
+            );
+            
+            lastCheckpointRef.current = checkpointId;
+            console.log('[SessionsPage] Saved recording on visibility change');
+          }
+        } catch (error) {
+          console.error('[SessionsPage] Failed to save on visibility change:', error);
+        }
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isRecording, recordingTime, getCurrentChunks, getCurrentMimeType]);
+
+  // Восстановление записи после перезагрузки страницы
+  useEffect(() => {
+    const restorePendingRecording = async () => {
+      const metadataStr = sessionStorage.getItem('pending_recording_metadata');
+      if (!metadataStr) return;
+
+      try {
+        const metadata = JSON.parse(metadataStr);
+        // Проверяем, что метаданные не старше 1 часа
+        if (Date.now() - metadata.timestamp > 60 * 60 * 1000) {
+          sessionStorage.removeItem('pending_recording_metadata');
+          return;
+        }
+
+        // Показываем уведомление пользователю
+        toast({
+          title: "Восстановление записи",
+          description: "Обнаружена незавершенная запись. Проверьте локальные записи.",
+          variant: "default",
+        });
+
+        sessionStorage.removeItem('pending_recording_metadata');
+      } catch (error) {
+        console.error('[SessionsPage] Failed to restore pending recording:', error);
+        sessionStorage.removeItem('pending_recording_metadata');
+      }
+    };
+
+    if (user && profile) {
+      restorePendingRecording();
+    }
+  }, [user, profile, toast]);
+
   // Load recordings and notes when session changes
   // Load clinical notes for active session
   const loadClinicalNotes = async (sessionId: string) => {
@@ -424,45 +856,10 @@ const SessionsPage = () => {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [activeSession]);
 
-  const loadSessions = async (): Promise<Session[]> => {
-    if (!profile?.clinic_id) return [];
-
-    try {
-      const { data, error } = await supabase
-        .from('sessions')
-        .select('*')
-        .eq('clinic_id', profile.clinic_id)
-        .is('deleted_at', null) // Only get non-deleted sessions
-        .order('created_at', { ascending: false })
-        .limit(50);
-
-      if (error) throw error;
-
-      const sessionsData = data || [];
-      setSessions(sessionsData);
-
-      return sessionsData;
-    } catch (error) {
-      console.error('Error loading sessions:', error);
-      toast({
-        title: "Ошибка",
-        description: "Не удалось загрузить сессии",
-        variant: "destructive",
-      });
-      return [];
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const loadPatients = async () => {
-    try {
-      const { data, error } = await getPatients();
-      if (error) throw error;
-      setPatients(data || []);
-    } catch (error) {
-      console.error('Error loading patients:', error);
-    }
+  // Helper to refresh sessions (for manual refresh button)
+  const refreshSessions = async () => {
+    // Invalidate and refetch sessions
+    invalidateSessions(profile?.clinic_id);
   };
 
   const loadRecordings = async (sessionId: string) => {
@@ -636,19 +1033,14 @@ const SessionsPage = () => {
   const handleCloseSession = async (sessionId: string, e?: React.MouseEvent) => {
     e?.stopPropagation(); // Prevent session selection
 
-    const session = sessions.find(s => s.id === sessionId);
+    const session = tabSessions.find(s => s.id === sessionId);
     if (!session) return;
 
     // If session is linked to patient, complete it and close the tab
     if (session.patient_id) {
       try {
-        // Complete the session (set status to 'completed', set end time, calculate duration)
-        await completeSession(sessionId);
-
-        // Update session status locally (don't reload to avoid race condition)
-        setSessions(prev => prev.map(s =>
-          s.id === sessionId ? { ...s, status: 'completed' } : s
-        ));
+        // Complete the session using React Query mutation
+        await completeSessionMutation.mutateAsync(sessionId);
 
         // Remove from open tabs
         setOpenTabs(prev => {
@@ -661,7 +1053,7 @@ const SessionsPage = () => {
         if (activeSession === sessionId) {
           // We need to calculate remaining tabs manually since state hasn't updated yet
           const remainingOpenTabIds = [...openTabs].filter(id => id !== sessionId);
-          const remainingSessions = sessions.filter(s => remainingOpenTabIds.includes(s.id));
+          const remainingSessions = tabSessions.filter(s => remainingOpenTabIds.includes(s.id));
           if (remainingSessions.length > 0) {
             setActiveSession(remainingSessions[0].id);
           } else {
@@ -693,17 +1085,13 @@ const SessionsPage = () => {
 
     try {
       // First link session to patient
-      await linkSessionToPatient(closingSessionId, selectedPatientId);
+      await linkSessionMutation.mutateAsync({ 
+        sessionId: closingSessionId, 
+        patientId: selectedPatientId 
+      });
 
       // Then complete the session
-      await completeSession(closingSessionId);
-
-      // Update session locally (don't reload to avoid race condition)
-      setSessions(prev => prev.map(s =>
-        s.id === closingSessionId
-          ? { ...s, patient_id: selectedPatientId, status: 'completed' }
-          : s
-      ));
+      await completeSessionMutation.mutateAsync(closingSessionId);
 
       // Remove from open tabs (close the tab)
       setOpenTabs(prev => {
@@ -715,7 +1103,7 @@ const SessionsPage = () => {
       // If closed session was active, select another one from remaining open tabs
       if (activeSession === closingSessionId) {
         const remainingOpenTabIds = [...openTabs].filter(id => id !== closingSessionId);
-        const remainingSessions = sessions.filter(s => remainingOpenTabIds.includes(s.id));
+        const remainingSessions = tabSessions.filter(s => remainingOpenTabIds.includes(s.id));
         if (remainingSessions.length > 0) {
           setActiveSession(remainingSessions[0].id);
         } else {
@@ -745,7 +1133,8 @@ const SessionsPage = () => {
     if (!closingSessionId) return;
     
     try {
-      await deleteSession(closingSessionId);
+      await deleteSessionMutation.mutateAsync(closingSessionId);
+      
       toast({
         title: "Успешно",
         description: "Сессия удалена",
@@ -753,7 +1142,7 @@ const SessionsPage = () => {
       
       // If deleted session was active, select another one
       if (activeSession === closingSessionId) {
-        const remainingSessions = sessions.filter(s => s.id !== closingSessionId);
+        const remainingSessions = tabSessions.filter(s => s.id !== closingSessionId);
         if (remainingSessions.length > 0) {
           setActiveSession(remainingSessions[0].id);
         } else {
@@ -761,7 +1150,7 @@ const SessionsPage = () => {
         }
       }
       
-      await loadSessions();
+      // Cache will be automatically invalidated by useDeleteSessionMutation
       setCloseSessionDialogOpen(false);
       setClosingSessionId(null);
     } catch (error) {
@@ -811,9 +1200,9 @@ const SessionsPage = () => {
     
     setLinkDialogOpen(true);
     setSelectedPatientId("");
-    
+
     // Check if session already has a patient and clinical notes
-    const session = sessions.find(s => s.id === activeSession);
+    const session = tabSessions.find(s => s.id === activeSession);
     if (session?.patient_id) {
       try {
         const notesCheck = await checkSessionClinicalNotes(activeSession);
@@ -841,10 +1230,10 @@ const SessionsPage = () => {
 
     setIsLinking(true);
     const savedSessionId = activeSession;
-    
+
     try {
       // Determine if this is a re-link
-      const session = sessions.find(s => s.id === activeSession);
+      const session = tabSessions.find(s => s.id === activeSession);
       const isRelinking = session?.patient_id !== null && session?.patient_id !== selectedPatientId;
       
       // Get notes check for re-linking
@@ -870,9 +1259,13 @@ const SessionsPage = () => {
         }
       }
 
-      await linkSessionToPatient(activeSession, selectedPatientId, {
-        allowRelinkFinalized,
-        allowRelinkSigned,
+      await linkSessionMutation.mutateAsync({
+        sessionId: activeSession,
+        patientId: selectedPatientId,
+        options: {
+          allowRelinkFinalized,
+          allowRelinkSigned,
+        },
       });
       
       toast({
@@ -886,16 +1279,22 @@ const SessionsPage = () => {
       setSelectedPatientId("");
       setRelinkWarning(null);
       
-      // Reload sessions and restore active session
-      const updatedSessions = await loadSessions();
-      const sessionToSelect = updatedSessions.find(s => s.id === savedSessionId) || updatedSessions[0];
-      if (sessionToSelect) {
-        setActiveSession(sessionToSelect.id);
-      } else if (updatedSessions.length > 0) {
-        setActiveSession(updatedSessions[0].id);
-      } else {
-        setActiveSession(null);
-      }
+      // Cache will be automatically invalidated by useLinkSessionToPatient mutation
+      // Restore active session after cache update
+      const savedSessionId = activeSession;
+      await queryClient.invalidateQueries({ queryKey: ['sessions', profile?.clinic_id] });
+      
+      // Wait a bit for cache to update, then find the session
+      setTimeout(() => {
+        const sessionToSelect = sessions.find(s => s.id === savedSessionId) || sessions[0];
+        if (sessionToSelect) {
+          setActiveSession(sessionToSelect.id);
+        } else if (sessions.length > 0) {
+          setActiveSession(sessions[0].id);
+        } else {
+          setActiveSession(null);
+        }
+      }, 100);
       
       // Reload clinical notes if they exist
       if (activeSession) {
@@ -929,8 +1328,8 @@ const SessionsPage = () => {
       // Generate default title if not provided
       const sessionTitle = title || `Сессия ${new Date().toLocaleString('ru-RU')}`;
 
-      // Create session
-      const newSession = await createSession({
+      // Create session using React Query mutation
+      const newSession = await createSessionMutation.mutateAsync({
         userId: user.id,
         clinicId: profile.clinic_id,
         patientId: patientId || undefined,
@@ -939,7 +1338,10 @@ const SessionsPage = () => {
 
       // If patient is selected, link session to patient (creates consents)
       if (patientId) {
-        await linkSessionToPatient(newSession.id, patientId);
+        await linkSessionMutation.mutateAsync({ 
+          sessionId: newSession.id, 
+          patientId 
+        });
       }
 
       toast({
@@ -952,8 +1354,9 @@ const SessionsPage = () => {
       // Add new session to open tabs
       setOpenTabs(prev => new Set(prev).add(newSession.id));
       
-      // Reload sessions and select the new one
-      await loadSessions();
+      // Cache will be automatically invalidated by useCreateSession mutation
+      // Wait for cache to update and select the new session
+      await queryClient.invalidateQueries({ queryKey: ['sessions', profile.clinic_id] });
       setActiveSession(newSession.id);
     } catch (error) {
       console.error('Error creating session:', error);
@@ -966,16 +1369,13 @@ const SessionsPage = () => {
     }
   };
 
-  // Filter sessions by search query and open tabs
+  // Filter tab sessions by search query
+  // tabSessions already contains only sessions from open tabs (loaded by ID, no 50 limit)
   const filteredSessions = useMemo(() => {
-    // First filter by open tabs
-    const openTabsArray = Array.from(openTabs);
-    console.log('[FilteredSessions] openTabs:', openTabsArray);
-    console.log('[FilteredSessions] sessions:', sessions.length);
-    let result = sessions.filter(session => openTabs.has(session.id));
-    console.log('[FilteredSessions] after filtering by openTabs:', result.length);
-    
-    // Then filter by search query if provided
+    console.log('[FilteredSessions] tabSessions:', tabSessions.length, 'openTabs:', openTabs.size);
+    let result = [...tabSessions];
+
+    // Filter by search query if provided
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase().trim();
       result = result.filter((session) => {
@@ -1017,13 +1417,13 @@ const SessionsPage = () => {
         return false;
       });
     }
-    
-    return result;
-  }, [sessions, patients, searchQuery, openTabs]);
 
-  // Только показываем сессию, если она в открытых вкладках
+    return result;
+  }, [tabSessions, patients, searchQuery, openTabs]);
+
+  // Get current session from tab sessions (loaded by ID)
   const currentSession = activeSession && openTabs.has(activeSession)
-    ? (filteredSessions.find(s => s.id === activeSession) || sessions.find(s => s.id === activeSession))
+    ? tabSessions.find(s => s.id === activeSession) || null
     : null;
   const currentRecordings = recordings.filter(r => r.session_id === activeSession);
   const currentNotes = sessionNotes.filter(n => n.session_id === activeSession);
@@ -1085,6 +1485,8 @@ const SessionsPage = () => {
 
     setIsSavingRecording(true);
 
+    let localRecordingId: string | null = null;
+
     try {
       // Stop recording and get the blob directly
       const blob = await stopRecording();
@@ -1093,28 +1495,58 @@ const SessionsPage = () => {
         throw new Error('Не удалось получить аудио данные');
       }
 
-      // Create recording record
+      // 1. СНАЧАЛА сохраняем локально (независимо от интернета)
+      const fileName = `recording-${Date.now()}.webm`;
+      const mimeType = blob.type || 'audio/webm';
+      
+      try {
+        localRecordingId = await saveRecordingLocally(
+          blob,
+          fileName,
+          duration,
+          mimeType,
+          sessionId
+        );
+        console.log('[SessionsPage] Recording saved locally:', localRecordingId);
+        await logLocalStorageOperation('local_storage_save', null, {
+          fileName,
+          duration,
+        });
+      } catch (localError) {
+        console.warn('[SessionsPage] Failed to save locally (non-critical):', localError);
+        // Продолжаем даже если локальное сохранение не удалось
+      }
+
+      // 2. Теперь пытаемся загрузить в Supabase
       const recording = await createRecording({
         sessionId,
         userId: user.id,
-        fileName: `recording-${Date.now()}.webm`,
+        fileName,
       });
 
-      // Determine MIME type from blob
-      const mimeType = blob.type || 'audio/webm';
-
-      // Upload audio file
       await uploadAudioFile({
         recordingId: recording.id,
         audioBlob: blob,
-        fileName: recording.file_name || `recording-${recording.id}.webm`,
+        fileName: recording.file_name || fileName,
         mimeType,
       });
 
-      // Update recording with duration
       await updateRecording(recording.id, {
         duration_seconds: duration,
       });
+
+      // 3. Если загрузка успешна, помечаем локальную запись как загруженную
+      if (localRecordingId) {
+        try {
+          await markRecordingUploaded(localRecordingId, recording.id, sessionId);
+          await logLocalStorageOperation('local_storage_upload_success', recording.id, {
+            fileName,
+            duration,
+          });
+        } catch (markError) {
+          console.warn('[SessionsPage] Failed to mark as uploaded:', markError);
+        }
+      }
 
       // Start transcription
       try {
@@ -1142,21 +1574,54 @@ const SessionsPage = () => {
       console.error('Error saving recording:', error);
       const errorMessage = error instanceof Error ? error.message : 'Неизвестная ошибка';
 
+      // 4. Если загрузка не удалась, помечаем локальную запись как не загруженную
+      if (localRecordingId) {
+        try {
+          await markRecordingUploadFailed(localRecordingId, errorMessage);
+          await logLocalStorageOperation('local_storage_upload_failed', null, {
+            fileName,
+            error: errorMessage,
+          });
+          console.log('[SessionsPage] Recording saved locally but upload failed:', localRecordingId);
+          
+          // Refresh unuploaded list
+          const unuploaded = await getUnuploadedRecordings();
+          setUnuploadedRecordings(unuploaded);
+          if (unuploaded.length > 0) {
+            setShowRecoveryDialog(true);
+          }
+        } catch (markError) {
+          console.warn('[SessionsPage] Failed to mark upload error:', markError);
+        }
+      }
+
       // More detailed error messages
       let userFriendlyMessage = errorMessage;
       if (errorMessage.includes('Failed to create recording')) {
-        userFriendlyMessage = 'Не удалось создать сессию в базе данных. Проверьте подключение к Supabase.';
+        userFriendlyMessage = 'Не удалось создать сессию в базе данных. Запись сохранена локально и будет загружена автоматически при восстановлении соединения.';
       } else if (errorMessage.includes('Failed to upload audio file')) {
-        userFriendlyMessage = 'Не удалось загрузить аудио файл. Проверьте, что bucket "recordings" создан в Supabase Storage.';
+        userFriendlyMessage = 'Не удалось загрузить аудио файл. Запись сохранена локально и будет загружена автоматически при восстановлении соединения.';
       } else if (errorMessage.includes('row-level security')) {
-        userFriendlyMessage = 'Ошибка прав доступа. Убедитесь, что вы авторизованы и имеете права на создание записей.';
+        userFriendlyMessage = 'Ошибка прав доступа. Запись сохранена локально.';
+      } else {
+        userFriendlyMessage = `Ошибка: ${errorMessage}. Запись сохранена локально.`;
       }
 
       toast({
-        title: "Ошибка",
+        title: "Ошибка загрузки",
         description: userFriendlyMessage,
         variant: "destructive",
       });
+
+      // Удаляем checkpoint при ошибке (он все равно не нужен)
+      if (lastCheckpointRef.current) {
+        try {
+          await deleteLocalRecording(lastCheckpointRef.current);
+          lastCheckpointRef.current = null;
+        } catch (error) {
+          // Игнорируем ошибки удаления
+        }
+      }
 
       reset();
       setIsRecordingInSession(false);
@@ -1966,7 +2431,7 @@ const SessionsPage = () => {
                         return;
                       }
 
-                      const session = sessions.find(s => s.id === activeSession);
+                      const session = tabSessions.find(s => s.id === activeSession);
                       if (!session?.patient_id) {
                         toast({
                           title: 'Ошибка',
@@ -2011,12 +2476,12 @@ const SessionsPage = () => {
                         setIsGenerating(false);
                       }
                     }}
-                    disabled={!activeSession || !sessions.find(s => s.id === activeSession)?.patient_id || !selectedTemplateId || isGenerating}
+                    disabled={!activeSession || !tabSessions.find(s => s.id === activeSession)?.patient_id || !selectedTemplateId || isGenerating}
                     title={
-                      !activeSession 
-                        ? 'Выберите сессию' 
-                        : !sessions.find(s => s.id === activeSession)?.patient_id 
-                        ? 'Сессия должна быть привязана к пациенту' 
+                      !activeSession
+                        ? 'Выберите сессию'
+                        : !tabSessions.find(s => s.id === activeSession)?.patient_id
+                        ? 'Сессия должна быть привязана к пациенту'
                         : !selectedTemplateId
                         ? 'Выберите шаблон'
                         : 'Запустить генерацию клинической заметки'
@@ -2103,6 +2568,47 @@ const SessionsPage = () => {
         onOpenChange={setCreateSessionDialogOpen}
         patients={patients}
         onCreateSession={handleCreateNewSession}
+      />
+
+      {/* Recovery Dialog */}
+      <RecoveryDialog
+        open={showRecoveryDialog}
+        onOpenChange={setShowRecoveryDialog}
+        recordings={unuploadedRecordings}
+        onRetryUpload={async (localId: string) => {
+          try {
+            const recording = await getLocalRecording(localId);
+            if (!recording) {
+              toast({
+                title: "Ошибка",
+                description: "Запись не найдена",
+                variant: "destructive",
+              });
+              return;
+            }
+            await retryUploadRecording(localId, recording);
+            // Refresh list
+            const updated = await getUnuploadedRecordings();
+            setUnuploadedRecordings(updated);
+            if (updated.length === 0) {
+              setShowRecoveryDialog(false);
+            }
+          } catch (error) {
+            console.error('Error retrying upload:', error);
+            toast({
+              title: "Ошибка",
+              description: "Не удалось загрузить запись",
+              variant: "destructive",
+            });
+          }
+        }}
+        onRefresh={async () => {
+          const updated = await getUnuploadedRecordings();
+          setUnuploadedRecordings(updated);
+          if (updated.length === 0) {
+            setShowRecoveryDialog(false);
+          }
+        }}
       />
     </>
   );

@@ -45,39 +45,79 @@ function SectionCard({
       return;
     }
     
+    console.log('[SectionCard] Updating content for section:', {
+      sectionId,
+      hasContent: !!rawContent,
+      contentLength: rawContent.length,
+      contentPreview: rawContent.substring(0, 50),
+      hasContentField: !!section.content,
+      hasAiContentField: !!section.ai_content,
+    });
+    
     lastContentRef.current = rawContent;
     lastSectionIdRef.current = sectionId;
 
     const decryptContent = async () => {
       if (!rawContent) {
+        console.log('[SectionCard] No content, clearing');
         setDecryptedContent('');
         setContent('');
         return;
       }
 
       // Проверяем, зашифрован ли контент
-      const isLikelyEncrypted = rawContent.length > 50 &&
+      // Зашифрованный контент обычно: base64 строка без пробелов и переносов строк
+      // Но после расшифровки в getClinicalNotesForSession контент должен быть уже расшифрован
+      // Более строгая проверка: если есть кириллица или другие Unicode символы - уже расшифровано
+      const hasUnicodeChars = /[а-яА-ЯёЁ\u0400-\u04FF]/.test(rawContent);
+      const isLikelyEncrypted = !hasUnicodeChars &&
+                                rawContent.length > 50 &&
                                 /^[A-Za-z0-9+/=]+$/.test(rawContent) &&
                                 !rawContent.includes('\n') &&
                                 !rawContent.includes(' ') &&
                                 !rawContent.includes(':');
 
+      console.log('[SectionCard] Decryption check:', {
+        hasUnicodeChars,
+        isLikelyEncrypted,
+        length: rawContent.length,
+        preview: rawContent.substring(0, 30),
+      });
+
       if (isLikelyEncrypted) {
         try {
           setIsDecrypting(true);
+          console.log('[SectionCard] Attempting to decrypt...');
           const decrypted = await decryptPHI(rawContent);
-          setDecryptedContent(decrypted);
-          setContent(decrypted);
+          console.log('[SectionCard] Decryption successful, length:', decrypted.length);
+          if (decrypted && decrypted.trim()) {
+            setDecryptedContent(decrypted);
+            setContent(decrypted);
+          } else {
+            // Если расшифровка вернула пустую строку, используем исходный контент
+            console.warn('[SectionCard] Decryption returned empty string, using original');
+            setDecryptedContent(rawContent);
+            setContent(rawContent);
+          }
         } catch (err) {
-          console.warn('Failed to decrypt section content:', err);
-          // Если расшифровка не удалась, используем как есть
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          // Не логируем rate limit ошибки как предупреждения
+          if (!errorMsg.includes('Too many requests')) {
+            console.warn('[SectionCard] Failed to decrypt section content:', {
+              error: errorMsg,
+              contentLength: rawContent.length,
+            });
+          }
+          // Если расшифровка не удалась, пробуем использовать как есть (возможно уже расшифровано)
+          // НЕ очищаем контент, даже если расшифровка не удалась
           setDecryptedContent(rawContent);
           setContent(rawContent);
         } finally {
           setIsDecrypting(false);
         }
       } else {
-        // Контент не зашифрован
+        // Контент не зашифрован (уже расшифрован в getClinicalNotesForSession)
+        console.log('[SectionCard] Content appears to be already decrypted');
         setDecryptedContent(rawContent);
         setContent(rawContent);
       }
@@ -205,13 +245,24 @@ export function ClinicalNotesOutput({ clinicalNote, onUpdate }: ClinicalNotesOut
 
     // Создаем хеш секций для сравнения
     const sorted = [...clinicalNote.sections].sort((a, b) => a.position - b.position);
-    const sectionsHash = sorted.map(s => `${s.id}:${s.content || ''}:${s.ai_content || ''}`).join('|');
+    const sectionsHash = sorted.map(s => `${s.id}:${s.content || ''}:${s.ai_content || ''}:${s.generation_status || ''}`).join('|');
+    
+    console.log('[ClinicalNotesOutput] Updating sections:', {
+      noteId: clinicalNote.id,
+      sectionsCount: sorted.length,
+      sectionsWithContent: sorted.filter(s => s.content || s.ai_content).length,
+      hash: sectionsHash.substring(0, 100),
+      previousHash: lastSectionsHashRef.current.substring(0, 100),
+      hashChanged: sectionsHash !== lastSectionsHashRef.current,
+    });
     
     // Предотвращаем обновление, если секции не изменились
     if (clinicalNote.id === lastNoteIdRef.current && sectionsHash === lastSectionsHashRef.current) {
+      console.log('[ClinicalNotesOutput] Sections unchanged, skipping update');
       return;
     }
     
+    console.log('[ClinicalNotesOutput] Setting new sections');
     setSections(sorted);
     lastNoteIdRef.current = clinicalNote.id;
     lastSectionsHashRef.current = sectionsHash;

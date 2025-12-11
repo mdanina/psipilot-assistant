@@ -67,12 +67,6 @@ export function encrypt(plaintext) {
       tag
     ]);
 
-    // Debug logging
-    console.log('[Encrypt] IV length:', iv.length);
-    console.log('[Encrypt] Ciphertext length:', encrypted.length);
-    console.log('[Encrypt] Tag length:', tag.length);
-    console.log('[Encrypt] Total combined length:', combined.length);
-
     // Возвращаем base64-encoded результат
     return combined.toString('base64');
   } catch (error) {
@@ -82,27 +76,75 @@ export function encrypt(plaintext) {
 }
 
 /**
+ * Проверяет, является ли строка валидным base64
+ */
+function isValidBase64(str) {
+  if (typeof str !== 'string' || str.length === 0) {
+    return false;
+  }
+  
+  // Проверяем базовый формат base64
+  const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
+  if (!base64Regex.test(str)) {
+    return false;
+  }
+  
+  // Проверяем минимальную длину (IV + минимальный ciphertext + tag)
+  // Минимум: 12 (IV) + 1 (минимум ciphertext) + 16 (tag) = 29 байт
+  // В base64 это примерно 39 символов
+  try {
+    const decoded = Buffer.from(str, 'base64');
+    const minLength = IV_LENGTH + 1 + TAG_LENGTH; // 29 байт минимум
+    return decoded.length >= minLength;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Расшифровывает данные с использованием AES-GCM 256
  * Формат совместим с Web Crypto API (frontend)
  *
  * @param {string} encryptedData - Base64-encoded зашифрованные данные
  * @returns {string} Расшифрованный открытый текст
+ * @throws {Error} Если данные не могут быть расшифрованы
  */
 export function decrypt(encryptedData) {
   if (!encryptedData) {
     return '';
   }
 
+  // Валидация формата перед попыткой расшифровки
+  if (!isValidBase64(encryptedData)) {
+    throw new Error('Invalid encrypted data format: not a valid base64 string or too short');
+  }
+
   try {
     const key = getEncryptionKey();
 
     // Декодируем base64
-    const combined = Buffer.from(encryptedData, 'base64');
+    let combined;
+    try {
+      combined = Buffer.from(encryptedData, 'base64');
+    } catch (error) {
+      throw new Error('Invalid base64 encoding');
+    }
+
+    // Проверяем минимальную длину данных
+    const minLength = IV_LENGTH + TAG_LENGTH; // Минимум IV + tag
+    if (combined.length < minLength) {
+      throw new Error(`Invalid encrypted data: too short (minimum ${minLength} bytes, got ${combined.length})`);
+    }
 
     // Извлекаем компоненты (формат Web Crypto API: IV + ciphertext + tag)
     const iv = combined.slice(0, IV_LENGTH);
     const tag = combined.slice(-TAG_LENGTH); // tag в конце
     const encrypted = combined.slice(IV_LENGTH, -TAG_LENGTH);
+
+    // Проверяем, что есть данные для расшифровки
+    if (encrypted.length === 0) {
+      throw new Error('Invalid encrypted data: no ciphertext found');
+    }
 
     // Создаем decipher
     const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
@@ -114,8 +156,18 @@ export function decrypt(encryptedData) {
 
     return decrypted;
   } catch (error) {
-    console.error('Decryption error:', error);
-    throw new Error('Failed to decrypt data');
+    // Если это уже наша ошибка валидации, пробрасываем дальше
+    if (error.message && (
+      error.message.includes('Invalid encrypted data') ||
+      error.message.includes('Invalid base64') ||
+      error.message.includes('too short')
+    )) {
+      throw error;
+    }
+    
+    // Для ошибок расшифровки (неправильный ключ, поврежденные данные и т.д.)
+    console.error('Decryption error:', error.message);
+    throw new Error('Failed to decrypt data: data may be corrupted, encrypted with different key, or already decrypted');
   }
 }
 
@@ -132,3 +184,4 @@ export function isEncryptionConfigured() {
     return false;
   }
 }
+

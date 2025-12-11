@@ -3,9 +3,8 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Loader2, RefreshCw, Sparkles, Copy, Printer } from 'lucide-react';
 import { generatePatientCaseSummary } from '@/lib/supabase-ai';
-import { supabase } from '@/lib/supabase';
-import { decryptPHI } from '@/lib/encryption';
 import { useToast } from '@/hooks/use-toast';
+import { usePatientCaseSummary, useInvalidatePatientCaseSummary } from '@/hooks/usePatientCaseSummary';
 import type { Database } from '@/types/database.types';
 
 type Patient = Database['public']['Tables']['patients']['Row'];
@@ -107,55 +106,26 @@ function CaseSummaryContent({ content }: { content: string }) {
  * Компонент для отображения и генерации AI-сводки по случаю пациента
  */
 export function CaseSummaryBlock({ patientId, patient }: CaseSummaryBlockProps) {
-  const [caseSummary, setCaseSummary] = useState<string | null>(null);
-  const [generatedAt, setGeneratedAt] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
 
-  useEffect(() => {
-    loadCaseSummary();
-  }, [patientId]);
+  // React Query hook for fetching case summary with automatic caching
+  const { 
+    data: caseSummaryData, 
+    isLoading, 
+    error: caseSummaryError,
+    refetch: refetchCaseSummary
+  } = usePatientCaseSummary(patientId);
+  
+  const invalidateCaseSummary = useInvalidatePatientCaseSummary();
 
-  const loadCaseSummary = async () => {
-    try {
-      setIsLoading(true);
-      
-      // Получаем данные пациента из базы
-      const { data, error } = await supabase
-        .from('patients')
-        .select('case_summary_encrypted, case_summary_generated_at')
-        .eq('id', patientId)
-        .single();
-
-      if (error) {
-        console.error('Error loading case summary:', error);
-        return;
-      }
-
-      if (data?.case_summary_encrypted) {
-        try {
-          const decrypted = await decryptPHI(data.case_summary_encrypted);
-          setCaseSummary(decrypted);
-          setGeneratedAt(data.case_summary_generated_at || null);
-        } catch (err) {
-          console.error('Error decrypting case summary:', err);
-        }
-      }
-    } catch (error) {
-      console.error('Error loading case summary:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const caseSummary = caseSummaryData?.caseSummary || null;
+  const generatedAt = caseSummaryData?.generatedAt || null;
 
   const handleGenerate = async () => {
     try {
       setIsGenerating(true);
       const result = await generatePatientCaseSummary(patientId);
-      
-      setCaseSummary(result.case_summary);
-      setGeneratedAt(result.generated_at);
       
       const sessionsInfo = result.based_on_sessions_count 
         ? ` на основе ${result.based_on_notes_count} клинических заметок из ${result.based_on_sessions_count} сессий`
@@ -166,8 +136,9 @@ export function CaseSummaryBlock({ patientId, patient }: CaseSummaryBlockProps) 
         description: `Создана${sessionsInfo}`,
       });
       
-      // Перезагружаем после генерации
-      await loadCaseSummary();
+      // Invalidate cache and refetch after generation
+      invalidateCaseSummary(patientId);
+      await refetchCaseSummary();
     } catch (error) {
       console.error('Error generating case summary:', error);
       const errorMessage = error instanceof Error ? error.message : 'Неизвестная ошибка';
@@ -324,6 +295,21 @@ export function CaseSummaryBlock({ patientId, patient }: CaseSummaryBlockProps) 
       printWindow.print();
     }, 250);
   };
+
+  // Show error if case summary query failed
+  useEffect(() => {
+    if (caseSummaryError) {
+      console.error('Error loading case summary:', caseSummaryError);
+      // Don't show toast for missing case summary - it's optional
+      if (!caseSummaryError.message.includes('No rows')) {
+        toast({
+          title: 'Ошибка загрузки',
+          description: 'Не удалось загрузить сводку по случаю',
+          variant: 'destructive',
+        });
+      }
+    }
+  }, [caseSummaryError, toast]);
 
   if (isLoading) {
     return (

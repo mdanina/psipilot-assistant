@@ -21,8 +21,8 @@ touch .env
 PORT=3001
 
 # AssemblyAI API Key
-# Используйте предоставленный ключ: 8bda602db37e4887ba24d711f4c75c8b
-ASSEMBLYAI_API_KEY=8bda602db37e4887ba24d711f4c75c8b
+# Получите свой ключ на https://www.assemblyai.com/
+ASSEMBLYAI_API_KEY=your-assemblyai-api-key
 
 # Supabase Configuration
 # Замените на ваши реальные значения из Supabase Dashboard
@@ -36,7 +36,7 @@ WEBHOOK_URL=http://localhost:3001/api/webhook/assemblyai
 **Важно:** 
 - Файл `.env` уже добавлен в `.gitignore` и не будет попадать в git
 - Не коммитьте API ключи в репозиторий!
-- AssemblyAI API ключ уже предоставлен и настроен
+- AssemblyAI API ключ нужно получить на https://www.assemblyai.com/
 
 ## Running
 

@@ -13,6 +13,8 @@ export interface UseAudioRecorderReturn {
   stopRecording: () => Promise<Blob | null>;
   cancelRecording: () => void;
   reset: () => void;
+  getCurrentChunks: () => Blob[];
+  getCurrentMimeType: () => string;
 }
 
 /**
@@ -35,6 +37,7 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
   const pausedTimeRef = useRef<number>(0);
   const stopResolveRef = useRef<((blob: Blob | null) => void) | null>(null);
   const finalRecordingTimeRef = useRef<number>(0);
+  const currentMimeTypeRef = useRef<string>('audio/webm');
 
   const reset = useCallback(() => {
     setIsRecording(false);
@@ -133,6 +136,7 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
 
       mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
+      currentMimeTypeRef.current = selectedMimeType || 'audio/webm';
 
       // Handle data available
       mediaRecorder.ondataavailable = (event) => {
@@ -234,6 +238,14 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     reset();
   }, [cleanup, reset]);
 
+  const getCurrentChunks = useCallback((): Blob[] => {
+    return [...chunksRef.current];
+  }, []);
+
+  const getCurrentMimeType = useCallback((): string => {
+    return currentMimeTypeRef.current;
+  }, []);
+
   return {
     isRecording,
     isPaused,
@@ -247,6 +259,8 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     stopRecording,
     cancelRecording,
     reset,
+    getCurrentChunks,
+    getCurrentMimeType,
   };
 }
 

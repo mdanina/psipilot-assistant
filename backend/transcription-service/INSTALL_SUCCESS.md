@@ -13,7 +13,7 @@
 1. **Создайте файл `.env`** в директории `backend/transcription-service/`:
    ```env
    PORT=3001
-   ASSEMBLYAI_API_KEY=8bda602db37e4887ba24d711f4c75c8b
+   ASSEMBLYAI_API_KEY=your-assemblyai-api-key  # Получите на https://www.assemblyai.com/
    SUPABASE_URL=http://localhost:8000
    SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
    ```
@@ -38,7 +38,7 @@
 ## Примечания
 
 - Версия AssemblyAI SDK 4.19.0 использует обновленный API
-- Убедитесь, что используете правильный API ключ AssemblyAI
+- Получите свой API ключ AssemblyAI на https://www.assemblyai.com/
 - Service Role Key необходим для доступа к Supabase Storage
 
 ## Документация

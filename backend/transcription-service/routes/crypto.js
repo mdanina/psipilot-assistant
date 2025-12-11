@@ -6,6 +6,9 @@ const router = express.Router();
 /**
  * POST /api/crypto/encrypt
  * Шифрует данные с использованием серверного ключа
+ *
+ * Body: { data: string } или { data: string[] }
+ * Response: { success: true, data: { encrypted: string | string[] } }
  */
 router.post('/encrypt', async (req, res) => {
   try {
@@ -18,33 +21,50 @@ router.post('/encrypt', async (req, res) => {
       });
     }
 
-    if (!isEncryptionConfigured()) {
-      return res.status(503).json({
-        success: false,
-        error: 'Encryption is not configured on the server',
+    // Обработка массива данных для batch шифрования
+    if (Array.isArray(data)) {
+      const encrypted = data.map((item) => {
+        if (typeof item !== 'string') {
+          throw new Error('Each item in array must be a string');
+        }
+        return item ? encrypt(item) : '';
+      });
+
+      return res.json({
+        success: true,
+        data: { encrypted },
       });
     }
 
-    // Поддержка массива данных для batch операций
-    if (Array.isArray(data)) {
-      const encrypted = data.map((item) => (item ? encrypt(item) : ''));
-      return res.json({ success: true, data: { encrypted } });
+    // Обработка одиночного значения
+    if (typeof data !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Data must be a string or array of strings',
+      });
     }
 
-    const encrypted = encrypt(data);
-    res.json({ success: true, data: { encrypted } });
+    const encrypted = data ? encrypt(data) : '';
+
+    res.json({
+      success: true,
+      data: { encrypted },
+    });
   } catch (error) {
-    console.error('Encryption error:', error);
+    console.error('Encryption API error:', error.message);
     res.status(500).json({
       success: false,
-      error: 'Failed to encrypt data',
+      error: 'Encryption failed',
     });
   }
 });
 
 /**
  * POST /api/crypto/decrypt
- * Расшифровывает данные
+ * Расшифровывает данные с использованием серверного ключа
+ *
+ * Body: { data: string } или { data: string[] }
+ * Response: { success: true, data: { decrypted: string | string[] } }
  */
 router.post('/decrypt', async (req, res) => {
   try {
@@ -57,48 +77,94 @@ router.post('/decrypt', async (req, res) => {
       });
     }
 
-    if (!isEncryptionConfigured()) {
-      return res.status(503).json({
-        success: false,
-        error: 'Encryption is not configured on the server',
-      });
-    }
-
-    // Поддержка массива данных для batch операций
+    // Обработка массива данных для batch расшифровки
     if (Array.isArray(data)) {
-      const decrypted = data.map((item) => {
-        if (!item) return '';
-        try {
-          return decrypt(item);
-        } catch {
-          return '[Ошибка расшифровки]';
+      const decrypted = [];
+      const errors = [];
+      
+      for (let i = 0; i < data.length; i++) {
+        const item = data[i];
+        
+        // Пропускаем не-строки и пустые значения
+        if (typeof item !== 'string') {
+          console.warn(`[Batch decrypt] Item ${i} is not a string, skipping`);
+          decrypted.push('');
+          errors.push({ index: i, error: 'Not a string' });
+          continue;
         }
+        
+        if (!item) {
+          decrypted.push('');
+          continue;
+        }
+        
+        // Пытаемся расшифровать каждый элемент отдельно
+        try {
+          const result = decrypt(item);
+          decrypted.push(result);
+        } catch (error) {
+          // Логируем ошибку, но не падаем - возвращаем пустую строку для проблемного элемента
+          const errorMsg = error.message || 'Unknown decryption error';
+          console.warn(`[Batch decrypt] Failed to decrypt item ${i}:`, errorMsg);
+          decrypted.push(''); // Возвращаем пустую строку для нерасшифрованных элементов
+          errors.push({ index: i, error: errorMsg });
+        }
+      }
+      
+      // Если были ошибки, возвращаем предупреждение, но не падаем
+      if (errors.length > 0) {
+        console.warn(`[Batch decrypt] ${errors.length} out of ${data.length} items failed to decrypt`);
+      }
+
+      return res.json({
+        success: true,
+        data: { decrypted },
+        ...(errors.length > 0 && { warnings: { failedCount: errors.length, errors } }),
       });
-      return res.json({ success: true, data: { decrypted } });
     }
 
-    const decrypted = decrypt(data);
-    res.json({ success: true, data: { decrypted } });
+    // Обработка одиночного значения
+    if (typeof data !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Data must be a string or array of strings',
+      });
+    }
+
+    const decrypted = data ? decrypt(data) : '';
+
+    res.json({
+      success: true,
+      data: { decrypted },
+    });
   } catch (error) {
-    console.error('Decryption error:', error);
+    console.error('Decryption API error:', error.message);
     res.status(500).json({
       success: false,
-      error: 'Failed to decrypt data',
+      error: 'Decryption failed',
     });
   }
 });
 
 /**
  * GET /api/crypto/status
- * Проверяет статус шифрования
+ * Проверяет, настроено ли шифрование на сервере
+ *
+ * Response: { success: true, data: { configured: boolean } }
  */
 router.get('/status', (req, res) => {
-  res.json({
-    success: true,
-    data: {
-      configured: isEncryptionConfigured(),
-    },
-  });
+  try {
+    const configured = isEncryptionConfigured();
+    res.json({
+      success: true,
+      data: { configured },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Failed to check encryption status',
+    });
+  }
 });
 
 export { router as cryptoRoute };
