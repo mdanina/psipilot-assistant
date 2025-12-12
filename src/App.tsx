@@ -13,6 +13,8 @@ import { queryClient } from "@/lib/query-client";
 // Pages
 import Index from "./pages/Index";
 import LoginPage from "./pages/LoginPage";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
 import OnboardingPage from "./pages/OnboardingPage";
 import UnauthorizedPage from "./pages/UnauthorizedPage";
 import PatientsPage from "./pages/PatientsPage";
@@ -38,6 +40,8 @@ const App = () => (
             <Routes>
             {/* Public routes */}
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/unauthorized" element={<UnauthorizedPage />} />
 
             {/* Onboarding route - for users without clinic */}
