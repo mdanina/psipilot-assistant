@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/contexts/AuthContext';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -16,19 +16,56 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
-  const [isValidToken, setIsValidToken] = useState(true);
+  const [isValidToken, setIsValidToken] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const { updatePassword } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
-  // Check if we have a valid recovery token in the URL
+  // Verify the recovery token on mount
   useEffect(() => {
-    const hash = window.location.hash;
-    if (!hash || !hash.includes('type=recovery')) {
-      setIsValidToken(false);
-      setError('Недействительная или истёкшая ссылка для сброса пароля. Пожалуйста, запросите новую ссылку.');
-    }
-  }, []);
+    const verifyToken = async () => {
+      // Check for token in query string (from Supabase email link)
+      const token = searchParams.get('token');
+      const type = searchParams.get('type');
+
+      // Also check hash for standard Supabase format
+      const hash = window.location.hash;
+
+      if (token && type === 'recovery') {
+        // Token from query string - verify it
+        try {
+          const { error } = await supabase.auth.verifyOtp({
+            token_hash: token,
+            type: 'recovery',
+          });
+
+          if (error) {
+            console.error('Token verification error:', error);
+            setError('Недействительная или истёкшая ссылка для сброса пароля. Пожалуйста, запросите новую ссылку.');
+            setIsValidToken(false);
+          } else {
+            setIsValidToken(true);
+          }
+        } catch (err) {
+          console.error('Token verification exception:', err);
+          setError('Ошибка при проверке ссылки. Пожалуйста, запросите новую ссылку.');
+          setIsValidToken(false);
+        }
+      } else if (hash && hash.includes('type=recovery')) {
+        // Token from hash fragment (standard Supabase format)
+        // Supabase client handles this automatically
+        setIsValidToken(true);
+      } else {
+        setError('Недействительная или истёкшая ссылка для сброса пароля. Пожалуйста, запросите новую ссылку.');
+        setIsValidToken(false);
+      }
+
+      setIsLoading(false);
+    };
+
+    verifyToken();
+  }, [searchParams]);
 
   const validatePassword = (): string | null => {
     if (password.length < 8) {
@@ -53,7 +90,9 @@ export default function ResetPasswordPage() {
     setIsSubmitting(true);
 
     try {
-      const { error } = await updatePassword(password);
+      const { error } = await supabase.auth.updateUser({
+        password: password,
+      });
 
       if (error) {
         setError(error.message);
@@ -62,7 +101,9 @@ export default function ResetPasswordPage() {
 
       setIsSuccess(true);
 
-      // Redirect to login after 3 seconds
+      // Sign out after password change and redirect to login
+      await supabase.auth.signOut();
+
       setTimeout(() => {
         navigate('/login', { replace: true });
       }, 3000);
@@ -72,6 +113,18 @@ export default function ResetPasswordPage() {
       setIsSubmitting(false);
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background p-4">
+        <Card className="w-full max-w-md">
+          <CardContent className="flex items-center justify-center py-8">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   if (isSuccess) {
     return (
