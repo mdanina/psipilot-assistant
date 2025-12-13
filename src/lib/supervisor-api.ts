@@ -51,7 +51,12 @@ async function getAuthHeaders(): Promise<HeadersInit> {
 export async function checkSupervisorAvailability(): Promise<boolean> {
   const webhookUrl = import.meta.env.VITE_N8N_SUPERVISOR_WEBHOOK_URL;
   
-  if (!webhookUrl) {
+  if (!webhookUrl || webhookUrl.trim() === '' || webhookUrl === 'your-n8n-webhook-url-here') {
+    if (import.meta.env.DEV) {
+      console.warn('VITE_N8N_SUPERVISOR_WEBHOOK_URL не настроен. Установите его в .env.local');
+    } else {
+      console.warn('VITE_N8N_SUPERVISOR_WEBHOOK_URL не настроен в production build. Переменная должна быть указана при сборке приложения.');
+    }
     return false;
   }
 
@@ -59,7 +64,8 @@ export async function checkSupervisorAvailability(): Promise<boolean> {
   try {
     new URL(webhookUrl);
     return true;
-  } catch {
+  } catch (error) {
+    console.error('Неверный формат VITE_N8N_SUPERVISOR_WEBHOOK_URL:', error);
     return false;
   }
 }
