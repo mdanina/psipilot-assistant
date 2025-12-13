@@ -8,7 +8,6 @@ import {
   type SessionContentCounts 
 } from '@/lib/supabase-sessions';
 import { getClinicalNotesForPatient, softDeleteClinicalNote } from '@/lib/supabase-ai';
-import { getSupervisorConversations, type SupervisorConversationWithMessages } from '@/lib/supabase-supervisor-conversations';
 import type { Database } from '@/types/database.types';
 import type { GeneratedClinicalNote } from '@/types/ai.types';
 
@@ -17,7 +16,6 @@ type Session = Database['public']['Tables']['sessions']['Row'];
 export interface PatientActivitiesData {
   sessions: Session[];
   clinicalNotes: GeneratedClinicalNote[];
-  supervisorConversations: SupervisorConversationWithMessages[];
   contentCounts: Map<string, SessionContentCounts>;
 }
 
@@ -37,24 +35,18 @@ export function usePatientActivities(patientId: string | undefined) {
         return {
           sessions: [],
           clinicalNotes: [],
-          supervisorConversations: [],
           contentCounts: new Map(),
         };
       }
 
-      // Load sessions, clinical notes, and supervisor conversations in parallel
+      // Load sessions and clinical notes in parallel
       // Use Promise.allSettled to handle errors gracefully - if one fails, others still work
-      const [sessionsResult, notesResult, conversationsResult] = await Promise.allSettled([
+      const [sessionsResult, notesResult] = await Promise.allSettled([
         getPatientSessions(patientId),
         getClinicalNotesForPatient(patientId).catch((err) => {
           // Gracefully handle errors for clinical notes
           console.warn('Failed to load clinical notes:', err);
           return [];
-        }),
-        getSupervisorConversations(patientId).catch((err) => {
-          // Gracefully handle errors (e.g., table doesn't exist yet)
-          console.warn('Failed to load supervisor conversations:', err);
-          return { data: [], error: null };
         }),
       ]);
 
@@ -73,16 +65,6 @@ export function usePatientActivities(patientId: string | undefined) {
         ? notesResult.value 
         : [];
 
-      // Handle supervisor conversations (gracefully handle errors)
-      const conversationsData = conversationsResult.status === 'fulfilled'
-        ? conversationsResult.value
-        : { data: [], error: null };
-      
-      // Check if conversationsData has an error, but don't throw - just log it
-      if (conversationsData.error) {
-        console.warn('Error loading supervisor conversations:', conversationsData.error);
-      }
-
       // Load content counts for all sessions
       let contentCounts = new Map<string, SessionContentCounts>();
       if (sessions.length > 0) {
@@ -93,7 +75,6 @@ export function usePatientActivities(patientId: string | undefined) {
       return {
         sessions: sessions.filter(s => s != null),
         clinicalNotes: (notesData || []).filter(n => n != null),
-        supervisorConversations: (conversationsData.data || []).filter(c => c != null && c.id != null),
         contentCounts,
       };
     },

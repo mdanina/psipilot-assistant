@@ -164,6 +164,94 @@ export async function updateSupervisorConversation(
 }
 
 /**
+ * Поиск бесед с супервизором по тексту (в заголовке и сообщениях)
+ */
+export async function searchSupervisorConversations(
+  patientId: string,
+  searchQuery: string
+): Promise<{ data: SupervisorConversationWithMessages[] | null; error: Error | null }> {
+  try {
+    if (!searchQuery.trim()) {
+      // Если поисковый запрос пустой, возвращаем все беседы
+      return getSupervisorConversations(patientId);
+    }
+
+    const query = searchQuery.trim().toLowerCase();
+
+    // Получаем все беседы для пациента
+    const { data: allConversations, error } = await supabase
+      .from('supervisor_conversations')
+      .select('*')
+      .eq('patient_id', patientId)
+      .is('deleted_at', null)
+      .order('saved_at', { ascending: false });
+
+    if (error) {
+      return { data: null, error: new Error(error.message) };
+    }
+
+    // Фильтруем беседы по поисковому запросу
+    const filtered = (allConversations || []).filter((conv) => {
+      // Поиск в заголовке
+      const titleMatch = conv.title?.toLowerCase().includes(query);
+      
+      // Поиск в сообщениях
+      const messages = (conv.messages as unknown as SupervisorMessage[]) || [];
+      const messagesMatch = messages.some((msg) => 
+        msg.content?.toLowerCase().includes(query)
+      );
+
+      return titleMatch || messagesMatch;
+    });
+
+    const conversations = filtered.map((conv) => ({
+      ...conv,
+      messages: (conv.messages as unknown as SupervisorMessage[]) || [],
+    }));
+
+    return { data: conversations, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error('Неизвестная ошибка при поиске бесед'),
+    };
+  }
+}
+
+/**
+ * Получить одну беседу по ID
+ */
+export async function getSupervisorConversationById(
+  conversationId: string
+): Promise<{ data: SupervisorConversationWithMessages | null; error: Error | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('supervisor_conversations')
+      .select('*')
+      .eq('id', conversationId)
+      .is('deleted_at', null)
+      .single();
+
+    if (error) {
+      return { data: null, error: new Error(error.message) };
+    }
+
+    return {
+      data: {
+        ...data,
+        messages: (data.messages as unknown as SupervisorMessage[]) || [],
+      },
+      error: null,
+    };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error('Неизвестная ошибка при получении беседы'),
+    };
+  }
+}
+
+/**
  * Удалить беседу с супервизором (soft delete)
  */
 export async function deleteSupervisorConversation(

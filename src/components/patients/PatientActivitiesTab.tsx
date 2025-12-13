@@ -95,7 +95,6 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
   // Extract data from activitiesData and filter out any undefined/null values
   const sessions = (activitiesData?.sessions || []).filter((s): s is Session => s != null);
   const clinicalNotes = (activitiesData?.clinicalNotes || []).filter((n): n is GeneratedClinicalNote => n != null);
-  const supervisorConversations = (activitiesData?.supervisorConversations || []).filter((c): c is typeof supervisorConversations[0] => c != null);
   const contentCounts = activitiesData?.contentCounts || new Map();
 
   // Show error if activities query failed
@@ -261,8 +260,7 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
   // Объединяем все активности в единый timeline
   type TimelineActivity = 
     | { type: 'session'; data: Session; notes: GeneratedClinicalNote[] }
-    | { type: 'clinical_note'; data: GeneratedClinicalNote }
-    | { type: 'supervisor_conversation'; data: typeof supervisorConversations[0] };
+    | { type: 'clinical_note'; data: GeneratedClinicalNote };
 
   const timelineActivities = useMemo(() => {
     const activities: TimelineActivity[] = [];
@@ -284,16 +282,6 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
       });
     });
 
-    // Добавляем беседы с супервизором (уже отфильтрованы выше)
-    supervisorConversations.forEach(conversation => {
-      if (conversation && conversation.id) {
-        activities.push({
-          type: 'supervisor_conversation',
-          data: conversation,
-        });
-      }
-    });
-
     // Сортируем по дате (самые новые сверху)
     return activities.sort((a, b) => {
       const getDate = (activity: TimelineActivity): Date => {
@@ -302,8 +290,6 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
             return new Date(activity.data.started_at || activity.data.created_at);
           case 'clinical_note':
             return new Date(activity.data.created_at);
-          case 'supervisor_conversation':
-            return new Date(activity.data.saved_at);
         }
       };
       
@@ -311,7 +297,7 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
       const dateB = getDate(b);
       return dateB.getTime() - dateA.getTime(); // По убыванию (новые сверху)
     });
-  }, [sessionsWithNotes, orphanNotes, supervisorConversations]);
+  }, [sessionsWithNotes, orphanNotes]);
 
   if (isLoading) {
     return (
@@ -321,7 +307,7 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
     );
   }
 
-  if (sessions.length === 0 && clinicalNotes.length === 0 && supervisorConversations.length === 0) {
+  if (sessions.length === 0 && clinicalNotes.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <Calendar className="w-12 h-12 text-muted-foreground mb-4" />
@@ -895,97 +881,6 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
                       searchQuery={searchQuery}
                       onDelete={(e) => handleDeleteClick('note', note.id, note.title, e)}
                     />
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Legacy: Supervisor Conversations (keeping for reference, will be removed) */}
-      {false && supervisorConversations.length > 0 && (
-        <div className="space-y-3 mt-6">
-          <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-            <MessageSquare className="w-4 h-4" />
-            Беседы с супервизором
-          </h3>
-          {supervisorConversations.map((conversation) => {
-            const isExpanded = expandedNotes.has(conversation.id);
-            const firstMessage = conversation.messages[0]?.content || '';
-            const preview = firstMessage.substring(0, 100) + (firstMessage.length > 100 ? '...' : '');
-
-            return (
-              <div
-                key={conversation.id}
-                className="border border-border rounded-lg p-4 bg-muted/30"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <MessageSquare className="w-4 h-4 text-primary flex-shrink-0" />
-                      <h4 className="font-medium text-sm">{conversation.title}</h4>
-                      <Badge variant="outline" className="text-xs">
-                        {conversation.message_count} сообщений
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground mt-2">
-                      <div className="flex items-center gap-1.5">
-                        <Clock className="w-4 h-4 flex-shrink-0" />
-                        <span>{formatDateTime(conversation.saved_at)}</span>
-                      </div>
-                    </div>
-                    {!isExpanded && preview && (
-                      <p className="text-sm text-muted-foreground line-clamp-2 mt-2">
-                        {preview}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => toggleNoteExpansion(conversation.id)}
-                      className="h-7 px-2"
-                    >
-                      {isExpanded ? (
-                        <ChevronUp className="w-4 h-4" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4" />
-                      )}
-                    </Button>
-                  </div>
-                </div>
-
-                {isExpanded && (
-                  <div className="mt-3 space-y-3 border-t pt-3">
-                    {conversation.messages.map((message, index) => (
-                      <div
-                        key={index}
-                        className={`flex ${
-                          message.role === 'user' ? 'justify-end' : 'justify-start'
-                        }`}
-                      >
-                        <div
-                          className={`max-w-[80%] rounded-lg px-3 py-2 text-sm ${
-                            message.role === 'user'
-                              ? 'bg-primary text-primary-foreground'
-                              : 'bg-muted'
-                          }`}
-                        >
-                          <p className="whitespace-pre-wrap">{message.content}</p>
-                          <p className="text-xs opacity-70 mt-1">
-                            {new Date(message.timestamp).toLocaleString('ru-RU', {
-                              day: '2-digit',
-                              month: '2-digit',
-                              year: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
                   </div>
                 )}
               </div>
