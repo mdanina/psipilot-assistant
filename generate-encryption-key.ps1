@@ -63,3 +63,6 @@ Write-Host "- Never commit .env.local to git!" -ForegroundColor Yellow
 Write-Host "- Keep the key secure!" -ForegroundColor Yellow
 Write-Host "- Restart dev server to apply changes!" -ForegroundColor Yellow
 Write-Host ""
+
+
+

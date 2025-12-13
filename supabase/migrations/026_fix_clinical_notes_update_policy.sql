@@ -19,3 +19,6 @@ CREATE POLICY "Users can update own notes"
         -- Allow updating to any status (including finalized/signed) if user is the owner
         -- This allows the finalize operation while preventing updates to already finalized notes
     );
+
+
+

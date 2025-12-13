@@ -171,3 +171,6 @@ export function SectionItem({ section, onUpdate }: SectionItemProps) {
     </Card>
   );
 }
+
+
+
