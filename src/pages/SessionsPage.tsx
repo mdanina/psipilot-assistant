@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Plus, FileText, Circle, User, Link2, Loader2, Mic, Pause, Play, Square, Sparkles, ChevronDown, RefreshCw, Trash2, X, File, Upload, Search, AlertTriangle } from "lucide-react";
-import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
+import { useNavigate, useLocation, useSearchParams, useBlocker } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -33,6 +33,7 @@ import { ClinicalNotesOutput } from "@/components/analysis/output-panel/Clinical
 import { GenerationProgress } from "@/components/analysis/GenerationProgress";
 import { useToast } from "@/hooks/use-toast";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
+import { useTranscriptionRecovery } from "@/hooks/useTranscriptionRecovery";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import {
   saveRecordingLocally,
@@ -178,7 +179,41 @@ const SessionsPage = () => {
     getCurrentChunks,
     getCurrentMimeType,
   } = useAudioRecorder();
-  
+
+  // Transcription recovery hook - tracks processing transcriptions for active session
+  // This replaces the local polling logic and survives page navigation
+  const {
+    processingTranscriptions,
+    isAnyProcessing: isAnyTranscriptionProcessing,
+    addTranscription,
+  } = useTranscriptionRecovery({
+    sessionId: activeSession || undefined,
+    onComplete: async (recordingId, sessionId) => {
+      console.log(`[SessionsPage] Transcription completed: ${recordingId} in session ${sessionId}`);
+      // Reload recordings to update UI
+      if (sessionId === activeSession) {
+        try {
+          const recordingsData = await getSessionRecordings(sessionId);
+          setRecordings(recordingsData);
+        } catch (error) {
+          console.error('Error reloading recordings after transcription:', error);
+        }
+      }
+    },
+    onError: async (recordingId, error) => {
+      console.error(`[SessionsPage] Transcription failed: ${recordingId}`, error);
+      // Reload recordings to show error state
+      if (activeSession) {
+        try {
+          const recordingsData = await getSessionRecordings(activeSession);
+          setRecordings(recordingsData);
+        } catch (err) {
+          console.error('Error reloading recordings after error:', err);
+        }
+      }
+    },
+  });
+
   // Show recorder errors
   useEffect(() => {
     if (recorderError) {
@@ -189,6 +224,12 @@ const SessionsPage = () => {
       });
     }
   }, [recorderError, toast]);
+
+  // Block navigation while recording
+  const recordingBlocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      isRecording && currentLocation.pathname !== nextLocation.pathname
+  );
 
   // Load open tabs from database
   const loadOpenTabs = async (): Promise<Set<string>> => {
@@ -523,6 +564,8 @@ const SessionsPage = () => {
       // Start transcription
       try {
         await startTranscription(newRecording.id, transcriptionApiUrl);
+        // Track transcription in recovery hook
+        addTranscription(newRecording.id, sessionId);
       } catch (transcriptionError) {
         console.warn('Transcription not started for retried recording:', transcriptionError);
       }
@@ -548,7 +591,7 @@ const SessionsPage = () => {
       });
       throw error;
     }
-  }, [user, profile, activeSession, transcriptionApiUrl, toast, setRecordings]);
+  }, [user, profile, activeSession, transcriptionApiUrl, toast, setRecordings, addTranscription]);
 
   // Проверка не загруженных записей при загрузке страницы
   useEffect(() => {
@@ -892,13 +935,9 @@ const SessionsPage = () => {
         const updatedRecordings = await getSessionRecordings(sessionId);
         setRecordings(updatedRecordings);
       }
-      
-      // Start polling for pending and processing recordings
-      recordingsData.forEach(recording => {
-        if (recording.transcription_status === 'pending' || recording.transcription_status === 'processing') {
-          startPollingRecording(recording.id, sessionId);
-        }
-      });
+
+      // Note: Polling for transcriptions is now handled by useTranscriptionRecovery hook
+      // which survives page navigation and provides better UX
     } catch (error) {
       console.error('Error loading recordings:', error);
     }
@@ -1551,6 +1590,8 @@ const SessionsPage = () => {
       // Start transcription
       try {
         await startTranscription(recording.id, transcriptionApiUrl);
+        // Track transcription in recovery hook
+        addTranscription(recording.id, sessionId);
         toast({
           title: "Успешно",
           description: "Сессия сохранена. Транскрипция запущена.",
@@ -1738,6 +1779,10 @@ const SessionsPage = () => {
       // Start transcription
       try {
         await startTranscription(recording.id, transcriptionApiUrl);
+        // Track transcription in recovery hook
+        if (activeSession) {
+          addTranscription(recording.id, activeSession);
+        }
         toast({
           title: "Успешно",
           description: "Аудио файл загружен. Транскрипция запущена.",
@@ -2610,6 +2655,30 @@ const SessionsPage = () => {
           }
         }}
       />
+
+      {/* Navigation Blocker Dialog for Recording */}
+      <AlertDialog open={recordingBlocker.state === 'blocked'}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Запись в процессе</AlertDialogTitle>
+            <AlertDialogDescription>
+              Идёт запись аудио в сессии. Если вы покинете страницу, запись будет потеряна.
+              Вы уверены, что хотите уйти?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => recordingBlocker.reset?.()}>
+              Остаться
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => recordingBlocker.proceed?.()}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Покинуть страницу
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 };
