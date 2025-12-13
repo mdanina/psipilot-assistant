@@ -28,6 +28,9 @@ interface AuthContextType extends AuthState {
   signUp: (email: string, password: string, fullName: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  // Password reset methods
+  resetPassword: (email: string) => Promise<{ error: Error | null }>;
+  updatePassword: (newPassword: string) => Promise<{ error: Error | null }>;
   // MFA methods
   enableMFA: () => Promise<{ error: Error | null; data?: { qrCode: string; secret: string } }>;
   verifyMFA: (code: string) => Promise<{ error: Error | null }>;
@@ -661,6 +664,45 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return { error: null };
   }, []);
 
+  // Request password reset (sends email with reset link)
+  const resetPassword = useCallback(async (email: string) => {
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+
+      if (error) {
+        console.error('❌ Password reset error:', error.message);
+        return { error };
+      }
+
+      console.log('✅ Password reset email sent to:', email);
+      return { error: null };
+    } catch (err) {
+      console.error('❌ Unexpected password reset error:', err);
+      return { error: err as Error };
+    }
+  }, []);
+
+  // Update password (after clicking reset link)
+  const updatePassword = useCallback(async (newPassword: string) => {
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (error) {
+        console.error('❌ Update password error:', error.message);
+        return { error };
+      }
+
+      console.log('✅ Password updated successfully');
+      return { error: null };
+    } catch (err) {
+      console.error('❌ Unexpected update password error:', err);
+      return { error: err as Error };
+    }
+  }, []);
 
   // MFA: Enable MFA for current user
   const enableMFA = useCallback(async () => {
@@ -805,6 +847,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     signUp,
     signOut,
     refreshProfile,
+    resetPassword,
+    updatePassword,
     enableMFA,
     verifyMFA,
     disableMFA,
