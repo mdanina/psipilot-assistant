@@ -8,6 +8,7 @@ import {
   type SessionContentCounts 
 } from '@/lib/supabase-sessions';
 import { getClinicalNotesForPatient, softDeleteClinicalNote } from '@/lib/supabase-ai';
+import { getSupervisorConversations, type SupervisorConversationWithMessages } from '@/lib/supabase-supervisor-conversations';
 import type { Database } from '@/types/database.types';
 import type { GeneratedClinicalNote } from '@/types/ai.types';
 
@@ -16,6 +17,7 @@ type Session = Database['public']['Tables']['sessions']['Row'];
 export interface PatientActivitiesData {
   sessions: Session[];
   clinicalNotes: GeneratedClinicalNote[];
+  supervisorConversations: SupervisorConversationWithMessages[];
   contentCounts: Map<string, SessionContentCounts>;
 }
 
@@ -35,21 +37,51 @@ export function usePatientActivities(patientId: string | undefined) {
         return {
           sessions: [],
           clinicalNotes: [],
+          supervisorConversations: [],
           contentCounts: new Map(),
         };
       }
 
-      // Load sessions and clinical notes in parallel
-      const [sessionsData, notesData] = await Promise.all([
+      // Load sessions, clinical notes, and supervisor conversations in parallel
+      // Use Promise.allSettled to handle errors gracefully - if one fails, others still work
+      const [sessionsResult, notesResult, conversationsResult] = await Promise.allSettled([
         getPatientSessions(patientId),
-        getClinicalNotesForPatient(patientId),
+        getClinicalNotesForPatient(patientId).catch((err) => {
+          // Gracefully handle errors for clinical notes
+          console.warn('Failed to load clinical notes:', err);
+          return [];
+        }),
+        getSupervisorConversations(patientId).catch((err) => {
+          // Gracefully handle errors (e.g., table doesn't exist yet)
+          console.warn('Failed to load supervisor conversations:', err);
+          return { data: [], error: null };
+        }),
       ]);
 
+      // Handle sessions
+      if (sessionsResult.status === 'rejected') {
+        throw sessionsResult.reason;
+      }
+      const sessionsData = sessionsResult.value;
       if (sessionsData.error) {
         throw sessionsData.error;
       }
-
       const sessions = sessionsData.data || [];
+
+      // Handle clinical notes
+      const notesData = notesResult.status === 'fulfilled' 
+        ? notesResult.value 
+        : [];
+
+      // Handle supervisor conversations (gracefully handle errors)
+      const conversationsData = conversationsResult.status === 'fulfilled'
+        ? conversationsResult.value
+        : { data: [], error: null };
+      
+      // Check if conversationsData has an error, but don't throw - just log it
+      if (conversationsData.error) {
+        console.warn('Error loading supervisor conversations:', conversationsData.error);
+      }
 
       // Load content counts for all sessions
       let contentCounts = new Map<string, SessionContentCounts>();
@@ -59,8 +91,9 @@ export function usePatientActivities(patientId: string | undefined) {
       }
 
       return {
-        sessions,
-        clinicalNotes: notesData || [],
+        sessions: sessions.filter(s => s != null),
+        clinicalNotes: (notesData || []).filter(n => n != null),
+        supervisorConversations: (conversationsData.data || []).filter(c => c != null && c.id != null),
         contentCounts,
       };
     },
@@ -125,12 +158,8 @@ export function useDeleteSession() {
 
   return useMutation({
     mutationFn: async (sessionId: string) => {
-      const { success, error } = await deleteSession(sessionId);
-      
-      if (error || !success) {
-        throw error || new Error('Не удалось удалить сессию');
-      }
-      
+      // deleteSession throws on error, returns void on success
+      await deleteSession(sessionId);
       return { success: true };
     },
     // Invalidate activities cache after successful deletion
@@ -149,12 +178,8 @@ export function useDeleteClinicalNote() {
 
   return useMutation({
     mutationFn: async (noteId: string) => {
-      const { success, error } = await softDeleteClinicalNote(noteId);
-      
-      if (error || !success) {
-        throw error || new Error('Не удалось удалить клиническую заметку');
-      }
-      
+      // softDeleteClinicalNote throws on error, returns void on success
+      await softDeleteClinicalNote(noteId);
       return { success: true };
     },
     // Invalidate activities cache after successful deletion

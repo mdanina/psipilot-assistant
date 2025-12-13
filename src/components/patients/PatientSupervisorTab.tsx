@@ -1,15 +1,18 @@
 import { useState, useEffect, useRef } from 'react';
-import { Send, Loader2, AlertCircle } from 'lucide-react';
+import { Send, Loader2, AlertCircle, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useToast } from '@/hooks/use-toast';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   sendMessageToSupervisor,
   checkSupervisorAvailability,
   type SupervisorRequest,
 } from '@/lib/supervisor-api';
+import { saveSupervisorConversation } from '@/lib/supabase-supervisor-conversations';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -29,9 +32,12 @@ export function PatientSupervisorTab({
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isSavingConversation, setIsSavingConversation] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isAvailable, setIsAvailable] = useState<boolean | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   // Проверка доступности при монтировании
   useEffect(() => {
@@ -111,6 +117,51 @@ export function PatientSupervisorTab({
     }
   };
 
+  const handleSaveConversation = async () => {
+    if (messages.length === 0) {
+      toast({
+        title: 'Нет сообщений',
+        description: 'Нет сообщений для сохранения',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsSavingConversation(true);
+    setError(null);
+
+    try {
+      const { data, error } = await saveSupervisorConversation(patientId, messages);
+
+      if (error || !data) {
+        throw error || new Error('Не удалось сохранить беседу');
+      }
+
+      toast({
+        title: 'Успешно',
+        description: 'Беседа сохранена в активностях пациента',
+      });
+
+      // Очищаем чат после сохранения
+      setMessages([]);
+
+      // Обновляем кэш активностей
+      queryClient.invalidateQueries({ queryKey: ['patients', patientId, 'activities'] });
+    } catch (err) {
+      console.error('Error saving conversation:', err);
+      setError(
+        err instanceof Error ? err.message : 'Не удалось сохранить беседу'
+      );
+      toast({
+        title: 'Ошибка',
+        description: err instanceof Error ? err.message : 'Не удалось сохранить беседу',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSavingConversation(false);
+    }
+  };
+
   if (isAvailable === false) {
     return (
       <Card>
@@ -131,8 +182,22 @@ export function PatientSupervisorTab({
 
   return (
     <Card className="flex flex-col h-full">
-      <CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
         <CardTitle>Супервизор</CardTitle>
+        <Button
+          onClick={handleSaveConversation}
+          disabled={messages.length === 0 || isLoading || isSavingConversation}
+          variant="outline"
+          size="sm"
+          className="gap-2"
+        >
+          {isSavingConversation ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <FileText className="w-4 h-4" />
+          )}
+          Сохранить беседу
+        </Button>
       </CardHeader>
       <CardContent className="flex-1 flex flex-col min-h-0 p-0">
         <ScrollArea className="flex-1 px-6" ref={scrollAreaRef}>
@@ -210,5 +275,3 @@ export function PatientSupervisorTab({
     </Card>
   );
 }
-
-

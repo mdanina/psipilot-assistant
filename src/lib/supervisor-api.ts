@@ -146,5 +146,3 @@ export async function sendMessageToSupervisor(
     throw new Error('Неизвестная ошибка при отправке сообщения супервизору');
   }
 }
-
-
