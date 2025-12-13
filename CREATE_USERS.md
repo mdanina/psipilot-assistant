@@ -40,3 +40,6 @@ npm run create:user user@example.com password123 \
 
 📖 [docs/USER_CREATION.md](./docs/USER_CREATION.md) - Подробное руководство
 
+
+
+

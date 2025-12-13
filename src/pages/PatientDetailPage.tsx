@@ -34,6 +34,7 @@ import { PatientForm } from "@/components/patients/PatientForm";
 import { PatientActivitiesTab } from "@/components/patients/PatientActivitiesTab";
 import { PatientDocumentsTab } from "@/components/patients/PatientDocumentsTab";
 import { PatientConversationInvitationsTab } from "@/components/patients/PatientConversationInvitationsTab";
+import { PatientSupervisorTab } from "@/components/patients/PatientSupervisorTab";
 import { CaseSummaryBlock } from "@/components/patients/CaseSummaryBlock";
 import { PatientAssignmentsDialog } from "@/components/patients/PatientAssignmentsDialog";
 import { useAuth } from "@/contexts/AuthContext";
@@ -269,6 +270,7 @@ const PatientDetailPage = () => {
                 <TabsTrigger value="activities">Активности</TabsTrigger>
                 <TabsTrigger value="documents">Документы</TabsTrigger>
                 <TabsTrigger value="invitations">Приглашения</TabsTrigger>
+                <TabsTrigger value="supervisor">Супервизор</TabsTrigger>
               </TabsList>
             </div>
 
@@ -330,6 +332,11 @@ const PatientDetailPage = () => {
               {/* Invitations Tab */}
               <TabsContent value="invitations" className="mt-0">
                 <PatientConversationInvitationsTab patientId={id!} />
+              </TabsContent>
+
+              {/* Supervisor Tab */}
+              <TabsContent value="supervisor" className="mt-0">
+                <PatientSupervisorTab patientId={id!} patientName={patient.name} />
               </TabsContent>
             </div>
           </Tabs>

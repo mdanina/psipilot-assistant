@@ -90,3 +90,6 @@ export function NotesView({ sessionId }: NotesViewProps) {
     </ScrollArea>
   );
 }
+
+
+

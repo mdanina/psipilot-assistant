@@ -370,3 +370,6 @@ const combinedTranscript = getCombinedTranscriptWithNotes(
 - `src/lib/file-parser.ts` - парсер файлов
 - `supabase/migrations/022_session_notes.sql` - миграция базы данных
 
+
+
+
