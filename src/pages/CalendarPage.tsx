@@ -321,18 +321,21 @@ const CalendarPage = () => {
   return (
     <div className="h-screen flex flex-col">
       {/* Header */}
-      <div className="border-b bg-background px-6 py-4">
-        <div className="flex items-center justify-between">
+      <div className="border-b bg-background px-4 md:px-6 py-3 md:py-4">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <Button onClick={() => {
-              setDefaultAppointmentDate(selectedDate);
-              setDefaultAppointmentTime(undefined);
-              setCreateDialogOpen(true);
-            }}>
+            <Button
+              className="flex-1 sm:flex-none"
+              onClick={() => {
+                setDefaultAppointmentDate(selectedDate);
+                setDefaultAppointmentTime(undefined);
+                setCreateDialogOpen(true);
+              }}
+            >
               <Plus className="w-4 h-4 mr-2" />
-              Новая встреча
+              <span className="sm:inline">Новая встреча</span>
             </Button>
-            <Button variant="outline" onClick={handleSyncClick}>
+            <Button variant="outline" onClick={handleSyncClick} className="hidden sm:flex">
               <RefreshCw className="w-4 h-4 mr-2" />
               Синхронизация
             </Button>
@@ -342,9 +345,9 @@ const CalendarPage = () => {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
         {/* Left Panel - Calendar */}
-        <div className="w-1/2 border-r bg-background p-6 flex flex-col items-center justify-center">
+        <div className="lg:w-1/2 border-b lg:border-b-0 lg:border-r bg-background p-4 md:p-6 flex flex-col items-center justify-center">
           <Calendar
             mode="single"
             selected={selectedDate}
@@ -390,10 +393,10 @@ const CalendarPage = () => {
         </div>
 
         {/* Right Panel - Schedule */}
-        <div className="w-1/2 p-6">
+        <div className="lg:w-1/2 p-4 md:p-6 flex-1 min-h-0">
           <div className="bg-card rounded-lg border border-border shadow-sm h-full flex flex-col overflow-hidden">
-            <div className="p-6 pb-4 border-b border-border">
-              <div className="flex items-center justify-between">
+            <div className="p-4 md:p-6 pb-3 md:pb-4 border-b border-border">
+              <div className="flex items-center justify-between gap-2">
                 <Button
                   variant="outline"
                   size="sm"
@@ -401,8 +404,8 @@ const CalendarPage = () => {
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </Button>
-                <div className="text-center">
-                  <p className="text-sm font-medium">
+                <div className="text-center flex-1 min-w-0">
+                  <p className="text-xs sm:text-sm font-medium truncate">
                     {format(selectedDate, "EEEE, d MMMM yyyy", { locale: ru })}
                   </p>
                 </div>
@@ -415,7 +418,7 @@ const CalendarPage = () => {
                 </Button>
               </div>
             </div>
-            <div className="flex-1 overflow-y-auto p-6 pt-4">
+            <div className="flex-1 overflow-y-auto p-4 md:p-6 pt-3 md:pt-4">
               <AppointmentList
                 appointments={dayAppointments}
                 patients={patients}

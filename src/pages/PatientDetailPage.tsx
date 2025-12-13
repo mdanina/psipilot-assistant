@@ -157,19 +157,20 @@ const PatientDetailPage = () => {
     <>
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top bar with back button and patient info */}
-        <div className="px-6 py-4 border-b border-border bg-background">
-          <div className="flex items-center justify-between mb-3">
+        <div className="px-4 md:px-6 py-4 border-b border-border bg-background">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
             <Button
               variant="ghost"
               size="sm"
-              className="gap-2"
+              className="gap-2 self-start"
               onClick={() => navigate("/patients")}
             >
               <ArrowLeft className="w-4 h-4" />
-              Назад к списку
+              <span className="hidden sm:inline">Назад к списку</span>
+              <span className="sm:hidden">Назад</span>
             </Button>
             {!isEditing && (
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 {profile?.role === 'admin' && (
                   <Button
                     variant="outline"
@@ -178,7 +179,8 @@ const PatientDetailPage = () => {
                     onClick={() => setAssignmentsDialogOpen(true)}
                   >
                     <Users className="w-4 h-4" />
-                    Управление назначениями
+                    <span className="hidden sm:inline">Управление назначениями</span>
+                    <span className="sm:hidden">Назначения</span>
                   </Button>
                 )}
                 <Button
@@ -188,22 +190,22 @@ const PatientDetailPage = () => {
                   onClick={() => setIsEditing(true)}
                 >
                   <Edit className="w-4 h-4" />
-                  Редактировать
+                  <span className="hidden sm:inline">Редактировать</span>
                 </Button>
               </div>
             )}
           </div>
 
           {/* Patient header info */}
-          <div className="flex items-start gap-4">
-            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 overflow-hidden">
-              <ShrimpIcon className="w-8 h-8" />
+          <div className="flex items-start gap-3 sm:gap-4">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 overflow-hidden">
+              <ShrimpIcon className="w-6 h-6 sm:w-8 sm:h-8" />
             </div>
             <div className="flex-1 min-w-0">
-              <h1 className="text-2xl font-bold truncate">
+              <h1 className="text-xl sm:text-2xl font-bold truncate">
                 {patient.name || "Без имени"}
               </h1>
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground mt-1">
+              <div className="flex flex-wrap items-center gap-x-3 sm:gap-x-4 gap-y-1 text-xs sm:text-sm text-muted-foreground mt-1">
                 {patient.email && (
                   <div className="flex items-center gap-1.5">
                     <Mail className="w-4 h-4" />
@@ -246,7 +248,7 @@ const PatientDetailPage = () => {
 
         {/* Content area */}
         {isEditing ? (
-          <div className="flex-1 overflow-auto p-6">
+          <div className="flex-1 overflow-auto p-4 md:p-6">
             <PatientForm
               patient={patient}
               onSave={handleSave}
@@ -263,16 +265,16 @@ const PatientDetailPage = () => {
             onValueChange={setActiveTab}
             className="flex-1 flex flex-col overflow-hidden"
           >
-            <div className="px-6 pt-4 border-b border-border">
-              <TabsList>
-                <TabsTrigger value="info">Информация</TabsTrigger>
-                <TabsTrigger value="activities">Активности</TabsTrigger>
-                <TabsTrigger value="documents">Документы</TabsTrigger>
-                <TabsTrigger value="invitations">Приглашения</TabsTrigger>
+            <div className="px-4 md:px-6 pt-4 border-b border-border overflow-x-auto">
+              <TabsList className="w-full sm:w-auto">
+                <TabsTrigger value="info" className="text-xs sm:text-sm">Информация</TabsTrigger>
+                <TabsTrigger value="activities" className="text-xs sm:text-sm">Активности</TabsTrigger>
+                <TabsTrigger value="documents" className="text-xs sm:text-sm">Документы</TabsTrigger>
+                <TabsTrigger value="invitations" className="text-xs sm:text-sm">Приглашения</TabsTrigger>
               </TabsList>
             </div>
 
-            <div className="flex-1 overflow-auto p-6">
+            <div className="flex-1 overflow-auto p-4 md:p-6">
               {/* Info Tab */}
               <TabsContent value="info" className="mt-0 space-y-6">
                 {/* AI Case Summary */}

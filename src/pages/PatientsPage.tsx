@@ -128,19 +128,19 @@ const PatientsPage = () => {
 
   return (
     <>
-      <div className="flex-1 p-6 overflow-auto">
+      <div className="flex-1 p-4 md:p-6 overflow-auto">
         {/* Page header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
             <p className="text-muted-foreground">Управление пациентами</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
             <Button
               className="gap-2"
               onClick={() => navigate("/patients/new")}
             >
               <Plus className="w-4 h-4" />
-              Новый пациент
+              <span className="sm:inline">Новый пациент</span>
             </Button>
             <Button
               variant="outline"
@@ -149,7 +149,8 @@ const PatientsPage = () => {
               disabled={isRefreshing}
             >
               <RefreshCw className={cn("w-4 h-4", isRefreshing && "animate-spin")} />
-              Обновить активность
+              <span className="hidden sm:inline">Обновить активность</span>
+              <span className="sm:hidden">Обновить</span>
             </Button>
           </div>
         </div>
@@ -158,10 +159,10 @@ const PatientsPage = () => {
         <div className="relative mb-6">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Поиск по всем данным пациента (имя, email, телефон, адрес, заметки...)"
+            placeholder="Поиск пациентов..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9 max-w-md"
+            className="pl-9 w-full md:max-w-md"
           />
         </div>
 
@@ -176,15 +177,15 @@ const PatientsPage = () => {
               {searchQuery ? "Пациенты не найдены" : "Нет пациентов"}
             </div>
           ) : (
-            <>
+            <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Имя</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Телефон</TableHead>
-                    <TableHead>Последняя активность</TableHead>
-                    <TableHead>Документы</TableHead>
+                    <TableHead className="hidden sm:table-cell">Email</TableHead>
+                    <TableHead className="hidden md:table-cell">Телефон</TableHead>
+                    <TableHead className="hidden lg:table-cell">Последняя активность</TableHead>
+                    <TableHead className="hidden md:table-cell">Документы</TableHead>
                     <TableHead>Действия</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -195,8 +196,14 @@ const PatientsPage = () => {
                       className="cursor-pointer hover:bg-muted/50"
                       onClick={() => handleRowClick(patient.id)}
                     >
-                      <TableCell className="font-medium">{patient.name || "—"}</TableCell>
-                      <TableCell>
+                      <TableCell className="font-medium">
+                        <div>{patient.name || "—"}</div>
+                        {/* Show email/phone on mobile under name */}
+                        <div className="sm:hidden text-xs text-muted-foreground mt-1">
+                          {patient.email || patient.phone || "—"}
+                        </div>
+                      </TableCell>
+                      <TableCell className="hidden sm:table-cell">
                         {patient.email ? (
                           <a
                             href={`mailto:${patient.email}`}
@@ -204,24 +211,25 @@ const PatientsPage = () => {
                             onClick={(e) => e.stopPropagation()}
                           >
                             <Mail className="w-4 h-4" />
-                            {patient.email}
+                            <span className="hidden lg:inline">{patient.email}</span>
+                            <span className="lg:hidden">Email</span>
                           </a>
                         ) : (
                           <span className="text-muted-foreground">—</span>
                         )}
                       </TableCell>
-                      <TableCell>{patient.phone || "—"}</TableCell>
-                      <TableCell className="text-muted-foreground">
+                      <TableCell className="hidden md:table-cell">{patient.phone || "—"}</TableCell>
+                      <TableCell className="hidden lg:table-cell text-muted-foreground">
                         {formatRelativeTime(patient.last_activity_at)}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="hidden md:table-cell">
                         <span className="flex items-center gap-1 text-muted-foreground">
                           <FileText className="w-4 h-4" />
                           {patient.documentCount}
                         </span>
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1 sm:gap-2">
                           <button
                             className="p-2 hover:bg-muted rounded-lg text-muted-foreground hover:text-foreground"
                             onClick={(e) => handleEditClick(e, patient.id)}
@@ -242,7 +250,7 @@ const PatientsPage = () => {
                   ))}
                 </TableBody>
               </Table>
-            </>
+            </div>
           )}
 
           {/* Table footer */}
