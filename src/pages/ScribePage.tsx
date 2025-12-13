@@ -1,19 +1,29 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { useNavigationBlocker } from "@/hooks/useNavigationBlocker";
 import { RecordingCard } from "@/components/scribe/RecordingCard";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { createSession } from "@/lib/supabase-sessions";
 import {
   createRecording,
   uploadAudioFile,
   startTranscription,
-  getRecordingStatus,
   updateRecording,
-  syncTranscriptionStatus
 } from "@/lib/supabase-recordings";
 import { useToast } from "@/hooks/use-toast";
+import { useTranscriptionRecovery } from "@/hooks/useTranscriptionRecovery";
 import {
   saveRecordingLocally,
   markRecordingUploaded,
@@ -24,12 +34,6 @@ import {
 import { logLocalStorageOperation } from "@/lib/local-recording-audit";
 import { RecoveryDialog } from "@/components/scribe/RecoveryDialog";
 
-interface ActiveTranscription {
-  recordingId: string;
-  sessionId: string;
-  status: 'processing' | 'completed' | 'failed';
-}
-
 const ScribePage = () => {
   const { user, profile } = useAuth();
   const { toast } = useToast();
@@ -37,10 +41,7 @@ const ScribePage = () => {
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [transcriptionStatus, setTranscriptionStatus] = useState<'pending' | 'processing' | 'completed' | 'failed'>('pending');
-  
-  // Состояние для активных транскрипций
-  const [activeTranscriptions, setActiveTranscriptions] = useState<Map<string, ActiveTranscription>>(new Map());
-  
+
   // Состояние для не загруженных записей
   const [showRecoveryDialog, setShowRecoveryDialog] = useState(false);
   const [unuploadedRecordings, setUnuploadedRecordings] = useState<Array<{
@@ -50,158 +51,36 @@ const ScribePage = () => {
     createdAt: number;
     uploadError?: string;
   }>>([]);
-  
-  // Refs для хранения интервалов polling
-  const pollingIntervalsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
-  const pollingAttemptsRef = useRef<Map<string, number>>(new Map());
 
   const transcriptionApiUrl = import.meta.env.VITE_TRANSCRIPTION_API_URL || 'http://localhost:3001';
 
-  // Фоновый polling для активных транскрипций
-  useEffect(() => {
-    const MAX_ATTEMPTS = 120; // 4 минуты
+  // Используем хук для recovery и отслеживания транскрипций
+  // Без sessionId - отслеживает все транскрипции пользователя
+  const {
+    processingTranscriptions,
+    isAnyProcessing,
+    addTranscription,
+  } = useTranscriptionRecovery({
+    onComplete: async (recordingId, sessionId) => {
+      console.log(`[ScribePage] Transcription completed: ${recordingId} in session ${sessionId}`);
+      // Navigate to sessions page with sessionId parameter to open the session tab
+      // The session should appear in the list after cache invalidation
+      navigate(`/sessions?sessionId=${sessionId}`);
+    },
+  });
 
-    const startPollingTranscription = (recordingId: string, sessionId: string) => {
-      // Очистить существующий интервал, если есть
-      const existingInterval = pollingIntervalsRef.current.get(recordingId);
-      if (existingInterval) {
-        clearTimeout(existingInterval);
-      }
+  // Состояние для отслеживания записи (для блокировки навигации)
+  const [isRecording, setIsRecording] = useState(false);
 
-      // Инициализировать счетчик попыток, если еще нет
-      if (!pollingAttemptsRef.current.has(recordingId)) {
-        pollingAttemptsRef.current.set(recordingId, 0);
-      }
+  // Блокировка навигации во время записи
+  const blocker = useNavigationBlocker(
+    (currentPath, nextPath) =>
+      isRecording && currentPath !== nextPath
+  );
 
-      const checkStatus = async () => {
-        try {
-          const attempts = pollingAttemptsRef.current.get(recordingId) || 0;
-          
-          if (attempts >= MAX_ATTEMPTS) {
-            console.warn(`Max polling attempts reached for recording ${recordingId}`);
-            pollingIntervalsRef.current.delete(recordingId);
-            pollingAttemptsRef.current.delete(recordingId);
-            setActiveTranscriptions(prev => {
-              const next = new Map(prev);
-              next.delete(recordingId);
-              return next;
-            });
-            return;
-          }
-
-          pollingAttemptsRef.current.set(recordingId, attempts + 1);
-
-          // Sync from AssemblyAI if processing for more than 15 attempts (30 seconds)
-          const shouldSync = attempts > 15;
-          const status = await getRecordingStatus(recordingId, transcriptionApiUrl, shouldSync);
-
-          if (status.status === 'completed') {
-            toast({
-              title: "Транскрипция завершена",
-              description: "Транскрипция успешно завершена",
-            });
-            
-            // Удалить из активных транскрипций
-            setActiveTranscriptions(prev => {
-              const next = new Map(prev);
-              next.delete(recordingId);
-              return next;
-            });
-            pollingIntervalsRef.current.delete(recordingId);
-            pollingAttemptsRef.current.delete(recordingId);
-          } else if (status.status === 'failed') {
-            toast({
-              title: "Ошибка транскрипции",
-              description: status.error || "Не удалось выполнить транскрипцию",
-              variant: "destructive",
-            });
-            
-            setActiveTranscriptions(prev => {
-              const next = new Map(prev);
-              const transcription = next.get(recordingId);
-              if (transcription) {
-                next.set(recordingId, { ...transcription, status: 'failed' });
-              }
-              return next;
-            });
-            pollingIntervalsRef.current.delete(recordingId);
-            pollingAttemptsRef.current.delete(recordingId);
-          } else {
-            // Обновить статус
-            setActiveTranscriptions(prev => {
-              const next = new Map(prev);
-              next.set(recordingId, {
-                recordingId,
-                sessionId,
-                status: status.status as 'processing' | 'completed' | 'failed',
-              });
-              return next;
-            });
-
-            // Если все еще processing, попробовать sync через некоторое время
-            if (status.status === 'processing' && attempts > 30 && attempts % 10 === 0) {
-              try {
-                await syncTranscriptionStatus(recordingId, transcriptionApiUrl);
-                const syncedStatus = await getRecordingStatus(recordingId);
-                if (syncedStatus.status === 'completed' || syncedStatus.status === 'failed') {
-                  if (syncedStatus.status === 'completed') {
-                    toast({
-                      title: "Транскрипция завершена",
-                      description: "Транскрипция успешно завершена",
-                    });
-                  } else {
-                    toast({
-                      title: "Ошибка транскрипции",
-                      description: syncedStatus.error || "Не удалось выполнить транскрипцию",
-                      variant: "destructive",
-                    });
-                  }
-                  setActiveTranscriptions(prev => {
-                    const next = new Map(prev);
-                    next.delete(recordingId);
-                    return next;
-                  });
-                  pollingIntervalsRef.current.delete(recordingId);
-                  pollingAttemptsRef.current.delete(recordingId);
-                  return;
-                }
-              } catch (syncError) {
-                console.warn('Sync failed, continuing polling:', syncError);
-              }
-            }
-
-            // Продолжить polling
-            const interval = setTimeout(checkStatus, 2000);
-            pollingIntervalsRef.current.set(recordingId, interval);
-          }
-        } catch (error) {
-          console.error('Error checking transcription status:', error);
-          // Повторить через 5 секунд при ошибке
-          const interval = setTimeout(checkStatus, 5000);
-          pollingIntervalsRef.current.set(recordingId, interval);
-        }
-      };
-
-      // Начать polling через 2 секунды
-      const interval = setTimeout(checkStatus, 2000);
-      pollingIntervalsRef.current.set(recordingId, interval);
-    };
-
-    // Запустить polling для всех активных транскрипций, которые еще не опрашиваются
-    activeTranscriptions.forEach(({ recordingId, sessionId }) => {
-      if (!pollingIntervalsRef.current.has(recordingId)) {
-        startPollingTranscription(recordingId, sessionId);
-      }
-    });
-  }, [activeTranscriptions, transcriptionApiUrl, toast]);
-
-  // Очистка при размонтировании
-  useEffect(() => {
-    return () => {
-      pollingIntervalsRef.current.forEach(interval => clearTimeout(interval));
-      pollingIntervalsRef.current.clear();
-      pollingAttemptsRef.current.clear();
-    };
+  // Callback для отслеживания состояния записи
+  const handleRecordingStateChange = useCallback((recording: boolean) => {
+    setIsRecording(recording);
   }, []);
 
   // Проверка не загруженных записей при загрузке страницы
@@ -321,15 +200,8 @@ const ScribePage = () => {
       // Start transcription
       try {
         await startTranscription(newRecording.id, transcriptionApiUrl);
-        setActiveTranscriptions(prev => {
-          const next = new Map(prev);
-          next.set(newRecording.id, {
-            recordingId: newRecording.id,
-            sessionId: session.id,
-            status: 'processing',
-          });
-          return next;
-        });
+        // Используем хук для отслеживания
+        addTranscription(newRecording.id, session.id);
       } catch (transcriptionError) {
         console.warn('Transcription not started for retried recording:', transcriptionError);
       }
@@ -363,14 +235,13 @@ const ScribePage = () => {
     setIsProcessing(true);
     setTranscriptionStatus('pending');
 
-    let currentSessionId: string | null = null;
     let localRecordingId: string | null = null;
+    const fileName = `recording-${Date.now()}.webm`;
 
     try {
       // 1. СНАЧАЛА сохраняем локально (независимо от интернета)
-      const fileName = `recording-${Date.now()}.webm`;
       const mimeType = audioBlob.type || 'audio/webm';
-      
+
       try {
         localRecordingId = await saveRecordingLocally(
           audioBlob,
@@ -396,19 +267,17 @@ const ScribePage = () => {
         title: `Сессия ${new Date().toLocaleString('ru-RU')}`,
       });
 
-      currentSessionId = session.id;
-
       const recording = await createRecording({
         sessionId: session.id,
         userId: user.id,
         fileName,
       });
 
-      const uploadResult = await uploadAudioFile({
+      await uploadAudioFile({
         recordingId: recording.id,
         audioBlob,
         fileName: recording.file_name || fileName,
-        mimeType,
+        mimeType: audioBlob.type || 'audio/webm',
       });
 
       await updateRecording(recording.id, {
@@ -416,7 +285,6 @@ const ScribePage = () => {
       });
 
       // 3. Если загрузка успешна, помечаем локальную запись как загруженную
-      // (sessionId уже будет сохранен в markRecordingUploaded)
       if (localRecordingId) {
         try {
           await markRecordingUploaded(localRecordingId, recording.id, session.id);
@@ -438,20 +306,13 @@ const ScribePage = () => {
       // Start transcription
       try {
         await startTranscription(recording.id, transcriptionApiUrl);
-        
-        setActiveTranscriptions(prev => {
-          const next = new Map(prev);
-          next.set(recording.id, {
-            recordingId: recording.id,
-            sessionId: session.id,
-            status: 'processing',
-          });
-          return next;
-        });
+
+        // Используем хук для отслеживания транскрипции
+        addTranscription(recording.id, session.id);
 
         setIsProcessing(false);
         setTranscriptionStatus('pending');
-        
+
       } catch (transcriptionError) {
         console.error('Error starting transcription:', transcriptionError);
         setTranscriptionStatus('failed');
@@ -475,7 +336,7 @@ const ScribePage = () => {
             error: errorMessage,
           });
           console.log('[ScribePage] Recording saved locally but upload failed:', localRecordingId);
-          
+
           // Refresh unuploaded list
           const unuploaded = await getUnuploadedRecordings();
           setUnuploadedRecordings(unuploaded);
@@ -512,7 +373,8 @@ const ScribePage = () => {
 
   const handleGenerateNote = () => {
     // Navigate to sessions page where user can create a note
-    navigate('/sessions');
+    // Use blocker.navigate to respect navigation blocking
+    blocker.navigate('/sessions');
   };
 
   return (
@@ -529,39 +391,45 @@ const ScribePage = () => {
         </div>
 
         {/* Индикаторы активных транскрипций */}
-        {activeTranscriptions.size > 0 && (
+        {isAnyProcessing && (
           <div className="mb-4 w-full max-w-lg">
             <div className="bg-card rounded-lg border border-border p-4 space-y-2 shadow-sm">
               <div className="flex items-center justify-between mb-2">
                 <p className="text-sm font-medium text-foreground">
-                  Транскрипция в процессе ({activeTranscriptions.size})
+                  Транскрипция в процессе ({processingTranscriptions.size})
                 </p>
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => navigate('/sessions')}
+                  onClick={() => blocker.navigate('/sessions')}
                   className="h-7 text-xs"
                 >
                   Перейти к сессиям
                 </Button>
               </div>
               <div className="space-y-1.5">
-                {Array.from(activeTranscriptions.values()).map(({ recordingId, status }) => (
+                {Array.from(processingTranscriptions.values()).map(({ recordingId, status, fileName }) => (
                   <div key={recordingId} className="flex items-center gap-2 text-xs">
                     {status === 'processing' ? (
                       <>
                         <Loader2 className="w-3 h-3 animate-spin text-primary" />
-                        <span className="text-muted-foreground">Обработка записи...</span>
+                        <span className="text-muted-foreground">
+                          {fileName ? `Обработка: ${fileName}` : 'Обработка записи...'}
+                        </span>
                       </>
                     ) : status === 'failed' ? (
                       <>
                         <div className="w-3 h-3 rounded-full bg-destructive" />
-                        <span className="text-destructive">Ошибка транскрипции</span>
+                        <span className="text-destructive">
+                          {fileName ? `Ошибка: ${fileName}` : 'Ошибка транскрипции'}
+                        </span>
                       </>
                     ) : (
                       <>
                         <div className="w-3 h-3 rounded-full bg-success" />
-                        <span className="text-success">Завершено</span>
+                        <span className="text-success">
+                          {fileName ? `Завершено: ${fileName}` : 'Завершено'}
+                        </span>
                       </>
                     )}
                   </div>
@@ -577,6 +445,7 @@ const ScribePage = () => {
           onGenerateNote={handleGenerateNote}
           isProcessing={isProcessing}
           transcriptionStatus={transcriptionStatus}
+          onRecordingStateChange={handleRecordingStateChange}
         />
       </div>
 
@@ -620,6 +489,30 @@ const ScribePage = () => {
           }
         }}
       />
+
+      {/* Navigation Blocker Dialog */}
+      <AlertDialog open={blocker.state === 'blocked'}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Запись в процессе</AlertDialogTitle>
+            <AlertDialogDescription>
+              Идёт запись аудио. Если вы покинете страницу, запись будет потеряна.
+              Вы уверены, что хотите уйти?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => blocker.reset?.()}>
+              Остаться
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => blocker.proceed?.()}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Покинуть страницу
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 };

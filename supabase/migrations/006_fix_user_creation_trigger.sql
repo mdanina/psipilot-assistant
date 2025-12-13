@@ -58,3 +58,4 @@ Handles mfa_enabled and backup_codes columns from migration 005.';
 
 
 
+

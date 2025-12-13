@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Mic, FileText, X, Pause, Play, Square, Sparkles, Loader2, Music } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
@@ -9,13 +9,16 @@ interface RecordingCardProps {
   onGenerateNote: () => void;
   isProcessing?: boolean;
   transcriptionStatus?: 'pending' | 'processing' | 'completed' | 'failed';
+  /** Called when recording starts or stops. Used for navigation blocking. */
+  onRecordingStateChange?: (isRecording: boolean) => void;
 }
 
 export const RecordingCard = ({
   onRecordingComplete,
   onGenerateNote,
   isProcessing = false,
-  transcriptionStatus = 'pending'
+  transcriptionStatus = 'pending',
+  onRecordingStateChange,
 }: RecordingCardProps) => {
   const {
     isRecording,
@@ -39,6 +42,11 @@ export const RecordingCard = ({
     duration: number;
     fileName: string;
   } | null>(null);
+
+  // Notify parent about recording state changes (for navigation blocking)
+  useEffect(() => {
+    onRecordingStateChange?.(isRecording);
+  }, [isRecording, onRecordingStateChange]);
 
   // Show error toast if recorder has error
   if (recorderError) {
