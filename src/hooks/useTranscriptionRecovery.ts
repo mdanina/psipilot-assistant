@@ -37,7 +37,7 @@ interface UseTranscriptionRecoveryReturn {
   /** Number of active transcriptions */
   count: number;
   /** Manually add a transcription to track (called after starting transcription) */
-  addTranscription: (recordingId: string, sessionId: string) => void;
+  addTranscription: (recordingId: string, sessionId: string, startedAt?: string) => void;
   /** Manually remove a transcription from tracking */
   removeTranscription: (recordingId: string) => void;
   /** Force refresh status from database */
@@ -81,7 +81,7 @@ export function useTranscriptionRecovery(
 ): UseTranscriptionRecoveryReturn {
   const { sessionId, onComplete, onError } = options;
 
-  const { user, isAuthenticated, updateActivity } = useAuth();
+  const { user, isAuthenticated, updateActivity, profile } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -90,6 +90,7 @@ export function useTranscriptionRecovery(
   // Refs for polling management
   const pollingTimeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const pollingAttemptsRef = useRef<Map<string, number>>(new Map());
+  const recordingInfoRef = useRef<Map<string, { startedAt?: string }>>(new Map());
   const isMountedRef = useRef(true);
 
   // Cleanup function for a single recording's polling
@@ -136,9 +137,73 @@ export function useTranscriptionRecovery(
       // Update activity to prevent session timeout
       updateActivity();
 
-      // Sync with AssemblyAI after 2 minutes (4 attempts at 30sec interval)
-      const shouldSync = attempts > 10 && attempts % 5 === 0;
+      // Get recording info to check age
+      const recordingInfo = recordingInfoRef.current.get(recordingId);
+      const recordingAge = recordingInfo?.startedAt 
+        ? Date.now() - new Date(recordingInfo.startedAt).getTime()
+        : 0;
+      
+      // Determine if we should sync:
+      // 1. First sync after 30 seconds (6 attempts at 5sec) - for short recordings
+      // 2. Sync immediately if recording is older than 2 minutes (likely stuck)
+      // 3. Then sync every 1 minute (every 12 attempts at 5sec, or every 2 attempts at 30sec)
+      const isOldRecording = recordingAge > 120000; // 2 minutes
+      const shouldSyncEarly = attempts === 7; // After 30 seconds (6 * 5sec = 30sec)
+      const shouldSyncRegular = attempts > 7 && (attempts % 12 === 0 || (attempts > 6 && attempts % 2 === 0 && attempts > 12));
+      const shouldSync = isOldRecording || shouldSyncEarly || shouldSyncRegular;
+      
       const status = await getRecordingStatus(recordingId, transcriptionApiUrl, shouldSync);
+      
+      // Check if sync failed and recording is very old with "No transcript_id" error
+      const syncError = (status as any).syncError as Error | undefined;
+      if (shouldSync && syncError) {
+        const isVeryOld = recordingAge > 24 * 60 * 60 * 1000; // 24 hours
+        const errorMessage = syncError.message;
+        const isNoTranscriptIdError = errorMessage.includes('No transcript_id found') || 
+                                      errorMessage.includes('transcript_id') ||
+                                      errorMessage.includes('transcript_id');
+
+        if (isVeryOld && isNoTranscriptIdError) {
+          console.warn(`[useTranscriptionRecovery] Very old transcription (${Math.round(recordingAge / 1000 / 60)}min) with no transcript_id, marking as failed: ${recordingId}`);
+          
+          // Mark as failed in database
+          try {
+            const { error: updateError } = await supabase
+              .from('recordings')
+              .update({
+                transcription_status: 'failed',
+                transcription_error: 'Транскрипция не была запущена или была потеряна. Запись слишком старая для восстановления.',
+              })
+              .eq('id', recordingId);
+
+            if (updateError) {
+              console.error('[useTranscriptionRecovery] Failed to mark recording as failed:', updateError);
+            } else {
+              // Update status to reflect the change
+              (status as any).status = 'failed';
+              (status as any).error = 'Транскрипция не была запущена или была потеряна';
+              
+              // For stuck transcriptions, remove from list after a short delay
+              // This keeps the UI clean while still showing the toast notification
+              setTimeout(() => {
+                stopPolling(recordingId);
+                setProcessingTranscriptions(prev => {
+                  const next = new Map(prev);
+                  next.delete(recordingId);
+                  return next;
+                });
+                console.log(`[useTranscriptionRecovery] Removed stuck transcription from UI: ${recordingId}`);
+              }, 5000); // Remove after 5 seconds
+            }
+          } catch (updateErr) {
+            console.error('[useTranscriptionRecovery] Error updating recording status:', updateErr);
+          }
+        }
+      }
+      
+      if (shouldSync) {
+        console.log(`[useTranscriptionRecovery] Syncing status for ${recordingId} (attempt ${attempts}, age: ${Math.round(recordingAge / 1000)}s)`);
+      }
 
       if (!isMountedRef.current) return;
 
@@ -152,8 +217,29 @@ export function useTranscriptionRecovery(
           return next;
         });
 
-        // Invalidate React Query caches
+        // Invalidate React Query caches to ensure new session appears
+        // Invalidate both specific clinic sessions and all sessions queries
+        if (profile?.clinic_id) {
+          console.log(`[useTranscriptionRecovery] Invalidating sessions cache for clinic: ${profile.clinic_id}, sessionId: ${sessionIdForRecording}`);
+          
+          // First invalidate to mark as stale
+          queryClient.invalidateQueries({ queryKey: ['sessions', profile.clinic_id] });
+          
+          // Force immediate refetch to ensure new session appears
+          try {
+            await queryClient.refetchQueries({ 
+              queryKey: ['sessions', profile.clinic_id],
+              type: 'active' // Only refetch active queries
+            });
+            console.log(`[useTranscriptionRecovery] ✅ Refetched sessions for clinic: ${profile.clinic_id}`);
+          } catch (refetchError) {
+            console.error(`[useTranscriptionRecovery] Error refetching sessions:`, refetchError);
+          }
+        }
+        // Invalidate all sessions queries
         queryClient.invalidateQueries({ queryKey: ['sessions'] });
+        // Also invalidate sessions by IDs cache (for open tabs)
+        queryClient.invalidateQueries({ queryKey: ['sessions', 'byIds'] });
 
         toast({
           title: "Транскрипция завершена",
@@ -166,6 +252,8 @@ export function useTranscriptionRecovery(
         console.error(`[useTranscriptionRecovery] ❌ Transcription failed: ${recordingId}`, status.error);
 
         stopPolling(recordingId);
+        
+        // Show failed status briefly, then remove from list
         setProcessingTranscriptions(prev => {
           const next = new Map(prev);
           const existing = next.get(recordingId);
@@ -183,6 +271,17 @@ export function useTranscriptionRecovery(
 
         onError?.(recordingId, status.error || 'Unknown error');
 
+        // Remove from list after showing notification (5 seconds)
+        // This keeps the UI clean while user sees the error
+        setTimeout(() => {
+          setProcessingTranscriptions(prev => {
+            const next = new Map(prev);
+            next.delete(recordingId);
+            return next;
+          });
+          recordingInfoRef.current.delete(recordingId);
+        }, 5000);
+
       } else {
         // Still processing - schedule next poll
         const interval = getPollingInterval(attempts);
@@ -195,6 +294,24 @@ export function useTranscriptionRecovery(
       console.error(`[useTranscriptionRecovery] Error polling status:`, error);
 
       if (!isMountedRef.current) return;
+
+      // If recording is very old (more than 7 days) and we keep getting errors, stop polling
+      const recordingInfo = recordingInfoRef.current.get(recordingId);
+      const recordingAge = recordingInfo?.startedAt 
+        ? Date.now() - new Date(recordingInfo.startedAt).getTime()
+        : 0;
+      const isVeryOld = recordingAge > 7 * 24 * 60 * 60 * 1000; // 7 days
+
+      if (isVeryOld && attempts > 10) {
+        console.warn(`[useTranscriptionRecovery] Very old transcription (${Math.round(recordingAge / 1000 / 60 / 60)}h) with persistent errors, stopping polling: ${recordingId}`);
+        stopPolling(recordingId);
+        setProcessingTranscriptions(prev => {
+          const next = new Map(prev);
+          next.delete(recordingId);
+          return next;
+        });
+        return;
+      }
 
       // Retry with longer interval on error
       const timeout = setTimeout(() => {
@@ -216,16 +333,22 @@ export function useTranscriptionRecovery(
   }, [pollRecordingStatus]);
 
   // Add a transcription to track
-  const addTranscription = useCallback((recordingId: string, sessionIdForRecording: string) => {
+  const addTranscription = useCallback((recordingId: string, sessionIdForRecording: string, startedAt?: string) => {
     setProcessingTranscriptions(prev => {
       const next = new Map(prev);
       next.set(recordingId, {
         recordingId,
         sessionId: sessionIdForRecording,
         status: 'processing',
+        startedAt,
       });
       return next;
     });
+
+    // Store in ref for quick access during polling
+    if (startedAt) {
+      recordingInfoRef.current.set(recordingId, { startedAt });
+    }
 
     startPolling(recordingId, sessionIdForRecording);
   }, [startPolling]);
@@ -233,6 +356,7 @@ export function useTranscriptionRecovery(
   // Remove a transcription from tracking
   const removeTranscription = useCallback((recordingId: string) => {
     stopPolling(recordingId);
+    recordingInfoRef.current.delete(recordingId);
     setProcessingTranscriptions(prev => {
       const next = new Map(prev);
       next.delete(recordingId);
@@ -276,34 +400,67 @@ export function useTranscriptionRecovery(
       console.log(`[useTranscriptionRecovery] Found ${data.length} processing recording(s)`);
 
       // Add each to tracking and start polling
+      // Use functional update to avoid dependency on processingTranscriptions
+      const recordingsToTrack: Array<{ id: string; session_id: string; file_name: string | null; created_at: string }> = [];
+      
       data.forEach((recording: { id: string; session_id: string; file_name: string | null; created_at: string }) => {
-        if (!processingTranscriptions.has(recording.id)) {
-          setProcessingTranscriptions(prev => {
-            const next = new Map(prev);
-            next.set(recording.id, {
-              recordingId: recording.id,
-              sessionId: recording.session_id,
-              status: 'processing',
-              fileName: recording.file_name || undefined,
-              startedAt: recording.created_at,
-            });
-            return next;
+        setProcessingTranscriptions(prev => {
+          // Skip if already tracking
+          if (prev.has(recording.id)) {
+            return prev;
+          }
+          
+          const recordingAge = Date.now() - new Date(recording.created_at).getTime();
+          const isOldRecording = recordingAge > 120000; // Older than 2 minutes
+          
+          const next = new Map(prev);
+          next.set(recording.id, {
+            recordingId: recording.id,
+            sessionId: recording.session_id,
+            status: 'processing',
+            fileName: recording.file_name || undefined,
+            startedAt: recording.created_at,
           });
 
-          startPolling(recording.id, recording.session_id);
-        }
+          // Store in ref for quick access during polling
+          recordingInfoRef.current.set(recording.id, { startedAt: recording.created_at });
+
+          // If recording is old, sync immediately on first poll
+          // This helps catch stuck transcriptions that were found during recovery
+          if (isOldRecording) {
+            console.log(`[useTranscriptionRecovery] Old recording found (${Math.round(recordingAge / 1000)}s), will sync immediately: ${recording.id}`);
+          }
+
+          // Collect recordings to start polling after state updates
+          recordingsToTrack.push(recording);
+
+          return next;
+        });
+      });
+      
+      // Start polling for all new recordings after state updates
+      recordingsToTrack.forEach(recording => {
+        startPolling(recording.id, recording.session_id);
       });
     } catch (error) {
       console.error('[useTranscriptionRecovery] Error in refreshFromDatabase:', error);
     }
-  }, [user?.id, isAuthenticated, sessionId, processingTranscriptions, startPolling]);
+  }, [user?.id, isAuthenticated, sessionId, startPolling]);
 
   // On mount: fetch processing recordings and start polling
   useEffect(() => {
     isMountedRef.current = true;
 
     if (isAuthenticated && user?.id) {
-      refreshFromDatabase();
+      console.log('[useTranscriptionRecovery] Component mounted, refreshing from database...');
+      // Small delay to ensure component is fully mounted
+      const timeoutId = setTimeout(() => {
+        refreshFromDatabase();
+      }, 100);
+      
+      return () => {
+        clearTimeout(timeoutId);
+      };
     }
 
     return () => {

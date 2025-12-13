@@ -348,23 +348,36 @@ export async function getUnuploadedRecordings(): Promise<Array<{
     const transaction = db.transaction([STORE_NAME], 'readonly');
     const store = transaction.objectStore(STORE_NAME);
     const index = store.index('uploaded');
-    const request = index.getAll(false); // Get all where uploaded = false
+    
+    // Open cursor on the entire index and filter manually
+    // Some browsers don't support openCursor with boolean values directly
+    const request = index.openCursor();
 
-    request.onsuccess = () => {
-      const recordings = (request.result || []) as StoredRecording[];
-      // Filter out expired recordings
-      const now = Date.now();
-      const validRecordings = recordings
-        .filter(r => r.expiresAt > now)
-        .map(r => ({
+    const recordings: StoredRecording[] = [];
+    const now = Date.now();
+
+    request.onsuccess = (event) => {
+      const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
+      if (cursor) {
+        const recording = cursor.value as StoredRecording;
+        // Filter for unuploaded and non-expired recordings
+        if (recording.uploaded === false && recording.expiresAt > now) {
+          recordings.push(recording);
+        }
+        cursor.continue();
+      } else {
+        // All records processed
+        const validRecordings = recordings.map(r => ({
           id: r.id,
           fileName: r.fileName,
           duration: r.duration,
           createdAt: r.createdAt,
           uploadError: r.uploadError,
         }));
-      resolve(validRecordings);
+        resolve(validRecordings);
+      }
     };
+    
     request.onerror = () => reject(request.error);
   });
 }

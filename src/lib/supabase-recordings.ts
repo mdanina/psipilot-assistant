@@ -167,12 +167,15 @@ export async function getRecordingStatus(
   transcriptionApiUrl?: string,
   forceSync: boolean = false
 ): Promise<TranscriptionStatus> {
+  let syncError: Error | null = null;
+  
   // If forceSync is true and transcriptionApiUrl is provided, sync from AssemblyAI first
   if (forceSync && transcriptionApiUrl) {
     try {
       await syncTranscriptionStatus(recordingId, transcriptionApiUrl);
     } catch (error) {
-      console.warn('Failed to sync transcription status, falling back to DB:', error);
+      syncError = error instanceof Error ? error : new Error(String(error));
+      console.warn('Failed to sync transcription status, falling back to DB:', syncError);
     }
   }
 
@@ -192,11 +195,20 @@ export async function getRecordingStatus(
     throw new Error('Recording not found');
   }
 
-  return {
+  const result: TranscriptionStatus = {
     status: data.transcription_status,
     transcriptionText: data.transcription_text,
     error: data.transcription_error || undefined,
   };
+
+  // If sync failed and we have error info, attach it to the result
+  // This allows the caller to check if sync failed and handle accordingly
+  if (syncError) {
+    // Store sync error in a way that can be checked by the caller
+    (result as any).syncError = syncError;
+  }
+
+  return result;
 }
 
 /**

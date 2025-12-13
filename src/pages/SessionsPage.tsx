@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Plus, FileText, Circle, User, Link2, Loader2, Mic, Pause, Play, Square, Sparkles, ChevronDown, RefreshCw, Trash2, X, File, Upload, Search, AlertTriangle } from "lucide-react";
-import { useNavigate, useLocation, useSearchParams, useBlocker } from "react-router-dom";
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
+import { useNavigationBlocker } from "@/hooks/useNavigationBlocker";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -75,6 +76,15 @@ const SessionsPage = () => {
     isLoading: isLoadingSessions,
     error: sessionsError
   } = useSessions(stableClinicId);
+  
+  // Debug: log sessions data
+  useEffect(() => {
+    if (sessions.length > 0) {
+      console.log('[SessionsPage] Loaded sessions:', sessions.length, sessions.map(s => ({ id: s.id, title: s.title, patient_id: s.patient_id, created_at: s.created_at })));
+    } else if (!isLoadingSessions && stableClinicId) {
+      console.warn('[SessionsPage] No sessions loaded, clinicId:', stableClinicId);
+    }
+  }, [sessions, isLoadingSessions, stableClinicId]);
 
   // Load sessions for open tabs separately (not limited by 50)
   const openTabIds = useMemo(() => Array.from(openTabs), [openTabs]);
@@ -180,18 +190,35 @@ const SessionsPage = () => {
     getCurrentMimeType,
   } = useAudioRecorder();
 
-  // Transcription recovery hook - tracks processing transcriptions for active session
+  // Transcription recovery hook - tracks processing transcriptions for ALL user's sessions
   // This replaces the local polling logic and survives page navigation
+  // Don't filter by activeSession - track all transcriptions to show them in UI
   const {
     processingTranscriptions,
     isAnyProcessing: isAnyTranscriptionProcessing,
     addTranscription,
   } = useTranscriptionRecovery({
-    sessionId: activeSession || undefined,
+    // Don't filter by sessionId - track all user's transcriptions
+    // This ensures processing transcriptions are visible even if their session is not open
     onComplete: async (recordingId, sessionId) => {
       console.log(`[SessionsPage] Transcription completed: ${recordingId} in session ${sessionId}`);
+      
+      // Open tab for the session if it's not already open
+      setOpenTabs(prev => {
+        if (!prev.has(sessionId)) {
+          console.log(`[SessionsPage] Opening tab for completed transcription session: ${sessionId}`);
+          return new Set(prev).add(sessionId);
+        }
+        return prev;
+      });
+      
+      // Set as active session if no active session or if this is the active one
+      if (!activeSession || sessionId === activeSession) {
+        setActiveSession(sessionId);
+      }
+      
       // Reload recordings to update UI
-      if (sessionId === activeSession) {
+      if (sessionId === activeSession || !activeSession) {
         try {
           const recordingsData = await getSessionRecordings(sessionId);
           setRecordings(recordingsData);
@@ -226,9 +253,9 @@ const SessionsPage = () => {
   }, [recorderError, toast]);
 
   // Block navigation while recording
-  const recordingBlocker = useBlocker(
-    ({ currentLocation, nextLocation }) =>
-      isRecording && currentLocation.pathname !== nextLocation.pathname
+  const recordingBlocker = useNavigationBlocker(
+    (currentPath, nextPath) =>
+      isRecording && currentPath !== nextPath
   );
 
   // Load open tabs from database
@@ -293,13 +320,18 @@ const SessionsPage = () => {
       
       // Remove closed tabs
       if (toRemove.length > 0) {
+        console.log('[saveOpenTabs] Removing tabs from DB:', toRemove);
         const { error: deleteError } = await supabase
           .from('user_session_tabs')
           .delete()
           .eq('user_id', user.id)
           .in('session_id', toRemove);
         
-        if (deleteError) throw deleteError;
+        if (deleteError) {
+          console.error('[saveOpenTabs] Error deleting tabs:', deleteError);
+          throw deleteError;
+        }
+        console.log('[saveOpenTabs] ✅ Successfully removed tabs from DB:', toRemove);
       }
     } catch (error) {
       console.error('Error saving open tabs:', error);
@@ -335,9 +367,18 @@ const SessionsPage = () => {
   }, [user?.id]);
 
   // Save open tabs when they change (debounced)
+  // BUT: if tabs were closed via handleCloseSession, don't save again (already saved immediately)
   const saveTabsTimeoutRef = useRef<NodeJS.Timeout>();
+  const lastSavedTabsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!user?.id) return;
+    
+    // Skip if tabs haven't actually changed (prevent unnecessary saves)
+    const tabsArray = Array.from(openTabs).sort().join(',');
+    const lastSavedArray = Array.from(lastSavedTabsRef.current).sort().join(',');
+    if (tabsArray === lastSavedArray) {
+      return;
+    }
     
     // Debounce saves to avoid too many DB calls
     if (saveTabsTimeoutRef.current) {
@@ -345,7 +386,9 @@ const SessionsPage = () => {
     }
     
     saveTabsTimeoutRef.current = setTimeout(() => {
-      saveOpenTabs(openTabs);
+      saveOpenTabs(openTabs).then(() => {
+        lastSavedTabsRef.current = new Set(openTabs);
+      });
     }, 500);
     
     return () => {
@@ -445,12 +488,16 @@ const SessionsPage = () => {
     const sessionIdFromUrl = searchParams.get('sessionId');
     const sessionId = sessionIdFromState || sessionIdFromUrl;
     
-    if (sessionId && !isLoading && sessions.length > 0 && user?.id && !processingNavigationRef.current) {
-      // Check if session exists in loaded sessions
-      const sessionExists = sessions.some(s => s.id === sessionId);
-      if (!sessionExists) {
-        console.warn('Session not found in loaded sessions:', sessionId);
-        navigate(location.pathname, { replace: true, state: {} });
+    if (sessionId && !isLoading && user?.id && !processingNavigationRef.current) {
+      // Check if session exists in loaded sessions or tab sessions
+      // Note: session might not be in top 50, but should be in tabSessions if tab is open
+      const sessionExists = sessions.some(s => s.id === sessionId) || tabSessions.some(s => s.id === sessionId);
+      if (!sessionExists && sessions.length > 0) {
+        // If sessions are loaded but this one is not found, it might be outside top 50
+        // In this case, we'll still try to open it (it will be loaded via useSessionsByIds)
+        console.log(`[SessionsPage] Session ${sessionId} not in top 50, will load via useSessionsByIds`);
+      } else if (!sessionExists && sessions.length === 0) {
+        // No sessions loaded yet, wait
         return;
       }
       
@@ -1072,26 +1119,22 @@ const SessionsPage = () => {
   const handleCloseSession = async (sessionId: string, e?: React.MouseEvent) => {
     e?.stopPropagation(); // Prevent session selection
 
-    const session = tabSessions.find(s => s.id === sessionId);
-    if (!session) return;
+    const session = tabSessions.find(s => s.id === sessionId) || sessions.find(s => s.id === sessionId);
+    if (!session) {
+      return;
+    }
 
-    // If session is linked to patient, complete it and close the tab
+    // If session is linked to patient, just close the tab (no deletion option)
     if (session.patient_id) {
-      try {
-        // Complete the session using React Query mutation
-        await completeSessionMutation.mutateAsync(sessionId);
-
-        // Remove from open tabs
-        setOpenTabs(prev => {
-          const newTabs = new Set(prev);
-          newTabs.delete(sessionId);
-          return newTabs;
-        });
-
+      // Simply remove from open tabs and update active session if needed
+      let newTabs: Set<string>;
+      setOpenTabs(prev => {
+        newTabs = new Set(prev);
+        newTabs.delete(sessionId);
+        
         // If closed session was active, select another one from remaining open tabs
         if (activeSession === sessionId) {
-          // We need to calculate remaining tabs manually since state hasn't updated yet
-          const remainingOpenTabIds = [...openTabs].filter(id => id !== sessionId);
+          const remainingOpenTabIds = Array.from(newTabs);
           const remainingSessions = tabSessions.filter(s => remainingOpenTabIds.includes(s.id));
           if (remainingSessions.length > 0) {
             setActiveSession(remainingSessions[0].id);
@@ -1099,19 +1142,30 @@ const SessionsPage = () => {
             setActiveSession(null);
           }
         }
-
-        toast({
-          title: "Сессия завершена",
-          description: "Сессия успешно завершена и закрыта",
-        });
-      } catch (error) {
-        console.error('Error completing session:', error);
-        toast({
-          title: "Ошибка",
-          description: "Не удалось завершить сессию. Попробуйте ещё раз.",
-          variant: "destructive",
-        });
-      }
+        
+        return newTabs;
+      });
+      
+        // Save to DB immediately (don't wait for debounce)
+        // This prevents race conditions where loadOpenTabs might reload old data
+        if (user?.id && newTabs) {
+          console.log('[handleCloseSession] Saving closed tab to DB immediately:', sessionId, 'newTabs:', Array.from(newTabs));
+          // Wait for save to complete to prevent race conditions
+          await saveOpenTabs(newTabs);
+          console.log('[handleCloseSession] ✅ Successfully saved closed tab to DB');
+          
+          // Update lastSavedTabsRef to prevent debounced save from overwriting
+          lastSavedTabsRef.current = new Set(newTabs);
+          
+          // Invalidate and refetch React Query cache for sessions by IDs to force update
+          // This ensures tabSessions updates immediately after closing
+          // Use the specific queryKey based on current openTabIds to refetch the correct query
+          const newTabIds = Array.from(newTabs).sort();
+          const newIdsKey = newTabIds.join(',');
+          queryClient.invalidateQueries({ queryKey: ['sessions', 'byIds', newIdsKey] });
+          queryClient.invalidateQueries({ queryKey: ['sessions', 'byIds'] });
+          await queryClient.refetchQueries({ queryKey: ['sessions', 'byIds'] });
+        }
     } else {
       // If not linked, show dialog - user must link or delete
       setClosingSessionId(sessionId);
@@ -1408,11 +1462,19 @@ const SessionsPage = () => {
     }
   };
 
-  // Filter tab sessions by search query
-  // tabSessions already contains only sessions from open tabs (loaded by ID, no 50 limit)
+  // Filter sessions for the tab list at the top
+  // Show only sessions that are in openTabs (open tabs)
   const filteredSessions = useMemo(() => {
-    console.log('[FilteredSessions] tabSessions:', tabSessions.length, 'openTabs:', openTabs.size);
-    let result = [...tabSessions];
+    // Only show sessions that are in openTabs
+    // Use tabSessions (loaded by ID) as the source, as they are guaranteed to be loaded
+    let result = tabSessions.filter(session => openTabs.has(session.id));
+    
+    // Sort by created_at DESC (newest first)
+    result = result.sort((a, b) => {
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+    
+    console.log('[FilteredSessions] tabSessions:', tabSessions.length, 'openTabs:', openTabs.size, 'filtered (open tabs only):', result.length);
 
     // Filter by search query if provided
     if (searchQuery.trim()) {
@@ -1852,54 +1914,63 @@ const SessionsPage = () => {
           </div>
         </div>
         
-        {/* Session tabs */}
-        {openTabs.size > 0 && (
+        {/* Session tabs - show only open tabs */}
+        {filteredSessions.length > 0 && (
           <div className="border-b border-border px-4 md:px-6 py-3 flex items-center gap-2 overflow-x-auto scrollbar-thin">
-            {isLoading ? (
+            {isLoadingSessions ? (
               <div className="flex items-center gap-2">
                 <Loader2 className="w-4 h-4 animate-spin" />
                 <span className="text-sm text-muted-foreground">Загрузка...</span>
               </div>
             ) : (
               <>
-                {filteredSessions.map((session) => (
-                  <div
-                    key={session.id}
-                    className={`px-4 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors whitespace-nowrap group ${
-                      activeSession === session.id
-                        ? "bg-muted text-foreground"
-                        : "text-muted-foreground hover:bg-muted/50"
-                    }`}
-                  >
-                    <button
-                      onClick={() => {
-                        // Add to open tabs if not already there
-                        setOpenTabs(prev => {
-                          const newTabs = new Set(prev);
-                          newTabs.add(session.id);
-                          return newTabs;
-                        });
-                        setActiveSession(session.id);
-                      }}
-                      className="flex items-center gap-2 flex-1"
+                {filteredSessions.map((session) => {
+                  const isOpenTab = openTabs.has(session.id);
+                  const isActive = activeSession === session.id;
+                  
+                  // Only show close button if session is in open tabs
+                  // Sessions not in open tabs are just in the list, clicking them opens them
+                  return (
+                    <div
+                      key={session.id}
+                      className={`px-4 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors whitespace-nowrap group ${
+                        isActive
+                          ? "bg-muted text-foreground"
+                          : "text-muted-foreground hover:bg-muted/50"
+                      }`}
                     >
-                      <Circle className={`w-2 h-2 ${!session.patient_id ? "text-destructive" : "text-success"} fill-current`} />
-                      {(session.title?.replace(/^Запись\s/, 'Сессия ') || `Сессия ${new Date(session.created_at).toLocaleDateString('ru-RU')}`)}
-                      {!session.patient_id && (
-                        <Badge variant="outline" className="ml-1 text-xs">
-                          Не привязано
-                        </Badge>
+                      <button
+                        onClick={() => {
+                          // Add to open tabs if not already there
+                          setOpenTabs(prev => {
+                            const newTabs = new Set(prev);
+                            newTabs.add(session.id);
+                            return newTabs;
+                          });
+                          setActiveSession(session.id);
+                        }}
+                        className="flex items-center gap-2 flex-1"
+                      >
+                        <Circle className={`w-2 h-2 ${!session.patient_id ? "text-destructive" : "text-success"} fill-current`} />
+                        {(session.title?.replace(/^Запись\s/, 'Сессия ') || `Сессия ${new Date(session.created_at).toLocaleDateString('ru-RU')}`)}
+                        {!session.patient_id && (
+                          <Badge variant="outline" className="ml-1 text-xs">
+                            Не привязано
+                          </Badge>
+                        )}
+                      </button>
+                      {isOpenTab && (
+                        <button
+                          onClick={(e) => handleCloseSession(session.id, e)}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-muted rounded"
+                          title="Закрыть вкладку"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
                       )}
-                    </button>
-                    <button
-                      onClick={(e) => handleCloseSession(session.id, e)}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-muted rounded"
-                      title="Закрыть сессию"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                ))}
+                    </div>
+                  );
+                })}
                 <button
                   className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg"
                   onClick={() => setCreateSessionDialogOpen(true)}
@@ -1914,8 +1985,8 @@ const SessionsPage = () => {
         
         {/* Main content - 3 колонки: исходники, библиотека шаблонов, результат */}
         <div className="flex-1 overflow-hidden">
-          {openTabs.size === 0 ? (
-            // Empty state - все вкладки закрыты
+          {openTabs.size === 0 && filteredSessions.length === 0 ? (
+            // Empty state - нет сессий вообще
             <div className="h-full flex items-center justify-center p-8">
               <div className="text-center max-w-md">
                 <div className="mb-4 flex justify-center">
@@ -1923,7 +1994,7 @@ const SessionsPage = () => {
                     <FileText className="w-8 h-8 text-muted-foreground" />
                   </div>
                 </div>
-                <h3 className="text-lg font-semibold mb-2">Нет открытых сессий</h3>
+                <h3 className="text-lg font-semibold mb-2">Нет сессий</h3>
                 <p className="text-sm text-muted-foreground mb-6">
                   Создайте новую сессию, чтобы начать работу.
                 </p>
@@ -1934,6 +2005,21 @@ const SessionsPage = () => {
                   <Plus className="w-4 h-4 mr-2" />
                   Создать новую сессию
                 </Button>
+              </div>
+            </div>
+          ) : openTabs.size === 0 && filteredSessions.length > 0 ? (
+            // Есть сессии, но нет открытых вкладок - показываем подсказку
+            <div className="h-full flex items-center justify-center p-8">
+              <div className="text-center max-w-md">
+                <div className="mb-4 flex justify-center">
+                  <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
+                    <FileText className="w-8 h-8 text-muted-foreground" />
+                  </div>
+                </div>
+                <h3 className="text-lg font-semibold mb-2">Выберите сессию</h3>
+                <p className="text-sm text-muted-foreground mb-6">
+                  Выберите сессию из списка выше, чтобы начать работу.
+                </p>
               </div>
             </div>
           ) : (

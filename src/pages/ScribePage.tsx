@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Loader2 } from "lucide-react";
-import { useNavigate, useBlocker } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+import { useNavigationBlocker } from "@/hooks/useNavigationBlocker";
 import { RecordingCard } from "@/components/scribe/RecordingCard";
 import { Button } from "@/components/ui/button";
 import {
@@ -59,15 +60,22 @@ const ScribePage = () => {
     processingTranscriptions,
     isAnyProcessing,
     addTranscription,
-  } = useTranscriptionRecovery();
+  } = useTranscriptionRecovery({
+    onComplete: async (recordingId, sessionId) => {
+      console.log(`[ScribePage] Transcription completed: ${recordingId} in session ${sessionId}`);
+      // Navigate to sessions page with sessionId parameter to open the session tab
+      // The session should appear in the list after cache invalidation
+      navigate(`/sessions?sessionId=${sessionId}`);
+    },
+  });
 
   // Состояние для отслеживания записи (для блокировки навигации)
   const [isRecording, setIsRecording] = useState(false);
 
   // Блокировка навигации во время записи
-  const blocker = useBlocker(
-    ({ currentLocation, nextLocation }) =>
-      isRecording && currentLocation.pathname !== nextLocation.pathname
+  const blocker = useNavigationBlocker(
+    (currentPath, nextPath) =>
+      isRecording && currentPath !== nextPath
   );
 
   // Callback для отслеживания состояния записи
@@ -365,7 +373,8 @@ const ScribePage = () => {
 
   const handleGenerateNote = () => {
     // Navigate to sessions page where user can create a note
-    navigate('/sessions');
+    // Use blocker.navigate to respect navigation blocking
+    blocker.navigate('/sessions');
   };
 
   return (
@@ -392,29 +401,35 @@ const ScribePage = () => {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => navigate('/sessions')}
+                  onClick={() => blocker.navigate('/sessions')}
                   className="h-7 text-xs"
                 >
                   Перейти к сессиям
                 </Button>
               </div>
               <div className="space-y-1.5">
-                {Array.from(processingTranscriptions.values()).map(({ recordingId, status }) => (
+                {Array.from(processingTranscriptions.values()).map(({ recordingId, status, fileName }) => (
                   <div key={recordingId} className="flex items-center gap-2 text-xs">
                     {status === 'processing' ? (
                       <>
                         <Loader2 className="w-3 h-3 animate-spin text-primary" />
-                        <span className="text-muted-foreground">Обработка записи...</span>
+                        <span className="text-muted-foreground">
+                          {fileName ? `Обработка: ${fileName}` : 'Обработка записи...'}
+                        </span>
                       </>
                     ) : status === 'failed' ? (
                       <>
                         <div className="w-3 h-3 rounded-full bg-destructive" />
-                        <span className="text-destructive">Ошибка транскрипции</span>
+                        <span className="text-destructive">
+                          {fileName ? `Ошибка: ${fileName}` : 'Ошибка транскрипции'}
+                        </span>
                       </>
                     ) : (
                       <>
                         <div className="w-3 h-3 rounded-full bg-success" />
-                        <span className="text-success">Завершено</span>
+                        <span className="text-success">
+                          {fileName ? `Завершено: ${fileName}` : 'Завершено'}
+                        </span>
                       </>
                     )}
                   </div>
