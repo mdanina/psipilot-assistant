@@ -1795,11 +1795,11 @@ const SessionsPage = () => {
     <>
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Search */}
-        <div className="px-6 py-3 border-b border-border">
-          <div className="relative max-w-md">
+        <div className="px-4 md:px-6 py-3 border-b border-border">
+          <div className="relative w-full md:max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
-              placeholder="Поиск по сессиям (название, пациент, дата, статус)..."
+              placeholder="Поиск сессий..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-9"
@@ -1809,7 +1809,7 @@ const SessionsPage = () => {
         
         {/* Session tabs */}
         {openTabs.size > 0 && (
-          <div className="border-b border-border px-6 py-3 flex items-center gap-2 overflow-x-auto">
+          <div className="border-b border-border px-4 md:px-6 py-3 flex items-center gap-2 overflow-x-auto scrollbar-thin">
             {isLoading ? (
               <div className="flex items-center gap-2">
                 <Loader2 className="w-4 h-4 animate-spin" />

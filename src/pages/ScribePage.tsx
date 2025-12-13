@@ -517,13 +517,13 @@ const ScribePage = () => {
 
   return (
     <>
-      <div className="flex-1 flex flex-col items-center justify-center px-8 py-12">
+      <div className="flex-1 flex flex-col items-center justify-center px-4 sm:px-8 py-6 sm:py-12 overflow-auto">
         {/* Hero section */}
-        <div className="text-center mb-10">
-          <h1 className="text-3xl font-bold text-primary mb-3">
+        <div className="text-center mb-6 sm:mb-10">
+          <h1 className="text-2xl sm:text-3xl font-bold text-primary mb-2 sm:mb-3">
             Анализируйте свои сессии с помощью ИИ
           </h1>
-          <p className="text-muted-foreground max-w-xl">
+          <p className="text-sm sm:text-base text-muted-foreground max-w-xl px-2">
             Преобразуйте ваши записи и заметки в глубокие инсайты и видимый прогресс
           </p>
         </div>

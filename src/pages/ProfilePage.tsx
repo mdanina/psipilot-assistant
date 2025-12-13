@@ -73,8 +73,8 @@ export default function ProfilePage() {
     return (
       <>
         <Header title="Профиль" icon={<User className="w-5 h-5" />} />
-        <div className="flex-1 p-6 overflow-auto">
-          <div className="max-w-4xl mx-auto space-y-6">
+        <div className="flex-1 p-4 md:p-6 overflow-auto">
+          <div className="max-w-4xl mx-auto space-y-4 md:space-y-6">
             <Card>
               <CardContent className="flex items-center justify-center py-12">
                 <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
@@ -89,8 +89,8 @@ export default function ProfilePage() {
   return (
     <>
       <Header title="Профиль" icon={<User className="w-5 h-5" />} />
-      <div className="flex-1 p-6 overflow-auto">
-        <div className="max-w-4xl mx-auto space-y-6">
+      <div className="flex-1 p-4 md:p-6 overflow-auto">
+        <div className="max-w-4xl mx-auto space-y-4 md:space-y-6">
           {error && (
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />

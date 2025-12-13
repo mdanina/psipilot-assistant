@@ -97,3 +97,6 @@ const PatientCreatePage = () => {
 
 export default PatientCreatePage;
 
+
+
+

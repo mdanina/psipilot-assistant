@@ -5,7 +5,7 @@ interface HeaderProps {
 
 export const Header = ({ title, icon }: HeaderProps) => {
   return (
-    <header className="h-14 border-b border-border bg-card flex items-center justify-between px-6">
+    <header className="h-14 border-b border-border bg-card flex items-center justify-between px-4 md:px-6">
       <div className="flex items-center gap-3">
         {icon && <div className="text-muted-foreground">{icon}</div>}
         <span className="text-sm font-medium text-foreground">{title}</span>
