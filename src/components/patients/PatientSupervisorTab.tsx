@@ -69,12 +69,16 @@ export function PatientSupervisorTab({
       const webhookUrl = import.meta.env.VITE_N8N_SUPERVISOR_WEBHOOK_URL;
       
       // Дополнительная проверка для диагностики
-      if (import.meta.env.DEV) {
-        console.log('VITE_N8N_SUPERVISOR_WEBHOOK_URL:', webhookUrl ? 'установлен' : 'не установлен');
-      }
+      console.log('[PatientSupervisorTab] Проверка доступности:', {
+        hasWebhookUrl: !!webhookUrl,
+        webhookUrlType: typeof webhookUrl,
+        webhookUrlPreview: webhookUrl ? `${webhookUrl.substring(0, 50)}...` : 'undefined',
+      });
       
       const available = await checkSupervisorAvailability();
+      console.log('[PatientSupervisorTab] Результат проверки:', available);
       setIsAvailable(available);
+      
       if (!available) {
         // Check for unconfigured or invalid webhook URL
         if (!webhookUrl || webhookUrl.trim() === '' || webhookUrl === 'your-n8n-webhook-url-here') {
@@ -91,6 +95,9 @@ export function PatientSupervisorTab({
             `Супервизор недоступен. Проверьте правильность URL. Текущее значение: ${trimmedUrl.substring(0, 30)}...`
           );
         }
+      } else {
+        // Очищаем ошибку если супервизор доступен
+        setError(null);
       }
     };
     checkAvailability();

@@ -51,21 +51,34 @@ async function getAuthHeaders(): Promise<HeadersInit> {
 export async function checkSupervisorAvailability(): Promise<boolean> {
   const webhookUrl = import.meta.env.VITE_N8N_SUPERVISOR_WEBHOOK_URL;
   
+  // Диагностика для production
+  if (import.meta.env.PROD) {
+    console.log('[Supervisor] Проверка доступности:', {
+      hasWebhookUrl: !!webhookUrl,
+      webhookUrlType: typeof webhookUrl,
+      webhookUrlLength: webhookUrl?.length || 0,
+      webhookUrlPreview: webhookUrl ? `${webhookUrl.substring(0, 50)}...` : 'undefined',
+    });
+  }
+  
   if (!webhookUrl || webhookUrl.trim() === '' || webhookUrl === 'your-n8n-webhook-url-here') {
     if (import.meta.env.DEV) {
-      console.warn('VITE_N8N_SUPERVISOR_WEBHOOK_URL не настроен. Установите его в .env.local');
+      console.warn('[Supervisor] VITE_N8N_SUPERVISOR_WEBHOOK_URL не настроен. Установите его в .env.local');
     } else {
-      console.warn('VITE_N8N_SUPERVISOR_WEBHOOK_URL не настроен в production build. Переменная должна быть указана при сборке приложения.');
+      console.warn('[Supervisor] VITE_N8N_SUPERVISOR_WEBHOOK_URL не настроен в production build. Переменная должна быть указана при сборке приложения.');
     }
     return false;
   }
 
   // Проверяем формат URL
   try {
-    new URL(webhookUrl);
+    const url = new URL(webhookUrl);
+    if (import.meta.env.PROD) {
+      console.log('[Supervisor] URL валиден:', url.hostname);
+    }
     return true;
   } catch (error) {
-    console.error('Неверный формат VITE_N8N_SUPERVISOR_WEBHOOK_URL:', error);
+    console.error('[Supervisor] Неверный формат VITE_N8N_SUPERVISOR_WEBHOOK_URL:', error, 'URL:', webhookUrl);
     return false;
   }
 }

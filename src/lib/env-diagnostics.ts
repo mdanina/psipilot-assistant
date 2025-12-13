@@ -69,14 +69,20 @@ export function getEnvDiagnostics(): EnvDiagnostics {
   
   OPTIONAL_ENV_VARS.forEach(varName => {
     const value = envObj[varName] as string | undefined;
-    const isSet = !!(value && value.trim() && value !== `your-${varName.toLowerCase().replace('vite_', '').replace(/_/g, '-')}-here`);
+    // Улучшенная проверка: исключаем undefined, пустые строки, только пробелы, и placeholder значения
+    const trimmedValue = value?.trim();
+    const isPlaceholder = trimmedValue === '' || 
+                         trimmedValue === `your-${varName.toLowerCase().replace('vite_', '').replace(/_/g, '-')}-here` ||
+                         trimmedValue === 'your-n8n-webhook-url-here';
+    const isSet = !!(trimmedValue && !isPlaceholder);
+    
     optional[varName] = {
       value,
       isSet,
       preview: value ? (value.length > 50 ? `${value.substring(0, 50)}...` : value) : undefined,
     };
     
-    // Специальные проверки для важных опциональных переменных
+    // Специальные проверки для важных опциональных переменных (только если действительно НЕ установлена)
     if (varName === 'VITE_N8N_SUPERVISOR_WEBHOOK_URL' && !isSet && mode === 'production') {
       warnings.push('VITE_N8N_SUPERVISOR_WEBHOOK_URL не настроен - функция супервизора будет недоступна');
     }
