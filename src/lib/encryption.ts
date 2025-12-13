@@ -117,6 +117,14 @@ export async function decryptPHI(encryptedData: string): Promise<string> {
     });
 
     if (!response.ok) {
+      // Handle 401 Unauthorized specifically
+      if (response.status === 401) {
+        const error = await response.json().catch(() => ({ error: response.statusText }));
+        const errorMessage = error.error || 'Unauthorized: Invalid or expired authentication token';
+        console.error('Decryption authentication error:', errorMessage);
+        throw new Error(`Unauthorized: ${errorMessage}. Please log in again.`);
+      }
+      
       const error = await response.json().catch(() => ({ error: response.statusText }));
       throw new Error(error.error || `HTTP ${response.status}: ${response.statusText}`);
     }

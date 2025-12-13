@@ -76,7 +76,8 @@ export function PatientSupervisorTab({
       const available = await checkSupervisorAvailability();
       setIsAvailable(available);
       if (!available) {
-        if (!webhookUrl || webhookUrl === 'your-n8n-webhook-url-here') {
+        // Check for unconfigured or invalid webhook URL
+        if (!webhookUrl || webhookUrl.trim() === '' || webhookUrl === 'your-n8n-webhook-url-here') {
           setError(
             'Супервизор недоступен. Переменная VITE_N8N_SUPERVISOR_WEBHOOK_URL не настроена. ' +
             (import.meta.env.DEV 
@@ -84,8 +85,10 @@ export function PatientSupervisorTab({
               : 'Для production: переменная должна быть указана при сборке приложения (build time), не только в .env на сервере. Пересоберите приложение с установленной переменной окружения.')
           );
         } else {
+          // URL exists but might be invalid format
+          const trimmedUrl = webhookUrl.trim();
           setError(
-            `Супервизор недоступен. Проверьте правильность URL. Текущее значение: ${webhookUrl.substring(0, 30)}...`
+            `Супервизор недоступен. Проверьте правильность URL. Текущее значение: ${trimmedUrl.substring(0, 30)}...`
           );
         }
       }
