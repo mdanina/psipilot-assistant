@@ -66,12 +66,31 @@ export function PatientSupervisorTab({
   // Проверка доступности при монтировании
   useEffect(() => {
     const checkAvailability = async () => {
+      const webhookUrl = import.meta.env.VITE_N8N_SUPERVISOR_WEBHOOK_URL;
+      
+      // Дополнительная проверка для диагностики
+      if (import.meta.env.DEV) {
+        console.log('VITE_N8N_SUPERVISOR_WEBHOOK_URL:', webhookUrl ? 'установлен' : 'не установлен');
+      }
+      
       const available = await checkSupervisorAvailability();
       setIsAvailable(available);
       if (!available) {
-        setError(
-          'Супервизор недоступен. Проверьте настройку VITE_N8N_SUPERVISOR_WEBHOOK_URL в .env.local'
-        );
+        // Check for unconfigured or invalid webhook URL
+        if (!webhookUrl || webhookUrl.trim() === '' || webhookUrl === 'your-n8n-webhook-url-here') {
+          setError(
+            'Супервизор недоступен. Переменная VITE_N8N_SUPERVISOR_WEBHOOK_URL не настроена. ' +
+            (import.meta.env.DEV 
+              ? 'Установите переменную в .env.local и перезапустите dev-сервер.'
+              : 'Для production: переменная должна быть указана при сборке приложения (build time), не только в .env на сервере. Пересоберите приложение с установленной переменной окружения.')
+          );
+        } else {
+          // URL exists but might be invalid format
+          const trimmedUrl = webhookUrl.trim();
+          setError(
+            `Супервизор недоступен. Проверьте правильность URL. Текущее значение: ${trimmedUrl.substring(0, 30)}...`
+          );
+        }
       }
     };
     checkAvailability();
@@ -210,7 +229,7 @@ export function PatientSupervisorTab({
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
-              Супервизор недоступен. Проверьте настройку VITE_N8N_SUPERVISOR_WEBHOOK_URL в .env.local
+              {error || 'Супервизор недоступен. Проверьте настройку VITE_N8N_SUPERVISOR_WEBHOOK_URL'}
             </AlertDescription>
           </Alert>
         </CardContent>

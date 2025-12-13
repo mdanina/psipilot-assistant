@@ -21,14 +21,31 @@ const CACHE_TTL = 60000; // 1 минута
  * Получить заголовки для аутентификации
  */
 async function getAuthHeaders(): Promise<HeadersInit> {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.access_token) {
-    throw new Error('Not authenticated');
+  try {
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    
+    if (sessionError) {
+      console.error('Error getting Supabase session:', sessionError);
+      throw new Error(`Session error: ${sessionError.message}`);
+    }
+    
+    if (!session?.access_token) {
+      const errorMessage = 'Not authenticated: No valid session token. Please log in again.';
+      console.error(errorMessage);
+      throw new Error(errorMessage);
+    }
+    
+    return {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session.access_token}`,
+    };
+  } catch (error) {
+    // Re-throw with more context if it's already an Error
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('Failed to get authentication headers');
   }
-  return {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${session.access_token}`,
-  };
 }
 
 /**
@@ -50,6 +67,14 @@ export async function encryptPHI(plaintext: string): Promise<string> {
     });
 
     if (!response.ok) {
+      // Handle 401 Unauthorized specifically
+      if (response.status === 401) {
+        const error = await response.json().catch(() => ({ error: response.statusText }));
+        const errorMessage = error.error || 'Unauthorized: Invalid or expired authentication token';
+        console.error('Encryption authentication error:', errorMessage);
+        throw new Error(`Unauthorized: ${errorMessage}. Please log in again.`);
+      }
+      
       const error = await response.json().catch(() => ({ error: response.statusText }));
       throw new Error(error.error || `HTTP ${response.status}: ${response.statusText}`);
     }
@@ -63,7 +88,13 @@ export async function encryptPHI(plaintext: string): Promise<string> {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Encryption error:', message);
-    throw new Error('Failed to encrypt PHI data');
+    
+    // If it's already a detailed error message, re-throw it
+    if (error instanceof Error && (message.includes('Unauthorized') || message.includes('Not authenticated') || message.includes('Session error'))) {
+      throw error;
+    }
+    
+    throw new Error(`Failed to encrypt PHI data: ${message}`);
   }
 }
 
@@ -86,6 +117,14 @@ export async function decryptPHI(encryptedData: string): Promise<string> {
     });
 
     if (!response.ok) {
+      // Handle 401 Unauthorized specifically
+      if (response.status === 401) {
+        const error = await response.json().catch(() => ({ error: response.statusText }));
+        const errorMessage = error.error || 'Unauthorized: Invalid or expired authentication token';
+        console.error('Decryption authentication error:', errorMessage);
+        throw new Error(`Unauthorized: ${errorMessage}. Please log in again.`);
+      }
+      
       const error = await response.json().catch(() => ({ error: response.statusText }));
       throw new Error(error.error || `HTTP ${response.status}: ${response.statusText}`);
     }
@@ -99,7 +138,13 @@ export async function decryptPHI(encryptedData: string): Promise<string> {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Decryption error:', message);
-    throw new Error('Failed to decrypt PHI data');
+    
+    // If it's already a detailed error message, re-throw it
+    if (error instanceof Error && (message.includes('Unauthorized') || message.includes('Not authenticated') || message.includes('Session error'))) {
+      throw error;
+    }
+    
+    throw new Error(`Failed to decrypt PHI data: ${message}`);
   }
 }
 
@@ -123,6 +168,14 @@ export async function encryptPHIBatch(values: string[]): Promise<string[]> {
     });
 
     if (!response.ok) {
+      // Handle 401 Unauthorized specifically
+      if (response.status === 401) {
+        const error = await response.json().catch(() => ({ error: response.statusText }));
+        const errorMessage = error.error || 'Unauthorized: Invalid or expired authentication token';
+        console.error('Batch encryption authentication error:', errorMessage);
+        throw new Error(`Unauthorized: ${errorMessage}. Please log in again.`);
+      }
+      
       const error = await response.json().catch(() => ({ error: response.statusText }));
       throw new Error(error.error || `HTTP ${response.status}: ${response.statusText}`);
     }
@@ -136,7 +189,13 @@ export async function encryptPHIBatch(values: string[]): Promise<string[]> {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Batch encryption error:', message);
-    throw new Error('Failed to encrypt PHI data batch');
+    
+    // If it's already a detailed error message, re-throw it
+    if (error instanceof Error && (message.includes('Unauthorized') || message.includes('Not authenticated') || message.includes('Session error'))) {
+      throw error;
+    }
+    
+    throw new Error(`Failed to encrypt PHI data batch: ${message}`);
   }
 }
 
@@ -160,6 +219,14 @@ export async function decryptPHIBatch(values: string[]): Promise<string[]> {
     });
 
     if (!response.ok) {
+      // Handle 401 Unauthorized specifically
+      if (response.status === 401) {
+        const error = await response.json().catch(() => ({ error: response.statusText }));
+        const errorMessage = error.error || 'Unauthorized: Invalid or expired authentication token';
+        console.error('Batch decryption authentication error:', errorMessage);
+        throw new Error(`Unauthorized: ${errorMessage}. Please log in again.`);
+      }
+      
       const error = await response.json().catch(() => ({ error: response.statusText }));
       throw new Error(error.error || `HTTP ${response.status}: ${response.statusText}`);
     }
@@ -173,7 +240,13 @@ export async function decryptPHIBatch(values: string[]): Promise<string[]> {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Batch decryption error:', message);
-    throw new Error('Failed to decrypt PHI data batch');
+    
+    // If it's already a detailed error message, re-throw it
+    if (error instanceof Error && (message.includes('Unauthorized') || message.includes('Not authenticated') || message.includes('Session error'))) {
+      throw error;
+    }
+    
+    throw new Error(`Failed to decrypt PHI data batch: ${message}`);
   }
 }
 

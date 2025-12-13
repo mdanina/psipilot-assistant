@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
+import { logEnvDiagnostics, validateRequiredEnvVars } from "./lib/env-diagnostics";
 
 // Инициализация темы до рендера, чтобы избежать мигания
 function initTheme() {
@@ -20,5 +21,10 @@ function initTheme() {
 }
 
 initTheme();
+
+// Диагностика переменных окружения при загрузке приложения
+// Всегда показываем в консоли для диагностики проблем
+logEnvDiagnostics();
+validateRequiredEnvVars();
 
 createRoot(document.getElementById("root")!).render(<App />);
