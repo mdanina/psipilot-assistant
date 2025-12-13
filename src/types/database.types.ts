@@ -722,6 +722,73 @@ export type Database = {
           }
         ];
       };
+      supervisor_conversations: {
+        Row: {
+          id: string;
+          patient_id: string;
+          user_id: string;
+          clinic_id: string;
+          title: string;
+          messages: Json;
+          message_count: number | null;
+          started_at: string | null;
+          saved_at: string | null;
+          is_draft: boolean | null;
+          created_at: string | null;
+          updated_at: string | null;
+          deleted_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          patient_id: string;
+          user_id: string;
+          clinic_id: string;
+          title?: string;
+          messages?: Json;
+          message_count?: number | null;
+          started_at?: string | null;
+          saved_at?: string | null;
+          is_draft?: boolean | null;
+          created_at?: string | null;
+          updated_at?: string | null;
+          deleted_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          patient_id?: string;
+          user_id?: string;
+          clinic_id?: string;
+          title?: string;
+          messages?: Json;
+          message_count?: number | null;
+          started_at?: string | null;
+          saved_at?: string | null;
+          is_draft?: boolean | null;
+          created_at?: string | null;
+          updated_at?: string | null;
+          deleted_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'supervisor_conversations_patient_id_fkey';
+            columns: ['patient_id'];
+            referencedRelation: 'patients';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'supervisor_conversations_user_id_fkey';
+            columns: ['user_id'];
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'supervisor_conversations_clinic_id_fkey';
+            columns: ['clinic_id'];
+            referencedRelation: 'clinics';
+            referencedColumns: ['id'];
+          }
+        ];
+      };
     };
     Views: {};
     Functions: {

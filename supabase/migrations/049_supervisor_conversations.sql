@@ -1,54 +1,40 @@
 -- PsiPilot Assistant - Supervisor Conversations
--- Migration: 030_supervisor_conversations
--- Description: Таблица для сохранения бесед с ИИ-супервизором
+-- Migration: 049_supervisor_conversations
+-- Description: Создание таблицы для хранения бесед с AI супервизором
 
--- ============================================
--- SUPERVISOR CONVERSATIONS TABLE
--- ============================================
-CREATE TABLE supervisor_conversations (
+CREATE TABLE IF NOT EXISTS supervisor_conversations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    
-    -- Привязка к пациенту и пользователю
     patient_id UUID NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
     clinic_id UUID NOT NULL REFERENCES clinics(id) ON DELETE CASCADE,
-    
-    -- Информация о беседе
     title VARCHAR(255) NOT NULL DEFAULT 'Беседа с супервизором',
-    
-    -- История диалога (JSON массив сообщений)
-    -- Формат: [{"role": "user|assistant", "content": "...", "timestamp": "..."}]
     messages JSONB NOT NULL DEFAULT '[]'::jsonb,
-    
-    -- Метаданные
-    message_count INTEGER DEFAULT 0, -- Количество сообщений в беседе
-    started_at TIMESTAMPTZ DEFAULT NOW(), -- Время начала беседы
-    saved_at TIMESTAMPTZ DEFAULT NOW(), -- Время сохранения
-    
-    -- Статус
-    is_draft BOOLEAN DEFAULT false, -- Черновик или сохраненная беседа
-    
-    -- Timestamps
+    message_count INTEGER DEFAULT 0,
+    started_at TIMESTAMPTZ DEFAULT NOW(),
+    saved_at TIMESTAMPTZ DEFAULT NOW(),
+    is_draft BOOLEAN DEFAULT false,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
-    deleted_at TIMESTAMPTZ -- Soft delete
+    deleted_at TIMESTAMPTZ
 );
 
--- Индексы
-CREATE INDEX idx_supervisor_conversations_patient_id ON supervisor_conversations(patient_id);
-CREATE INDEX idx_supervisor_conversations_user_id ON supervisor_conversations(user_id);
-CREATE INDEX idx_supervisor_conversations_clinic_id ON supervisor_conversations(clinic_id);
-CREATE INDEX idx_supervisor_conversations_created_at ON supervisor_conversations(created_at DESC);
-CREATE INDEX idx_supervisor_conversations_deleted_at ON supervisor_conversations(deleted_at) WHERE deleted_at IS NULL;
+-- Индексы для производительности
+CREATE INDEX IF NOT EXISTS idx_supervisor_conversations_patient_id ON supervisor_conversations(patient_id);
+CREATE INDEX IF NOT EXISTS idx_supervisor_conversations_user_id ON supervisor_conversations(user_id);
+CREATE INDEX IF NOT EXISTS idx_supervisor_conversations_clinic_id ON supervisor_conversations(clinic_id);
+CREATE INDEX IF NOT EXISTS idx_supervisor_conversations_created_at ON supervisor_conversations(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_supervisor_conversations_deleted_at ON supervisor_conversations(deleted_at) WHERE deleted_at IS NULL;
 
--- ============================================
--- ROW LEVEL SECURITY (RLS)
--- ============================================
+-- Комментарии
+COMMENT ON TABLE supervisor_conversations IS 'Беседы с AI супервизором, привязанные к пациентам';
+COMMENT ON COLUMN supervisor_conversations.messages IS 'JSON массив сообщений: [{"role": "user|assistant", "content": "...", "timestamp": "..."}]';
+COMMENT ON COLUMN supervisor_conversations.is_draft IS 'Черновик (несохраненная беседа)';
 
--- Включаем RLS
+-- Row Level Security
 ALTER TABLE supervisor_conversations ENABLE ROW LEVEL SECURITY;
 
--- Политика: пользователи могут видеть только беседы своих пациентов из своей клиники
+-- Политики RLS
+DROP POLICY IF EXISTS "Users can view supervisor conversations for their clinic patients" ON supervisor_conversations;
 CREATE POLICY "Users can view supervisor conversations for their clinic patients"
     ON supervisor_conversations
     FOR SELECT
@@ -59,15 +45,15 @@ CREATE POLICY "Users can view supervisor conversations for their clinic patients
         AND deleted_at IS NULL
     );
 
--- Политика: пользователи могут создавать беседы для пациентов своей клиники
-CREATE POLICY "Users can create supervisor conversations for their clinic patients"
+DROP POLICY IF EXISTS "Users can insert supervisor conversations for their clinic patients" ON supervisor_conversations;
+CREATE POLICY "Users can insert supervisor conversations for their clinic patients"
     ON supervisor_conversations
     FOR INSERT
     WITH CHECK (
-        user_id = auth.uid()
-        AND clinic_id IN (
+        clinic_id IN (
             SELECT clinic_id FROM profiles WHERE id = auth.uid()
         )
+        AND user_id = auth.uid()
         AND patient_id IN (
             SELECT id FROM patients 
             WHERE clinic_id IN (
@@ -76,23 +62,41 @@ CREATE POLICY "Users can create supervisor conversations for their clinic patien
         )
     );
 
--- Политика: пользователи могут обновлять только свои беседы
+DROP POLICY IF EXISTS "Users can update their own supervisor conversations" ON supervisor_conversations;
 CREATE POLICY "Users can update their own supervisor conversations"
     ON supervisor_conversations
     FOR UPDATE
-    USING (user_id = auth.uid() AND deleted_at IS NULL)
-    WITH CHECK (user_id = auth.uid());
+    USING (
+        clinic_id IN (
+            SELECT clinic_id FROM profiles WHERE id = auth.uid()
+        )
+        AND user_id = auth.uid()
+        AND deleted_at IS NULL
+    )
+    WITH CHECK (
+        clinic_id IN (
+            SELECT clinic_id FROM profiles WHERE id = auth.uid()
+        )
+        AND user_id = auth.uid()
+    );
 
--- Политика: пользователи могут удалять только свои беседы (soft delete)
-CREATE POLICY "Users can delete their own supervisor conversations"
+DROP POLICY IF EXISTS "Users can soft delete their own supervisor conversations" ON supervisor_conversations;
+CREATE POLICY "Users can soft delete their own supervisor conversations"
     ON supervisor_conversations
     FOR UPDATE
-    USING (user_id = auth.uid() AND deleted_at IS NULL)
-    WITH CHECK (user_id = auth.uid());
-
--- ============================================
--- FUNCTIONS
--- ============================================
+    USING (
+        clinic_id IN (
+            SELECT clinic_id FROM profiles WHERE id = auth.uid()
+        )
+        AND user_id = auth.uid()
+        AND deleted_at IS NULL
+    )
+    WITH CHECK (
+        clinic_id IN (
+            SELECT clinic_id FROM profiles WHERE id = auth.uid()
+        )
+        AND user_id = auth.uid()
+    );
 
 -- Функция для автоматического обновления updated_at
 CREATE OR REPLACE FUNCTION update_supervisor_conversations_updated_at()
@@ -103,7 +107,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Триггер для обновления updated_at
+DROP TRIGGER IF EXISTS supervisor_conversations_updated_at ON supervisor_conversations;
 CREATE TRIGGER supervisor_conversations_updated_at
     BEFORE UPDATE ON supervisor_conversations
     FOR EACH ROW
@@ -118,7 +122,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Триггер для обновления message_count
+DROP TRIGGER IF EXISTS supervisor_conversations_message_count ON supervisor_conversations;
 CREATE TRIGGER supervisor_conversations_message_count
     BEFORE INSERT OR UPDATE ON supervisor_conversations
     FOR EACH ROW

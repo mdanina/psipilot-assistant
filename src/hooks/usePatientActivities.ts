@@ -40,16 +40,30 @@ export function usePatientActivities(patientId: string | undefined) {
       }
 
       // Load sessions and clinical notes in parallel
-      const [sessionsData, notesData] = await Promise.all([
+      // Use Promise.allSettled to handle errors gracefully - if one fails, others still work
+      const [sessionsResult, notesResult] = await Promise.allSettled([
         getPatientSessions(patientId),
-        getClinicalNotesForPatient(patientId),
+        getClinicalNotesForPatient(patientId).catch((err) => {
+          // Gracefully handle errors for clinical notes
+          console.warn('Failed to load clinical notes:', err);
+          return [];
+        }),
       ]);
 
+      // Handle sessions
+      if (sessionsResult.status === 'rejected') {
+        throw sessionsResult.reason;
+      }
+      const sessionsData = sessionsResult.value;
       if (sessionsData.error) {
         throw sessionsData.error;
       }
-
       const sessions = sessionsData.data || [];
+
+      // Handle clinical notes
+      const notesData = notesResult.status === 'fulfilled' 
+        ? notesResult.value 
+        : [];
 
       // Load content counts for all sessions
       let contentCounts = new Map<string, SessionContentCounts>();
@@ -59,8 +73,8 @@ export function usePatientActivities(patientId: string | undefined) {
       }
 
       return {
-        sessions,
-        clinicalNotes: notesData || [],
+        sessions: sessions.filter(s => s != null),
+        clinicalNotes: (notesData || []).filter(n => n != null),
         contentCounts,
       };
     },
@@ -125,12 +139,8 @@ export function useDeleteSession() {
 
   return useMutation({
     mutationFn: async (sessionId: string) => {
-      const { success, error } = await deleteSession(sessionId);
-      
-      if (error || !success) {
-        throw error || new Error('Не удалось удалить сессию');
-      }
-      
+      // deleteSession throws on error, returns void on success
+      await deleteSession(sessionId);
       return { success: true };
     },
     // Invalidate activities cache after successful deletion
@@ -149,12 +159,8 @@ export function useDeleteClinicalNote() {
 
   return useMutation({
     mutationFn: async (noteId: string) => {
-      const { success, error } = await softDeleteClinicalNote(noteId);
-      
-      if (error || !success) {
-        throw error || new Error('Не удалось удалить клиническую заметку');
-      }
-      
+      // softDeleteClinicalNote throws on error, returns void on success
+      await softDeleteClinicalNote(noteId);
       return { success: true };
     },
     // Invalidate activities cache after successful deletion
