@@ -11,6 +11,7 @@ services:
         VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
         VITE_API_URL: ${VITE_API_URL:-/api}
         VITE_TRANSCRIPTION_API_URL: ${VITE_TRANSCRIPTION_API_URL:-http://46.173.17.33:3001}
+        VITE_N8N_SUPERVISOR_WEBHOOK_URL: ${VITE_N8N_SUPERVISOR_WEBHOOK_URL}
     container_name: psipilot-frontend
     ports:
       - "3000:80"
