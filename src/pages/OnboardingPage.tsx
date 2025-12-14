@@ -89,7 +89,7 @@ export default function OnboardingPage() {
               <Building2 className="h-6 w-6 text-primary" />
             </div>
           </div>
-          <CardTitle className="text-2xl font-bold">Добро пожаловать в PsiPilot!</CardTitle>
+          <CardTitle className="text-2xl font-bold">Добро пожаловать в supershrimp!</CardTitle>
           <CardDescription>
             Давайте настроим вашу клинику для начала работы
           </CardDescription>
