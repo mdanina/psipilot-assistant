@@ -141,10 +141,14 @@ export function useLinkSessionToPatient() {
       return await linkSessionToPatient(sessionId, patientId, options);
     },
     // Invalidate sessions cache after successful linking
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['sessions'] });
       // Also invalidate patients cache in case patient data changed
       queryClient.invalidateQueries({ queryKey: ['patients'] });
+      // Invalidate patient activities cache so the session appears in patient's card
+      queryClient.invalidateQueries({
+        queryKey: ['patients', variables.patientId, 'activities']
+      });
     },
   });
 }
