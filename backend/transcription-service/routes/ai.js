@@ -261,6 +261,18 @@ router.post('/generate', async (req, res) => {
 
     if (templateError) throw templateError;
 
+    // Валидация шаблона
+    if (!template.block_template_ids || !Array.isArray(template.block_template_ids) || template.block_template_ids.length === 0) {
+      console.error('[AI Generate] Template has no block templates:', {
+        template_id: template_id,
+        block_template_ids: template.block_template_ids
+      });
+      return res.status(400).json({
+        success: false,
+        error: 'Шаблон не содержит блоков для генерации',
+      });
+    }
+
     // 3. Собираем исходный текст
     let sourceText = '';
 
@@ -364,15 +376,56 @@ router.post('/generate', async (req, res) => {
     });
 
     // 6. Получаем блоки шаблона
-    const { data: blockTemplates } = await supabase
+    console.log('[AI Generate] Fetching block templates:', {
+      template_id: template_id,
+      block_template_ids: template.block_template_ids,
+      count: template.block_template_ids.length
+    });
+
+    const { data: blockTemplates, error: blocksError } = await supabase
       .from('note_block_templates')
       .select('*')
       .in('id', template.block_template_ids);
+
+    if (blocksError) {
+      console.error('[AI Generate] Error fetching block templates:', blocksError);
+      throw blocksError;
+    }
+
+    console.log('[AI Generate] Block templates fetched:', {
+      requested_count: template.block_template_ids.length,
+      found_count: blockTemplates?.length || 0,
+      found_ids: blockTemplates?.map(b => b.id) || []
+    });
+
+    if (!blockTemplates || blockTemplates.length === 0) {
+      console.error('[AI Generate] No block templates found for template:', {
+        template_id: template_id,
+        template_name: template.name,
+        block_template_ids: template.block_template_ids
+      });
+      return res.status(400).json({
+        success: false,
+        error: 'Не удалось загрузить блоки шаблона',
+      });
+    }
 
     // Сортируем по порядку в шаблоне
     const orderedBlocks = template.block_template_ids
       .map(id => blockTemplates.find(b => b.id === id))
       .filter(Boolean);
+
+    if (orderedBlocks.length === 0) {
+      console.error('[AI Generate] No valid blocks after filtering:', {
+        template_id: template_id,
+        requested_ids: template.block_template_ids,
+        found_ids: blockTemplates.map(b => b.id)
+      });
+      return res.status(400).json({
+        success: false,
+        error: 'Не удалось найти блоки шаблона',
+      });
+    }
 
     // 7. Создаём sections
     const sectionsToInsert = orderedBlocks.map((block, index) => ({

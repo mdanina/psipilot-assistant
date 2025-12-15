@@ -49,18 +49,33 @@ INSERT INTO note_block_templates (
 -- ============================================
 -- Create system template that includes only the maladaptive processes block
 
-INSERT INTO clinical_note_templates (
-  id, clinic_id, name, name_en, description, block_template_ids, is_default, is_system
-)
-SELECT 
-  gen_random_uuid(),
-  NULL,
-  'Концептуализация дезадаптирующих процессов',
-  'Maladaptive Processes Conceptualization',
-  'Анализ дезадаптирующих психологических процессов в парадигме трансдиагностических факторов: уязвимости и отклики (копинги совладания)',
-  ARRAY_AGG(id),
-  false,
-  true
-FROM note_block_templates 
-WHERE slug = 'maladaptive_processes' AND is_system = true;
+DO $$
+DECLARE
+  block_id UUID;
+BEGIN
+  -- Получаем ID только что созданного блока
+  SELECT id INTO block_id
+  FROM note_block_templates 
+  WHERE slug = 'maladaptive_processes' AND is_system = true
+  LIMIT 1;
+
+  -- Проверяем, что блок найден
+  IF block_id IS NULL THEN
+    RAISE EXCEPTION 'Block template with slug maladaptive_processes not found';
+  END IF;
+
+  -- Создаём шаблон заметки с этим блоком
+  INSERT INTO clinical_note_templates (
+    id, clinic_id, name, name_en, description, block_template_ids, is_default, is_system
+  ) VALUES (
+    gen_random_uuid(),
+    NULL,
+    'Концептуализация дезадаптирующих процессов',
+    'Maladaptive Processes Conceptualization',
+    'Анализ дезадаптирующих психологических процессов в парадигме трансдиагностических факторов: уязвимости и отклики (копинги совладания)',
+    ARRAY[block_id],
+    false,
+    true
+  );
+END $$;
 
