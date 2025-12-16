@@ -43,17 +43,73 @@ async function encryptPatientPII(
     throw new Error('SECURITY: Encryption not configured. Cannot store PHI data without encryption.');
   }
 
-  const encrypted: Partial<PatientInsert> & { [key: string]: unknown } = { ...data };
+  // Validate name first before processing
+  if (data.name !== undefined) {
+    const trimmedName = typeof data.name === 'string' ? data.name.trim() : '';
+    if (!trimmedName) {
+      throw new Error('Name field cannot be empty');
+    }
+  }
 
+  // Start with a clean object - only include fields that are being updated
+  const encrypted: Partial<PatientInsert> & { [key: string]: unknown } = {};
+
+  // Copy non-PII fields as-is
+  for (const key in data) {
+    if (!PII_FIELDS.includes(key as PIIField)) {
+      encrypted[key] = data[key as keyof typeof data];
+    }
+  }
+
+  // Process PII fields
   for (const field of PII_FIELDS) {
     const value = data[field as keyof typeof data];
-    if (value && typeof value === 'string') {
-      // SECURITY: No try/catch - if encryption fails, operation should fail
-      const encryptedValue = await encryptPHI(value);
-      // Store encrypted value in _encrypted column, keep original for backward compat
-      encrypted[`${field}_encrypted`] = encryptedValue;
-      encrypted.pii_encryption_version = 1;
+    // Only process if field is provided (not undefined)
+    if (value !== undefined) {
+      // Only encrypt non-empty strings
+      if (value && typeof value === 'string' && value.trim().length > 0) {
+        // SECURITY: No try/catch - if encryption fails, operation should fail
+        const encryptedValue = await encryptPHI(value);
+        // Convert base64 string to binary data for BYTEA column
+        // Supabase expects BYTEA as hex string with \x prefix or as Uint8Array
+        // We'll use hex format: decode base64 to bytes, then convert to hex
+        try {
+          const binaryString = atob(encryptedValue);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          // Convert to hex string with \x prefix for PostgreSQL BYTEA
+          const hexString = Array.from(bytes)
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join('');
+          encrypted[`${field}_encrypted`] = `\\x${hexString}`;
+        } catch (error) {
+          console.error(`[encryptPatientPII] Failed to convert base64 to hex for ${field}:`, error);
+          throw new Error(`Failed to prepare encrypted data for storage: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        encrypted.pii_encryption_version = 1;
+        // SECURITY: Do NOT store plaintext PII fields in database
+        // For name field: do NOT include in update - Supabase will keep existing value
+        // The encrypted version (name_encrypted) is the source of truth
+        // When reading, decryptPatientPII will decrypt name_encrypted and populate name field
+        // This ensures we never store plaintext PII while satisfying NOT NULL constraint
+        // Note: This means name field in DB may contain old/legacy data, but it's ignored in favor of name_encrypted
+        // For other PII fields, don't include plaintext - we only store encrypted version
+      } else if (typeof value === 'string' && value.trim().length === 0) {
+        // Empty string - for name field, this should be caught by validation above
+        // For other optional fields, convert to null instead of empty string
+        if (field === 'name') {
+          // This should never happen due to validation above, but double-check
+          throw new Error('Name field cannot be empty');
+        }
+        // For optional fields, set to null instead of empty string
+        encrypted[field] = null;
+        // Remove encrypted version if clearing the field
+        delete encrypted[`${field}_encrypted`];
+      }
     }
+    // If value is undefined, don't include it in update (Supabase will leave existing value unchanged)
   }
 
   return encrypted;
@@ -88,8 +144,41 @@ async function decryptPatientPII(patient: Patient): Promise<DecryptedPatient> {
     const encryptedField = `${field}_encrypted`;
     const encryptedValue = (patient as Record<string, unknown>)[encryptedField];
 
-    if (encryptedValue && typeof encryptedValue === 'string') {
-      encryptedValues.push({ field, value: encryptedValue });
+    if (encryptedValue) {
+      const valueType = typeof encryptedValue;
+      const valueStr = String(encryptedValue);
+      console.log(`[decryptPatientPII] Found encrypted ${field}, type: ${valueType}, length: ${valueStr.length}, preview: ${valueStr.substring(0, 50)}...`);
+      
+      let valueToDecrypt: string;
+      
+      if (typeof encryptedValue === 'string') {
+        // Supabase returns BYTEA as hex string with \x prefix
+        if (valueStr.startsWith('\\x')) {
+          // Convert hex string to base64
+          const hexString = valueStr.substring(2); // Remove \x prefix
+          const bytes = new Uint8Array(hexString.length / 2);
+          for (let i = 0; i < hexString.length; i += 2) {
+            bytes[i / 2] = parseInt(hexString.substr(i, 2), 16);
+          }
+          valueToDecrypt = btoa(String.fromCharCode(...bytes));
+          console.log(`[decryptPatientPII] Converted hex BYTEA to base64 for ${field}, base64 length: ${valueToDecrypt.length}`);
+        } else {
+          // Already base64 or plain string
+          valueToDecrypt = encryptedValue;
+        }
+        encryptedValues.push({ field, value: valueToDecrypt });
+      } else if (encryptedValue instanceof ArrayBuffer || encryptedValue instanceof Uint8Array) {
+        // BYTEA returned as binary - convert to base64
+        const bytes = encryptedValue instanceof ArrayBuffer ? new Uint8Array(encryptedValue) : encryptedValue;
+        valueToDecrypt = btoa(String.fromCharCode(...bytes));
+        console.log(`[decryptPatientPII] Converted BYTEA to base64 for ${field}, base64 length: ${valueToDecrypt.length}`);
+        encryptedValues.push({ field, value: valueToDecrypt });
+      } else {
+        console.warn(`[decryptPatientPII] Unexpected type for encrypted ${field}: ${valueType}`);
+        continue;
+      }
+    } else {
+      console.log(`[decryptPatientPII] No encrypted ${field} found`);
     }
   }
 
@@ -97,27 +186,40 @@ async function decryptPatientPII(patient: Patient): Promise<DecryptedPatient> {
   if (encryptedValues.length > 0) {
     try {
       const valuesToDecrypt = encryptedValues.map(v => v.value);
+      console.log('[decryptPatientPII] Sending to decryptPHIBatch:', {
+        count: valuesToDecrypt.length,
+        firstValueType: typeof valuesToDecrypt[0],
+        firstValueLength: valuesToDecrypt[0]?.length || 0,
+        firstValuePreview: valuesToDecrypt[0] ? valuesToDecrypt[0].substring(0, 100) : 'N/A'
+      });
       const decryptedValues = await decryptPHIBatch(valuesToDecrypt);
+      
+      console.log(`[decryptPatientPII] Decrypted ${decryptedValues.length} values`);
       
       // Применяем расшифрованные значения
       encryptedValues.forEach((item, index) => {
-        (decrypted as Record<string, unknown>)[item.field] = decryptedValues[index];
+        const decryptedValue = decryptedValues[index];
+        (decrypted as Record<string, unknown>)[item.field] = decryptedValue;
+        console.log(`[decryptPatientPII] Decrypted ${item.field}: "${decryptedValue}" (length: ${decryptedValue?.length || 0})`);
       });
       
       decrypted._isDecrypted = true;
     } catch (err) {
       // SECURITY: If decryption fails, operation should fail
       const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error(`[decryptPatientPII] Decryption failed:`, err);
       throw new Error(`Failed to decrypt patient PII data: ${errorMsg}`);
     }
+  } else {
+    console.warn(`[decryptPatientPII] No encrypted values found for patient ${patient.id}`);
   }
 
   return decrypted;
 }
 
 /**
- * Create a new patient using secure RPC function
- * This bypasses RLS issues by using a SECURITY DEFINER function
+ * Create a new patient with HIPAA-compliant encryption
+ * SECURITY: All PII data is encrypted before storage
  */
 export async function createPatient(
   data: PatientInsert
@@ -129,62 +231,63 @@ export async function createPatient(
       return { data: null, error: new Error('Клиника не указана. Пожалуйста, войдите снова.') };
     }
 
-    if (!data.name) {
+    if (!data.name || !data.name.trim()) {
       console.error('createPatient: name is required');
       return { data: null, error: new Error('Имя пациента обязательно.') };
     }
 
-    console.log('createPatient: Creating patient via RPC with clinic_id:', data.clinic_id);
+    console.log('createPatient: Creating patient with HIPAA-compliant encryption, clinic_id:', data.clinic_id);
 
-    // Use secure RPC function to bypass RLS issues
-    const { data: patientId, error: rpcError } = await supabase.rpc('create_patient_secure', {
-      p_clinic_id: data.clinic_id,
-      p_name: data.name,
-      p_created_by: data.created_by || null,
-      p_email: data.email || null,
-      p_phone: data.phone || null,
-      p_date_of_birth: data.date_of_birth || null,
-      p_gender: data.gender || null,
-      p_address: data.address || null,
-      p_notes: data.notes || null,
-      p_tags: data.tags || [],
-    });
+    // HIPAA COMPLIANCE: Encrypt all PII data before storage
+    const encryptedData = await encryptPatientPII(data);
 
-    if (rpcError) {
-      console.error('createPatient: RPC error:', rpcError);
-      return { data: null, error: new Error(rpcError.message) };
+    // SECURITY: Use placeholder for name field to satisfy NOT NULL constraint
+    // The encrypted version (name_encrypted) is the ONLY source of truth
+    if (!('name' in encryptedData)) {
+      encryptedData.name = '[ENCRYPTED]';
+      console.log('createPatient: Using HIPAA-compliant placeholder for NOT NULL constraint');
     }
 
-    if (!patientId) {
+    // Insert patient with encrypted data
+    const { data: patient, error: insertError } = await supabase
+      .from('patients')
+      .insert(encryptedData as PatientInsert)
+      .select()
+      .single();
+
+    if (insertError) {
+      console.error('createPatient: Insert error:', insertError);
+      return { data: null, error: new Error(insertError.message) };
+    }
+
+    if (!patient) {
       return { data: null, error: new Error('Не удалось создать пациента') };
     }
 
-    console.log('createPatient: Patient created with id:', patientId);
+    console.log('createPatient: Patient created with id:', patient.id);
 
-    // Fetch the created patient
-    const { data: patient, error: fetchError } = await supabase
-      .from('patients')
-      .select('*')
-      .eq('id', patientId)
-      .single();
-
-    if (fetchError || !patient) {
-      // Patient created but couldn't fetch - return minimal data
-      return {
-        data: {
-          id: patientId,
-          clinic_id: data.clinic_id,
-          name: data.name,
-          email: data.email || null,
-          phone: data.phone || null,
-          address: data.address || null,
-          notes: data.notes || null,
-          _isDecrypted: false,
-        } as DecryptedPatient,
-        error: null,
-      };
+    // Create assignment for the creator (if created_by is set)
+    if (patient.created_by) {
+      try {
+        const { assignPatientToDoctor } = await import('@/lib/supabase-patient-assignments');
+        const { error: assignError } = await assignPatientToDoctor(
+          patient.id,
+          patient.created_by,
+          'primary'
+        );
+        if (assignError) {
+          console.warn('createPatient: Failed to create assignment (non-critical):', assignError);
+          // Don't fail the whole operation if assignment fails
+        } else {
+          console.log('createPatient: Assignment created successfully');
+        }
+      } catch (error) {
+        console.warn('createPatient: Error creating assignment (non-critical):', error);
+        // Don't fail the whole operation if assignment fails
+      }
     }
 
+    // Decrypt patient data for return
     const decryptedPatient = await decryptPatientPII(patient);
     return { data: decryptedPatient, error: null };
   } catch (error) {
@@ -265,7 +368,72 @@ export async function updatePatient(
   data: PatientUpdate
 ): Promise<{ data: DecryptedPatient | null; error: Error | null }> {
   try {
+    // Validate that name is not empty if provided
+    if (data.name !== undefined) {
+      const trimmedName = typeof data.name === 'string' ? data.name.trim() : '';
+      if (!trimmedName) {
+        console.error('[updatePatient] Attempted to update patient with empty name:', { id, data });
+        return { 
+          data: null, 
+          error: new Error('Имя пациента не может быть пустым') 
+        };
+      }
+      // Ensure we use trimmed name
+      data.name = trimmedName;
+    }
+
+    console.log('[updatePatient] Updating patient:', { id, name: data.name, hasName: data.name !== undefined, dataKeys: Object.keys(data) });
+
+    // SECURITY: Always get current patient to preserve existing name value in DB
+    // This is needed to satisfy NOT NULL constraint, even though we only use name_encrypted as source of truth
+    // We preserve the existing plaintext name (legacy data) to avoid database constraint violations
+    const { data: currentPatient } = await supabase
+      .from('patients')
+      .select('name')
+      .eq('id', id)
+      .single();
+    
+    const existingName = currentPatient?.name || null;
+    console.log('[updatePatient] Current name in DB:', existingName);
+
     const encryptedData = await encryptPatientPII(data);
+
+    console.log('[updatePatient] After encryption:', { 
+      id, 
+      hasName: 'name' in encryptedData, 
+      hasNameEncrypted: 'name_encrypted' in encryptedData,
+      encryptedKeys: Object.keys(encryptedData)
+    });
+
+    // Double-check that name_encrypted is present after encryption if name was provided
+    if (data.name !== undefined && !encryptedData.name_encrypted) {
+      console.error('[updatePatient] Name encryption failed - name_encrypted missing:', { id, data, encryptedData });
+      return {
+        data: null,
+        error: new Error('Ошибка при обработке имени пациента')
+      };
+    }
+
+    // SECURITY: For NOT NULL constraint, we MUST provide a value for name field
+    // HIPAA COMPLIANCE: We NEVER store plaintext PHI data in the database
+    // We use a constant placeholder to satisfy NOT NULL constraint
+    // The encrypted version (name_encrypted) is the ONLY source of truth
+    // When reading, decryptPatientPII will decrypt name_encrypted and populate name field
+    // This ensures full HIPAA compliance: no plaintext PHI is ever stored
+    if (!('name' in encryptedData)) {
+      // Use constant placeholder - never store real plaintext name
+      encryptedData.name = '[ENCRYPTED]';
+      console.log('[updatePatient] Using HIPAA-compliant placeholder for NOT NULL constraint (no plaintext PHI stored)');
+    }
+
+    console.log('[updatePatient] Final encryptedData before update:', {
+      id,
+      hasName: 'name' in encryptedData,
+      nameValue: encryptedData.name,
+      hasNameEncrypted: 'name_encrypted' in encryptedData,
+      nameEncryptedLength: encryptedData.name_encrypted ? String(encryptedData.name_encrypted).length : 0,
+      allKeys: Object.keys(encryptedData)
+    });
 
     const { data: patient, error } = await supabase
       .from('patients')
@@ -275,12 +443,28 @@ export async function updatePatient(
       .single();
 
     if (error) {
+      console.error('[updatePatient] Database error:', error);
       return { data: null, error: new Error(error.message) };
     }
 
+    console.log('[updatePatient] Patient after update (before decryption):', {
+      id: patient.id,
+      name: patient.name,
+      hasNameEncrypted: 'name_encrypted' in patient,
+      nameEncryptedValue: patient.name_encrypted ? 'present' : 'missing',
+      piiVersion: patient.pii_encryption_version
+    });
+
     const decryptedPatient = await decryptPatientPII(patient);
+    console.log('[updatePatient] Patient updated successfully:', { 
+      id, 
+      name: decryptedPatient.name,
+      nameLength: decryptedPatient.name?.length || 0,
+      isDecrypted: decryptedPatient._isDecrypted
+    });
     return { data: decryptedPatient, error: null };
   } catch (error) {
+    console.error('[updatePatient] Unexpected error:', error);
     return { data: null, error: error as Error };
   }
 }

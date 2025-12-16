@@ -62,8 +62,15 @@ export function PatientForm({ patient, onSave, onCancel, isSaving = false }: Pat
       .map((tag) => tag.trim())
       .filter((tag) => tag.length > 0);
 
+    // Validate name - must not be empty after trim
+    const trimmedName = data.name.trim();
+    if (!trimmedName) {
+      // This should be caught by form validation, but double-check
+      return;
+    }
+
     const formData: PatientInsert | PatientUpdate = {
-      name: data.name.trim(),
+      name: trimmedName,
       email: data.email.trim() || null,
       phone: data.phone.trim() || null,
       date_of_birth: data.date_of_birth || null,
@@ -93,7 +100,15 @@ export function PatientForm({ patient, onSave, onCancel, isSaving = false }: Pat
             </Label>
             <Input
               id="name"
-              {...register('name', { required: 'Имя обязательно' })}
+              {...register('name', { 
+                required: 'Имя обязательно',
+                validate: (value) => {
+                  if (!value || value.trim().length === 0) {
+                    return 'Имя не может быть пустым';
+                  }
+                  return true;
+                }
+              })}
               placeholder="Иван Иванов"
             />
             {errors.name && (

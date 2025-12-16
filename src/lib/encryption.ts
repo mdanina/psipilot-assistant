@@ -212,6 +212,7 @@ export async function decryptPHIBatch(values: string[]): Promise<string[]> {
   }
 
   try {
+    console.log('[decryptPHIBatch] Decrypting batch:', { count: values.length, firstValueLength: values[0]?.length || 0 });
     const response = await fetch(`${CRYPTO_API_URL}/api/crypto/decrypt`, {
       method: 'POST',
       headers: await getAuthHeaders(),
@@ -233,10 +234,29 @@ export async function decryptPHIBatch(values: string[]): Promise<string[]> {
 
     const result = await response.json();
     if (!result.success) {
+      console.error('[decryptPHIBatch] Backend returned error:', result.error);
       throw new Error(result.error || 'Batch decryption failed');
     }
 
-    return result.data.decrypted;
+    const decrypted = result.data?.decrypted;
+    console.log('[decryptPHIBatch] Backend response:', { 
+      success: result.success,
+      hasData: !!result.data,
+      hasDecrypted: !!decrypted,
+      decryptedType: typeof decrypted,
+      isArray: Array.isArray(decrypted),
+      decryptedCount: Array.isArray(decrypted) ? decrypted.length : 'not array',
+      firstDecryptedLength: Array.isArray(decrypted) && decrypted[0] !== undefined ? (decrypted[0]?.length || 0) : 'N/A',
+      firstDecryptedValue: Array.isArray(decrypted) && decrypted[0] !== undefined ? `"${String(decrypted[0]).substring(0, 50)}..."` : 'N/A',
+      fullResult: result
+    });
+
+    if (!Array.isArray(decrypted)) {
+      console.error('[decryptPHIBatch] Backend did not return an array:', decrypted);
+      throw new Error('Backend returned invalid decrypted data format');
+    }
+
+    return decrypted;
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Batch decryption error:', message);
