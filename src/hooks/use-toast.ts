@@ -167,6 +167,9 @@ function useToast() {
   const [state, setState] = React.useState<State>(memoryState);
 
   React.useEffect(() => {
+    // Синхронизируем состояние при монтировании
+    setState(memoryState);
+
     listeners.push(setState);
     return () => {
       const index = listeners.indexOf(setState);
@@ -174,7 +177,9 @@ function useToast() {
         listeners.splice(index, 1);
       }
     };
-  }, [state]);
+    // ИСПРАВЛЕНО: Пустой массив зависимостей - регистрируем listener только один раз
+    // Ранее [state] вызывал утечку памяти (перерегистрация при каждом обновлении)
+  }, []);
 
   return {
     ...state,

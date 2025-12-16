@@ -1,5 +1,6 @@
 import express from 'express';
 import { createClient } from '@supabase/supabase-js';
+import { webhookAuth, getWebhookMetrics } from '../middleware/webhook-auth.js';
 
 const router = express.Router();
 
@@ -88,11 +89,36 @@ function formatTranscriptWithSpeakers(utterances, userRole = 'Врач') {
 }
 
 /**
+ * GET /api/webhook/metrics
+ * Endpoint для мониторинга статистики webhook верификации
+ * Доступен только в development или с правильным API ключом
+ */
+router.get('/webhook/metrics', (req, res) => {
+  // Простая проверка доступа через API ключ или dev mode
+  const apiKey = req.headers['x-api-key'];
+  const isDev = process.env.NODE_ENV === 'development';
+  const validApiKey = process.env.ADMIN_API_KEY;
+
+  if (!isDev && (!validApiKey || apiKey !== validApiKey)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  res.json(getWebhookMetrics());
+});
+
+/**
  * POST /api/webhook/assemblyai
  * Webhook endpoint for AssemblyAI transcription completion
  * This endpoint receives notifications when transcription is complete
+ *
+ * SECURITY: Использует webhookAuth middleware для верификации подписи
+ * Режим настраивается через WEBHOOK_VERIFICATION_MODE env variable:
+ * - shadow (default): только логирование
+ * - warn: логирование + warning
+ * - soft: отклонение с 200
+ * - strict: отклонение с 401
  */
-router.post('/webhook/assemblyai', async (req, res) => {
+router.post('/webhook/assemblyai', webhookAuth, async (req, res) => {
   try {
     const { transcript_id, status, text, utterances, error } = req.body;
 

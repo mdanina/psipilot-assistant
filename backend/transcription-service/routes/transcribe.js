@@ -253,9 +253,13 @@ router.post('/transcribe', async (req, res) => {
     // Get webhook URL for async transcription
     const webhookUrl = process.env.WEBHOOK_URL || `${process.env.SUPABASE_URL?.replace(/\/$/, '') || 'http://localhost:3001'}/api/webhook/assemblyai`;
 
-    // Start transcription with AssemblyAI
-    const assemblyai = getAssemblyAI();
-    const transcript = await assemblyai.transcripts.transcribe({
+    // Webhook authentication settings
+    // AssemblyAI will send this header with the specified value when calling webhook
+    const webhookAuthHeaderName = process.env.WEBHOOK_AUTH_HEADER_NAME;
+    const webhookAuthHeaderValue = process.env.WEBHOOK_AUTH_HEADER_VALUE;
+
+    // Build transcription config
+    const transcriptionConfig = {
       audio: signedUrlData.signedUrl,
       language_code: 'ru', // Russian language for medical documentation
       speaker_labels: true, // Identify different speakers (diarization)
@@ -265,7 +269,17 @@ router.post('/transcribe', async (req, res) => {
       sentiment_analysis: false,
       entity_detection: false,
       webhook_url: webhookUrl, // Webhook URL for async transcription completion
-    });
+    };
+
+    // Add webhook authentication if configured
+    if (webhookAuthHeaderName && webhookAuthHeaderValue) {
+      transcriptionConfig.webhook_auth_header_name = webhookAuthHeaderName;
+      transcriptionConfig.webhook_auth_header_value = webhookAuthHeaderValue;
+    }
+
+    // Start transcription with AssemblyAI
+    const assemblyai = getAssemblyAI();
+    const transcript = await assemblyai.transcripts.transcribe(transcriptionConfig);
 
     // Update recording with transcription status and transcript_id
     const updateData = {

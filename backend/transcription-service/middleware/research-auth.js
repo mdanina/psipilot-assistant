@@ -5,6 +5,7 @@
 
 import { verifyAuthToken } from './auth.js';
 import { createClient } from '@supabase/supabase-js';
+import { rateLimitStore } from './rate-limit-store.js';
 
 /**
  * Helper function to get Supabase admin client
@@ -30,45 +31,18 @@ function getSupabaseAdmin() {
 }
 
 /**
- * In-memory rate limiting (simple implementation)
- * В production лучше использовать Redis
- */
-const rateLimitStore = new Map();
-
-/**
  * Проверка rate limit для исследователя
+ * ИСПРАВЛЕНО: Теперь использует rate-limit-store.js с автоматической очисткой
+ * Ранее Map рос бесконечно, вызывая утечку памяти
+ *
  * @param {string} researcherId - ID исследователя
  * @param {number} maxRequests - Максимум запросов
  * @param {number} windowMs - Окно времени в миллисекундах
- * @returns {boolean} true если лимит не превышен
+ * @returns {{ allowed: boolean, remaining?: number, retryAfter?: number }}
  */
 function checkRateLimit(researcherId, maxRequests = 100, windowMs = 60 * 60 * 1000) {
-  const now = Date.now();
   const key = `researcher:${researcherId}`;
-  
-  const record = rateLimitStore.get(key);
-  
-  if (!record) {
-    rateLimitStore.set(key, { count: 1, resetAt: now + windowMs });
-    return true;
-  }
-  
-  // Если окно истекло, сбрасываем счетчик
-  if (now > record.resetAt) {
-    rateLimitStore.set(key, { count: 1, resetAt: now + windowMs });
-    return true;
-  }
-  
-  // Проверяем лимит
-  if (record.count >= maxRequests) {
-    return false;
-  }
-  
-  // Увеличиваем счетчик
-  record.count++;
-  rateLimitStore.set(key, record);
-  
-  return true;
+  return rateLimitStore.check(key, maxRequests, windowMs);
 }
 
 /**
@@ -149,11 +123,14 @@ export async function authenticateResearcher(req, res, next) {
     }
 
     // Проверка rate limit
-    const rateLimitOk = checkRateLimit(user.id, 100, 60 * 60 * 1000); // 100 запросов в час
-    if (!rateLimitOk) {
-      return res.status(429).json({ 
+    // ИСПРАВЛЕНО: checkRateLimit теперь возвращает объект с деталями
+    const rateLimitResult = checkRateLimit(user.id, 100, 60 * 60 * 1000); // 100 запросов в час
+    if (!rateLimitResult.allowed) {
+      return res.status(429).json({
         success: false,
-        error: 'Too many requests. Rate limit exceeded. Please try again later.' 
+        error: 'Too many requests. Rate limit exceeded. Please try again later.',
+        retryAfter: rateLimitResult.retryAfter,
+        remaining: rateLimitResult.remaining,
       });
     }
 

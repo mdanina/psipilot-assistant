@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Mic, FileText, X, Pause, Play, Square, Sparkles, Loader2, Music } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
@@ -43,19 +43,33 @@ export const RecordingCard = ({
     fileName: string;
   } | null>(null);
 
+  // Отслеживаем показанные ошибки, чтобы не показывать дубликаты
+  const shownErrorRef = useRef<string | null>(null);
+
   // Notify parent about recording state changes (for navigation blocking)
   useEffect(() => {
     onRecordingStateChange?.(isRecording);
   }, [isRecording, onRecordingStateChange]);
 
-  // Show error toast if recorder has error
-  if (recorderError) {
-    toast({
-      title: "Ошибка записи",
-      description: recorderError,
-      variant: "destructive",
-    });
-  }
+  // ИСПРАВЛЕНО: Toast перенесён в useEffect вместо render
+  // Ранее toast вызывался при каждом рендере, вызывая множественные уведомления
+  useEffect(() => {
+    if (recorderError && recorderError !== shownErrorRef.current) {
+      toast({
+        title: "Ошибка записи",
+        description: recorderError,
+        variant: "destructive",
+      });
+      shownErrorRef.current = recorderError;
+    }
+  }, [recorderError, toast]);
+
+  // Сбрасываем отслеживание ошибки при успешном старте записи
+  useEffect(() => {
+    if (isRecording) {
+      shownErrorRef.current = null;
+    }
+  }, [isRecording]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);

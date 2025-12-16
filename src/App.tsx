@@ -10,23 +10,19 @@ import { SessionTimeoutWarning } from "@/components/auth/SessionTimeoutWarning";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { queryClient } from "@/lib/query-client";
+import { LazyRoute } from "@/components/LazyRoute";
 
-// Pages
+// Критические страницы - без lazy loading (быстрый первый рендер)
 import Index from "./pages/Index";
 import LoginPage from "./pages/LoginPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import OnboardingPage from "./pages/OnboardingPage";
 import UnauthorizedPage from "./pages/UnauthorizedPage";
-import PatientsPage from "./pages/PatientsPage";
-import PatientDetailPage from "./pages/PatientDetailPage";
-import PatientCreatePage from "./pages/PatientCreatePage";
-import SessionsPage from "./pages/SessionsPage";
-import SessionAnalysisPage from "./pages/SessionAnalysisPage";
-import CalendarPage from "./pages/CalendarPage";
-import AdministrationPage from "./pages/AdministrationPage";
-import ProfilePage from "./pages/ProfilePage";
 import NotFound from "./pages/NotFound";
+
+// Остальные страницы загружаются лениво через LazyRoute
+// Это уменьшает initial bundle и ускоряет первую загрузку
 
 const App = () => (
   <ThemeProvider>
@@ -67,12 +63,16 @@ const App = () => (
                 </ProtectedRoute>
               }
             />
+            {/* Пациенты - lazy loading */}
             <Route
               path="/patients"
               element={
                 <ProtectedRoute requiredRole={['specialist', 'admin']}>
                   <MainLayout>
-                    <PatientsPage />
+                    <LazyRoute
+                      component={() => import("./pages/PatientsPage")}
+                      loadingMessage="Загрузка списка пациентов..."
+                    />
                   </MainLayout>
                 </ProtectedRoute>
               }
@@ -82,7 +82,10 @@ const App = () => (
               element={
                 <ProtectedRoute requiredRole={['specialist', 'admin']}>
                   <MainLayout>
-                    <PatientCreatePage />
+                    <LazyRoute
+                      component={() => import("./pages/PatientCreatePage")}
+                      loadingMessage="Загрузка формы..."
+                    />
                   </MainLayout>
                 </ProtectedRoute>
               }
@@ -92,17 +95,25 @@ const App = () => (
               element={
                 <ProtectedRoute requiredRole={['specialist', 'admin']}>
                   <MainLayout>
-                    <PatientDetailPage />
+                    <LazyRoute
+                      component={() => import("./pages/PatientDetailPage")}
+                      loadingMessage="Загрузка данных пациента..."
+                    />
                   </MainLayout>
                 </ProtectedRoute>
               }
             />
+
+            {/* Сессии - lazy loading */}
             <Route
               path="/sessions"
               element={
                 <ProtectedRoute requiredRole={['specialist', 'admin']}>
                   <MainLayout>
-                    <SessionsPage />
+                    <LazyRoute
+                      component={() => import("./pages/SessionsPage")}
+                      loadingMessage="Загрузка сессий..."
+                    />
                   </MainLayout>
                 </ProtectedRoute>
               }
@@ -112,37 +123,55 @@ const App = () => (
               element={
                 <ProtectedRoute requiredRole={['specialist', 'admin']}>
                   <MainLayout>
-                    <SessionAnalysisPage />
+                    <LazyRoute
+                      component={() => import("./pages/SessionAnalysisPage")}
+                      loadingMessage="Загрузка анализа сессии..."
+                    />
                   </MainLayout>
                 </ProtectedRoute>
               }
             />
+
+            {/* Календарь - lazy loading */}
             <Route
               path="/calendar"
               element={
                 <ProtectedRoute requiredRole={['specialist', 'admin']}>
                   <MainLayout>
-                    <CalendarPage />
+                    <LazyRoute
+                      component={() => import("./pages/CalendarPage")}
+                      loadingMessage="Загрузка календаря..."
+                    />
                   </MainLayout>
                 </ProtectedRoute>
               }
             />
+
+            {/* Администрирование - lazy loading */}
             <Route
               path="/administration"
               element={
                 <ProtectedRoute>
                   <MainLayout>
-                    <AdministrationPage />
+                    <LazyRoute
+                      component={() => import("./pages/AdministrationPage")}
+                      loadingMessage="Загрузка администрирования..."
+                    />
                   </MainLayout>
                 </ProtectedRoute>
               }
             />
+
+            {/* Профиль - lazy loading */}
             <Route
               path="/profile"
               element={
                 <ProtectedRoute>
                   <MainLayout>
-                    <ProfilePage />
+                    <LazyRoute
+                      component={() => import("./pages/ProfilePage")}
+                      loadingMessage="Загрузка профиля..."
+                    />
                   </MainLayout>
                 </ProtectedRoute>
               }
