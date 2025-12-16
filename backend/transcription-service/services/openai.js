@@ -10,8 +10,8 @@ import OpenAI from 'openai';
 // Конфигурация retry
 const RETRY_CONFIG = {
   maxRetries: 4,
-  baseDelayMs: 2000, // 2 секунды
-  maxDelayMs: 16000, // 16 секунд
+  baseDelayMs: 1000, // 1 секунда (reduced for faster retries)
+  maxDelayMs: 8000, // 8 секунд (reduced to minimize wait time)
 };
 
 // Инициализация OpenAI клиента

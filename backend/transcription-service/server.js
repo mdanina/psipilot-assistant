@@ -63,7 +63,7 @@ const generalLimiter = rateLimit({
 // Strict rate limiter for AI generation endpoints (expensive operations)
 const aiGenerationLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
-  max: 30, // 30 AI generations per hour
+  max: 200, // 200 AI generations per hour (increased for templates with multiple blocks)
   message: { success: false, error: 'AI generation rate limit exceeded. Please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -73,7 +73,7 @@ const aiGenerationLimiter = rateLimit({
 // Strict rate limiter for transcription endpoints (expensive operations)
 const transcriptionLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
-  max: 50, // 50 transcriptions per hour
+  max: 100, // 100 transcriptions per hour (increased for multiple file uploads)
   message: { success: false, error: 'Transcription rate limit exceeded. Please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
