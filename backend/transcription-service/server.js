@@ -77,6 +77,27 @@ const transcriptionLimiter = rateLimit({
   message: { success: false, error: 'Transcription rate limit exceeded. Please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => req.user?.id || req.ip, // Rate limit by user ID if authenticated
+});
+
+// Мягкий rate limiter для синхронизации статуса транскрипции
+const syncLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 20, // 20 sync requests per minute per user
+  message: { success: false, error: 'Too many sync requests. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.id || req.ip,
+});
+
+// Мягкий rate limiter для легких GET запросов (шаблоны, статусы)
+const readOnlyLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 100, // 100 read requests per minute per user
+  message: { success: false, error: 'Too many read requests. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.id || req.ip,
 });
 
 // Crypto operations limiter - увеличен лимит для batch операций
@@ -86,6 +107,7 @@ const cryptoLimiter = rateLimit({
   message: { success: false, error: 'Crypto rate limit exceeded. Please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => req.user?.id || req.ip, // Rate limit by user ID if authenticated
 });
 
 // Middleware
@@ -99,8 +121,30 @@ app.use((req, res, next) => {
   next();
 });
 
-// Apply general rate limiting to all API routes
-app.use('/api', generalLimiter);
+// Apply general rate limiting only to endpoints without specific limiters
+// Исключаем endpoints с собственными rate limiters из общего лимита
+app.use('/api', (req, res, next) => {
+  // Пропускаем endpoints с собственными rate limiters
+  const hasOwnLimiter = 
+    (req.path.startsWith('/ai/generate') && req.method === 'POST') ||
+    req.path.startsWith('/ai/regenerate-section') ||
+    req.path.startsWith('/ai/case-summary') ||
+    req.path.startsWith('/ai/patient-case-summary') ||
+    (req.path.startsWith('/transcribe') && req.method === 'POST' && !req.path.endsWith('/sync')) ||
+    (req.path.startsWith('/transcribe/') && req.path.endsWith('/sync')) ||
+    req.path.startsWith('/crypto') ||
+    req.path.startsWith('/webhook') ||
+    req.path.startsWith('/ai/block-templates') ||
+    req.path.startsWith('/ai/note-templates') ||
+    (req.path.startsWith('/ai/generate/') && req.method === 'GET') ||
+    (req.path.startsWith('/transcribe/') && req.path.endsWith('/status') && req.method === 'GET');
+  
+  if (hasOwnLimiter) {
+    return next();
+  }
+  
+  return generalLimiter(req, res, next);
+});
 
 // Root endpoint
 app.get('/', (req, res) => {
@@ -147,21 +191,27 @@ app.get('/health', (req, res) => {
 
 // Transcription routes (POST /api/transcribe has expensive rate limit)
 app.post('/api/transcribe', transcriptionLimiter);
+app.post('/api/transcribe/:recordingId/sync', verifyAuthToken, syncLimiter); // Синхронизация с отдельным лимитом
 app.use('/api', transcribeRoute);
 
 // Webhook routes (no rate limit - called by external services)
 app.use('/api', webhookRoute);
 
 // AI routes с аутентификацией и rate limiting
-// Strict limits on generation endpoints
-app.post('/api/ai/generate', aiGenerationLimiter);
-app.post('/api/ai/regenerate-section/:sectionId', aiGenerationLimiter);
-app.post('/api/ai/case-summary', aiGenerationLimiter);
-app.post('/api/ai/patient-case-summary', aiGenerationLimiter);
+// ВАЖНО: verifyAuthToken должен быть ПЕРЕД rate limiter, чтобы req.user был установлен
+app.post('/api/ai/generate', verifyAuthToken, aiGenerationLimiter);
+app.post('/api/ai/regenerate-section/:sectionId', verifyAuthToken, aiGenerationLimiter);
+app.post('/api/ai/case-summary', verifyAuthToken, aiGenerationLimiter);
+app.post('/api/ai/patient-case-summary', verifyAuthToken, aiGenerationLimiter);
+// Легкие GET запросы с мягким лимитом
+app.get('/api/ai/block-templates', verifyAuthToken, readOnlyLimiter);
+app.get('/api/ai/note-templates', verifyAuthToken, readOnlyLimiter);
+app.get('/api/ai/generate/:clinicalNoteId/status', verifyAuthToken, readOnlyLimiter);
 app.use('/api/ai', verifyAuthToken, aiRoute);
 
 // Crypto routes с аутентификацией и rate limiting
-app.use('/api/crypto', cryptoLimiter, verifyAuthToken, cryptoRoute);
+// ВАЖНО: verifyAuthToken должен быть ПЕРЕД cryptoLimiter, чтобы req.user был установлен
+app.use('/api/crypto', verifyAuthToken, cryptoLimiter, cryptoRoute);
 
 // Research routes с аутентификацией исследователей
 // Rate limiting уже включен в authenticateResearcher middleware
