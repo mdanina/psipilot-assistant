@@ -81,9 +81,10 @@ const transcriptionLimiter = rateLimit({
 });
 
 // Мягкий rate limiter для синхронизации статуса транскрипции
+// Увеличен лимит для поддержки нескольких файлов в обработке одновременно
 const syncLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
-  max: 20, // 20 sync requests per minute per user
+  max: 100, // 100 sync requests per minute per user (увеличено для поддержки нескольких файлов)
   message: { success: false, error: 'Too many sync requests. Please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -125,19 +126,23 @@ app.use((req, res, next) => {
 // Исключаем endpoints с собственными rate limiters из общего лимита
 app.use('/api', (req, res, next) => {
   // Пропускаем endpoints с собственными rate limiters
+  // req.path для /api/transcribe/xxx/sync будет /transcribe/xxx/sync (без /api префикса)
+  const path = req.path;
+  const method = req.method;
+  
   const hasOwnLimiter = 
-    (req.path.startsWith('/ai/generate') && req.method === 'POST') ||
-    req.path.startsWith('/ai/regenerate-section') ||
-    req.path.startsWith('/ai/case-summary') ||
-    req.path.startsWith('/ai/patient-case-summary') ||
-    (req.path.startsWith('/transcribe') && req.method === 'POST' && !req.path.endsWith('/sync')) ||
-    (req.path.startsWith('/transcribe/') && req.path.endsWith('/sync')) ||
-    req.path.startsWith('/crypto') ||
-    req.path.startsWith('/webhook') ||
-    req.path.startsWith('/ai/block-templates') ||
-    req.path.startsWith('/ai/note-templates') ||
-    (req.path.startsWith('/ai/generate/') && req.method === 'GET') ||
-    (req.path.startsWith('/transcribe/') && req.path.endsWith('/status') && req.method === 'GET');
+    (path.startsWith('/ai/generate') && method === 'POST') ||
+    path.startsWith('/ai/regenerate-section') ||
+    path.startsWith('/ai/case-summary') ||
+    path.startsWith('/ai/patient-case-summary') ||
+    (path.startsWith('/transcribe') && method === 'POST' && !path.endsWith('/sync')) ||
+    (path.startsWith('/transcribe/') && path.endsWith('/sync') && method === 'POST') ||
+    path.startsWith('/crypto') ||
+    path.startsWith('/webhook') ||
+    path.startsWith('/ai/block-templates') ||
+    path.startsWith('/ai/note-templates') ||
+    (path.startsWith('/ai/generate/') && method === 'GET') ||
+    (path.startsWith('/transcribe/') && path.endsWith('/status') && method === 'GET');
   
   if (hasOwnLimiter) {
     return next();
@@ -190,7 +195,8 @@ app.get('/health', (req, res) => {
 // Routes with specific rate limits for expensive operations
 
 // Transcription routes (POST /api/transcribe has expensive rate limit)
-app.post('/api/transcribe', transcriptionLimiter);
+// ВАЖНО: verifyAuthToken должен быть ПЕРЕД rate limiter, чтобы req.user был установлен
+app.post('/api/transcribe', verifyAuthToken, transcriptionLimiter);
 app.post('/api/transcribe/:recordingId/sync', verifyAuthToken, syncLimiter); // Синхронизация с отдельным лимитом
 app.use('/api', transcribeRoute);
 
