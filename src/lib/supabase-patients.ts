@@ -114,14 +114,11 @@ async function encryptPatientPII(
     // If value is undefined, don't include it in update (Supabase will leave existing value unchanged)
   }
 
-  // Remove base64 versions before returning (they're only for RPC functions)
-  // Keep hex versions for direct insert/update
-  for (const field of PII_FIELDS) {
-    const base64Field = `${field}_encrypted_base64`;
-    if (base64Field in encrypted) {
-      delete encrypted[base64Field];
-    }
-  }
+  // Keep both hex and base64 versions
+  // Hex versions are for direct insert/update (Supabase converts \x... to BYTEA)
+  // Base64 versions are for RPC functions (which convert base64 to BYTEA using decode())
+  // We don't remove base64 versions here - they're needed for createPatient RPC call
+  // For updatePatient, we'll use hex versions directly
 
   return encrypted;
 }
@@ -258,6 +255,7 @@ export async function createPatient(
     for (const field of PII_FIELDS) {
       const base64Field = `${field}_encrypted_base64`;
       base64Data[field] = (encryptedData as any)[base64Field] || null;
+      console.log(`[createPatient] Extracted base64 for ${field}:`, base64Data[field] ? `present (length: ${base64Data[field]?.length || 0})` : 'null');
     }
 
     // SECURITY: Use placeholder for name field to satisfy NOT NULL constraint
@@ -267,9 +265,7 @@ export async function createPatient(
       console.log('createPatient: Using HIPAA-compliant placeholder for NOT NULL constraint');
     }
 
-    // Use RPC function to bypass RLS while maintaining HIPAA compliance
-    // RPC function accepts encrypted data and creates assignment automatically
-    const { data: patientId, error: rpcError } = await supabase.rpc('create_patient_secure', {
+    const rpcParams = {
       p_clinic_id: data.clinic_id,
       p_name: encryptedData.name || '[ENCRYPTED]', // Placeholder for NOT NULL
       p_created_by: data.created_by || null,
@@ -288,7 +284,20 @@ export async function createPatient(
       p_address_encrypted: base64Data.address || null,
       p_notes_encrypted: base64Data.notes || null,
       p_pii_encryption_version: encryptedData.pii_encryption_version || null,
+    };
+
+    console.log('[createPatient] RPC params:', {
+      hasNameEncrypted: !!rpcParams.p_name_encrypted,
+      nameEncryptedLength: rpcParams.p_name_encrypted?.length || 0,
+      hasEmailEncrypted: !!rpcParams.p_email_encrypted,
+      hasPhoneEncrypted: !!rpcParams.p_phone_encrypted,
+      piiVersion: rpcParams.p_pii_encryption_version,
+      allKeys: Object.keys(rpcParams)
     });
+
+    // Use RPC function to bypass RLS while maintaining HIPAA compliance
+    // RPC function accepts encrypted data and creates assignment automatically
+    const { data: patientId, error: rpcError } = await supabase.rpc('create_patient_secure', rpcParams);
 
     if (rpcError) {
       console.error('createPatient: RPC error:', rpcError);
@@ -436,6 +445,14 @@ export async function updatePatient(
     console.log('[updatePatient] Current name in DB:', existingName);
 
     const encryptedData = await encryptPatientPII(data);
+
+    // Remove base64 versions for update (we use hex versions for direct insert)
+    for (const field of PII_FIELDS) {
+      const base64Field = `${field}_encrypted_base64`;
+      if (base64Field in encryptedData) {
+        delete encryptedData[base64Field as keyof typeof encryptedData];
+      }
+    }
 
     console.log('[updatePatient] After encryption:', { 
       id, 
