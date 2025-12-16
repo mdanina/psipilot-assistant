@@ -27,7 +27,7 @@ interface AuthContextType extends AuthState {
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signUp: (email: string, password: string, fullName: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
-  refreshProfile: () => Promise<void>;
+  refreshProfile: () => Promise<ProfileWithClinic | null>;
   // Password reset methods
   resetPassword: (email: string) => Promise<{ error: Error | null }>;
   updatePassword: (newPassword: string) => Promise<{ error: Error | null }>;
@@ -819,26 +819,39 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [state.user]);
 
   // Refresh profile data and clinic
-  const refreshProfile = useCallback(async () => {
-    if (state.user) {
-      const profile = await fetchProfile(state.user.id);
-      setState(prev => ({ ...prev, profile }));
-      
-      // Load clinic if profile has clinic_id
-      if (profile?.clinic_id && !profile.clinic) {
-        try {
-          const clinicData = await loadClinicWithCache(profile.clinic_id);
-          if (clinicData) {
-            setState(prev => ({
-              ...prev,
-              profile: prev.profile ? { ...prev.profile, clinic: clinicData } : null
-            }));
-          }
-        } catch (err) {
-          console.warn('⚠️  Error loading clinic in refreshProfile:', err);
+  // Always clears cache to ensure fresh data is fetched (important after onboarding)
+  // Returns the refreshed profile so callers can verify the data before navigation
+  const refreshProfile = useCallback(async (): Promise<ProfileWithClinic | null> => {
+    if (!state.user) {
+      return null;
+    }
+
+    // Clear profile cache to force fresh data fetch
+    profileCache.delete(state.user.id);
+
+    const profile = await fetchProfile(state.user.id);
+    setState(prev => ({ ...prev, profile }));
+
+    // Load clinic if profile has clinic_id
+    if (profile?.clinic_id) {
+      try {
+        // Clear clinic cache to ensure fresh data after onboarding
+        clinicCache.delete(profile.clinic_id);
+        const clinicData = await loadClinicWithCache(profile.clinic_id);
+        if (clinicData) {
+          const profileWithClinic = { ...profile, clinic: clinicData };
+          setState(prev => ({
+            ...prev,
+            profile: profileWithClinic
+          }));
+          return profileWithClinic;
         }
+      } catch (err) {
+        console.warn('⚠️  Error loading clinic in refreshProfile:', err);
       }
     }
+
+    return profile;
   }, [state.user, fetchProfile]);
 
   const value: AuthContextType = {
