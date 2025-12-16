@@ -67,10 +67,18 @@ export default function OnboardingPage() {
         return;
       }
 
-      // 3. Refresh profile to get updated data
-      await refreshProfile();
+      // 3. Refresh profile to get updated data with new clinic_id
+      const updatedProfile = await refreshProfile();
 
-      // 4. Redirect to home
+      // 4. Verify profile was updated with clinic_id before redirecting
+      if (!updatedProfile?.clinic_id) {
+        console.error('Profile refresh did not return clinic_id');
+        setError('Клиника создана, но произошла ошибка синхронизации. Пожалуйста, обновите страницу.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      // 5. Redirect to home
       navigate('/', { replace: true });
     } catch (err) {
       console.error('Onboarding error:', err);
