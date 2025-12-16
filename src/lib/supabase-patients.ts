@@ -70,9 +70,9 @@ async function encryptPatientPII(
       if (value && typeof value === 'string' && value.trim().length > 0) {
         // SECURITY: No try/catch - if encryption fails, operation should fail
         const encryptedValue = await encryptPHI(value);
-        // Convert base64 string to binary data for BYTEA column
-        // Supabase expects BYTEA as hex string with \x prefix or as Uint8Array
-        // We'll use hex format: decode base64 to bytes, then convert to hex
+        // Convert base64 string to hex format for BYTEA column
+        // Supabase expects BYTEA as hex string with \x prefix for direct insert
+        // For RPC functions, we'll convert back to base64
         try {
           const binaryString = atob(encryptedValue);
           const bytes = new Uint8Array(binaryString.length);
@@ -84,6 +84,8 @@ async function encryptPatientPII(
             .map(b => b.toString(16).padStart(2, '0'))
             .join('');
           encrypted[`${field}_encrypted`] = `\\x${hexString}`;
+          // Also store base64 for RPC functions (will be extracted separately)
+          encrypted[`${field}_encrypted_base64`] = encryptedValue;
         } catch (error) {
           console.error(`[encryptPatientPII] Failed to convert base64 to hex for ${field}:`, error);
           throw new Error(`Failed to prepare encrypted data for storage: ${error instanceof Error ? error.message : String(error)}`);
@@ -110,6 +112,15 @@ async function encryptPatientPII(
       }
     }
     // If value is undefined, don't include it in update (Supabase will leave existing value unchanged)
+  }
+
+  // Remove base64 versions before returning (they're only for RPC functions)
+  // Keep hex versions for direct insert/update
+  for (const field of PII_FIELDS) {
+    const base64Field = `${field}_encrypted_base64`;
+    if (base64Field in encrypted) {
+      delete encrypted[base64Field];
+    }
   }
 
   return encrypted;
@@ -239,7 +250,15 @@ export async function createPatient(
     console.log('createPatient: Creating patient with HIPAA-compliant encryption, clinic_id:', data.clinic_id);
 
     // HIPAA COMPLIANCE: Encrypt all PII data before storage
+    // Note: encryptPatientPII returns both hex (for direct insert) and base64 (for RPC) versions
     const encryptedData = await encryptPatientPII(data);
+
+    // Extract base64 versions before they're removed (for RPC function)
+    const base64Data: Record<string, string | null> = {};
+    for (const field of PII_FIELDS) {
+      const base64Field = `${field}_encrypted_base64`;
+      base64Data[field] = (encryptedData as any)[base64Field] || null;
+    }
 
     // SECURITY: Use placeholder for name field to satisfy NOT NULL constraint
     // The encrypted version (name_encrypted) is the ONLY source of truth
@@ -248,43 +267,63 @@ export async function createPatient(
       console.log('createPatient: Using HIPAA-compliant placeholder for NOT NULL constraint');
     }
 
-    // Insert patient with encrypted data
-    const { data: patient, error: insertError } = await supabase
-      .from('patients')
-      .insert(encryptedData as PatientInsert)
-      .select()
-      .single();
+    // Use RPC function to bypass RLS while maintaining HIPAA compliance
+    // RPC function accepts encrypted data and creates assignment automatically
+    const { data: patientId, error: rpcError } = await supabase.rpc('create_patient_secure', {
+      p_clinic_id: data.clinic_id,
+      p_name: encryptedData.name || '[ENCRYPTED]', // Placeholder for NOT NULL
+      p_created_by: data.created_by || null,
+      p_email: encryptedData.email || null, // Legacy/placeholder
+      p_phone: encryptedData.phone || null, // Legacy/placeholder
+      p_date_of_birth: data.date_of_birth || null,
+      p_gender: data.gender || null,
+      p_address: encryptedData.address || null, // Legacy/placeholder
+      p_notes: encryptedData.notes || null, // Legacy/placeholder
+      p_tags: data.tags || [],
+      // Encrypted PII fields (source of truth) - pass as base64 strings
+      // RPC function will convert them to BYTEA using decode()
+      p_name_encrypted: base64Data.name || null,
+      p_email_encrypted: base64Data.email || null,
+      p_phone_encrypted: base64Data.phone || null,
+      p_address_encrypted: base64Data.address || null,
+      p_notes_encrypted: base64Data.notes || null,
+      p_pii_encryption_version: encryptedData.pii_encryption_version || null,
+    });
 
-    if (insertError) {
-      console.error('createPatient: Insert error:', insertError);
-      return { data: null, error: new Error(insertError.message) };
+    if (rpcError) {
+      console.error('createPatient: RPC error:', rpcError);
+      return { data: null, error: new Error(rpcError.message || 'Не удалось создать пациента') };
     }
 
-    if (!patient) {
+    if (!patientId) {
       return { data: null, error: new Error('Не удалось создать пациента') };
     }
 
-    console.log('createPatient: Patient created with id:', patient.id);
+    console.log('createPatient: Patient created with id:', patientId);
 
-    // Create assignment for the creator (if created_by is set)
-    if (patient.created_by) {
-      try {
-        const { assignPatientToDoctor } = await import('@/lib/supabase-patient-assignments');
-        const { error: assignError } = await assignPatientToDoctor(
-          patient.id,
-          patient.created_by,
-          'primary'
-        );
-        if (assignError) {
-          console.warn('createPatient: Failed to create assignment (non-critical):', assignError);
-          // Don't fail the whole operation if assignment fails
-        } else {
-          console.log('createPatient: Assignment created successfully');
-        }
-      } catch (error) {
-        console.warn('createPatient: Error creating assignment (non-critical):', error);
-        // Don't fail the whole operation if assignment fails
-      }
+    // Fetch the created patient to return decrypted data
+    const { data: patient, error: fetchError } = await supabase
+      .from('patients')
+      .select('*')
+      .eq('id', patientId)
+      .single();
+
+    if (fetchError || !patient) {
+      console.error('createPatient: Failed to fetch created patient:', fetchError);
+      // Return minimal data if fetch fails
+      return {
+        data: {
+          id: patientId,
+          clinic_id: data.clinic_id,
+          name: data.name, // Return original name (will be decrypted on next fetch)
+          email: data.email || null,
+          phone: data.phone || null,
+          address: data.address || null,
+          notes: data.notes || null,
+          _isDecrypted: false,
+        } as DecryptedPatient,
+        error: null,
+      };
     }
 
     // Decrypt patient data for return
