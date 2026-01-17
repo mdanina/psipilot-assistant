@@ -44,3 +44,5 @@ export function SectionsList({ clinicalNote, onUpdate }: SectionsListProps) {
 
 
 
+
+

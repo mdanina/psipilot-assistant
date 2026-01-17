@@ -126,3 +126,5 @@ supabase link --project-ref your-project-ref
 # Выполните SQL скрипт
 psql $(supabase db remote-url) -f scripts/create-profiles-for-new-users.sql
 ```
+
+

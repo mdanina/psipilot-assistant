@@ -147,3 +147,5 @@ $ResultsSql | psql $ConnectionString
 
 Write-Host ""
 Write-Host "✨ Готово!" -ForegroundColor Green
+
+
