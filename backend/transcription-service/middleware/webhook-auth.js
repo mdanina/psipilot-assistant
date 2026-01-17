@@ -149,7 +149,7 @@ export function webhookAuth(req, res, next) {
 
   const verificationResult = {
     hasAuthHeader,
-    isConfigured,
+    isConfigured: IS_AUTH_CONFIGURED,
     isValid,
   };
 

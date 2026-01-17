@@ -219,7 +219,7 @@ router.post('/transcribe', async (req, res) => {
       return res.status(404).json({ error: 'Recording not found' });
     }
 
-    // SECURITY: Verify user has access to this recording (owner OR same clinic)
+    // SECURITY: Verify user has access to this recording (owner only)
     const accessCheck = await verifySessionAccess(user.id, recording.session_id, supabase);
     if (!accessCheck.authorized) {
       return res.status(403).json({ error: `Forbidden: ${accessCheck.error}` });
@@ -377,7 +377,7 @@ router.post('/transcribe/:recordingId/sync', async (req, res) => {
       return res.status(404).json({ error: 'Recording not found' });
     }
 
-    // SECURITY: Verify user has access (owner OR same clinic)
+    // SECURITY: Verify user has access (owner only)
     const accessCheck = await verifySessionAccess(user.id, recording.session_id, supabase);
     if (!accessCheck.authorized) {
       return res.status(403).json({ error: `Forbidden: ${accessCheck.error}` });
@@ -449,7 +449,7 @@ router.get('/transcribe/:recordingId/status', async (req, res) => {
       return res.status(404).json({ error: 'Recording not found' });
     }
 
-    // SECURITY: Verify user has access to this recording (owner OR same clinic)
+    // SECURITY: Verify user has access to this recording (owner only)
     const accessCheck = await verifySessionAccess(user.id, recording.session_id, supabase);
     if (!accessCheck.authorized) {
       return res.status(403).json({ error: `Forbidden: ${accessCheck.error}` });
