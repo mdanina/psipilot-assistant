@@ -122,10 +122,25 @@ export function PatientForm({ patient, onSave, onCancel, isSaving = false }: Pat
               <Label htmlFor="email">Email</Label>
               <Input
                 id="email"
-                type="email"
-                {...register('email')}
+                type="text"
+                {...register('email', {
+                  validate: (value) => {
+                    if (!value || value.trim() === '') {
+                      return true; // Email is optional
+                    }
+                    // Simple email validation regex
+                    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                    if (!emailRegex.test(value.trim())) {
+                      return 'Введите корректный email (например, ivan@example.com)';
+                    }
+                    return true;
+                  }
+                })}
                 placeholder="ivan@example.com"
               />
+              {errors.email && (
+                <p className="text-sm text-destructive">{errors.email.message}</p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="phone">Телефон</Label>

@@ -1,6 +1,9 @@
 import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getPatients, getPatient, searchPatients, deletePatient, getPatientDocumentCounts, type DecryptedPatient } from '@/lib/supabase-patients';
+import { getPatients, getPatient, searchPatients, createPatient, deletePatient, getPatientDocumentCounts, type DecryptedPatient } from '@/lib/supabase-patients';
+import type { Database } from '@/types/database.types';
+
+type PatientInsert = Database['public']['Tables']['patients']['Insert'];
 
 export interface PatientWithDocuments extends DecryptedPatient {
   documentCount: number;
@@ -186,16 +189,54 @@ export function useDeletePatient() {
   return useMutation({
     mutationFn: async (patientId: string) => {
       const { success, error } = await deletePatient(patientId);
-      
+
       if (error || !success) {
         throw error || new Error('Не удалось удалить пациента');
       }
-      
+
       return { success: true };
     },
     // Invalidate patients cache after successful deletion
     onSuccess: () => {
       // Invalidate all patients queries (main list, individual patient, and searches)
+      queryClient.invalidateQueries({ queryKey: ['patients'] });
+    },
+  });
+}
+
+/**
+ * React Query mutation for creating a patient
+ * Automatically invalidates patients cache after creation
+ *
+ * Usage:
+ * ```tsx
+ * const createPatientMutation = useCreatePatient();
+ *
+ * const handleSave = (formData) => {
+ *   createPatientMutation.mutate(formData, {
+ *     onSuccess: (data) => {
+ *       navigate(`/patients/${data.id}`);
+ *     },
+ *   });
+ * };
+ * ```
+ */
+export function useCreatePatient() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (patientData: PatientInsert) => {
+      const { data, error } = await createPatient(patientData);
+
+      if (error || !data) {
+        throw error || new Error('Не удалось создать пациента');
+      }
+
+      return data;
+    },
+    // Invalidate patients cache after successful creation
+    onSuccess: () => {
+      // Invalidate all patients queries (main list and searches)
       queryClient.invalidateQueries({ queryKey: ['patients'] });
     },
   });
