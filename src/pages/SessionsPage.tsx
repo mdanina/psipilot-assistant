@@ -1790,11 +1790,16 @@ const SessionsPage = () => {
     }
 
     // Validate file type
-    const allowedTypes = ['audio/webm', 'audio/mp3', 'audio/wav', 'audio/ogg', 'audio/mpeg', 'audio/mp4'];
-    if (!allowedTypes.includes(file.type)) {
+    // Note: m4a files (Windows Voice Recorder) may report as audio/x-m4a, audio/mp4, or audio/aac
+    const allowedTypes = ['audio/webm', 'audio/mp3', 'audio/wav', 'audio/ogg', 'audio/mpeg', 'audio/mp4', 'audio/x-m4a', 'audio/aac', 'audio/m4a'];
+    // Also check file extension for m4a files that may have empty or incorrect MIME type
+    const fileExtension = file.name.toLowerCase().split('.').pop();
+    const allowedExtensions = ['webm', 'mp3', 'wav', 'ogg', 'mpeg', 'mp4', 'm4a', 'aac'];
+
+    if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(fileExtension || '')) {
       toast({
         title: "Ошибка",
-        description: `Неподдерживаемый формат файла. Поддерживаемые форматы: ${allowedTypes.join(', ')}`,
+        description: "Неподдерживаемый формат файла. Поддерживаемые форматы: mp3, wav, m4a, ogg, webm, mp4",
         variant: "destructive",
       });
       return;
@@ -2530,7 +2535,7 @@ const SessionsPage = () => {
                 <input
                   ref={audioFileInputRef}
                   type="file"
-                  accept="audio/webm,audio/mp3,audio/wav,audio/ogg,audio/mpeg,audio/mp4"
+                  accept="audio/webm,audio/mp3,audio/wav,audio/ogg,audio/mpeg,audio/mp4,audio/x-m4a,audio/aac,audio/m4a,.m4a,.aac"
                   onChange={handleFileInputChange}
                   className="hidden"
                 />

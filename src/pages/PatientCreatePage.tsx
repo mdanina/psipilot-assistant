@@ -1,10 +1,9 @@
-import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { User, ArrowLeft } from "lucide-react";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { PatientForm } from "@/components/patients/PatientForm";
-import { createPatient } from "@/lib/supabase-patients";
+import { useCreatePatient } from "@/hooks/usePatients";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 
@@ -12,7 +11,7 @@ const PatientCreatePage = () => {
   const navigate = useNavigate();
   const { profile } = useAuth();
   const { toast } = useToast();
-  const [isSaving, setIsSaving] = useState(false);
+  const createPatientMutation = useCreatePatient();
 
   const handleSave = async (formData: any) => {
     if (!profile?.clinic_id) {
@@ -24,50 +23,39 @@ const PatientCreatePage = () => {
       return;
     }
 
-    try {
-      setIsSaving(true);
-      const { data, error } = await createPatient({
+    createPatientMutation.mutate(
+      {
         ...formData,
         clinic_id: profile.clinic_id,
         created_by: profile.id,
-      });
-
-      if (error) {
-        // Provide more helpful error messages for common issues
-        let errorMessage = error.message;
-        if (error.message.includes('row-level security') || error.message.includes('violates')) {
-          errorMessage = 'Ошибка доступа. Пожалуйста, выйдите и войдите снова. Если проблема повторится, обратитесь к администратору.';
-          console.error('RLS policy violation during patient creation:', {
-            error: error.message,
-            clinic_id: profile?.clinic_id,
-            user_id: profile?.id,
+      },
+      {
+        onSuccess: (data) => {
+          toast({
+            title: "Успешно",
+            description: "Пациент успешно создан",
           });
-        }
-        toast({
-          title: "Ошибка",
-          description: `Не удалось создать пациента: ${errorMessage}`,
-          variant: "destructive",
-        });
-        return;
+          navigate(`/patients/${data.id}`);
+        },
+        onError: (error: Error) => {
+          // Provide more helpful error messages for common issues
+          let errorMessage = error.message;
+          if (error.message.includes('row-level security') || error.message.includes('violates')) {
+            errorMessage = 'Ошибка доступа. Пожалуйста, выйдите и войдите снова. Если проблема повторится, обратитесь к администратору.';
+            console.error('RLS policy violation during patient creation:', {
+              error: error.message,
+              clinic_id: profile?.clinic_id,
+              user_id: profile?.id,
+            });
+          }
+          toast({
+            title: "Ошибка",
+            description: `Не удалось создать пациента: ${errorMessage}`,
+            variant: "destructive",
+          });
+        },
       }
-
-      if (data) {
-        toast({
-          title: "Успешно",
-          description: "Пациент успешно создан",
-        });
-        navigate(`/patients/${data.id}`);
-      }
-    } catch (error) {
-      console.error("Error creating patient:", error);
-      toast({
-        title: "Ошибка",
-        description: "Произошла ошибка при создании пациента",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSaving(false);
-    }
+    );
   };
 
   return (
@@ -88,7 +76,7 @@ const PatientCreatePage = () => {
         <PatientForm
           onSave={handleSave}
           onCancel={() => navigate('/patients')}
-          isSaving={isSaving}
+          isSaving={createPatientMutation.isPending}
         />
       </div>
     </>
