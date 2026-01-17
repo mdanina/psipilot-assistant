@@ -1,9 +1,13 @@
 /**
  * Encryption utilities for local audio recording storage
  * Uses Web Crypto API for client-side encryption
- * 
- * SECURITY: Key is stored in sessionStorage and automatically deleted on logout
- * Each recording uses a unique IV (Initialization Vector)
+ *
+ * @deprecated This module is no longer used for new recordings.
+ * Local recordings are now stored unencrypted (local storage is trusted).
+ * This module is kept only for backward compatibility with existing encrypted
+ * recordings. It will be removed once all legacy data expires (48 hours TTL).
+ *
+ * SECURITY NOTE: Server-side encryption is still applied when uploading to Supabase.
  */
 
 const SESSION_KEY_STORAGE_KEY = 'recording_session_key';

@@ -1,14 +1,18 @@
 /**
  * Local recording storage using IndexedDB
  * Automatically saves recordings locally for offline access and recovery
- * All recordings are encrypted before storage
+ *
+ * NOTE: Recordings are stored WITHOUT encryption locally.
+ * This is intentional - local storage is considered secure (user's device).
+ * Server-side encryption is applied when uploading to Supabase.
+ *
+ * This approach follows industry practice (e.g., Zoom local recordings)
+ * and avoids the problem of losing encryption keys when browser closes.
  */
-
-import { encryptBlob, decryptBlob, isCryptoAvailable } from './recording-encryption';
 
 interface StoredRecording {
   id: string;
-  encryptedBlob: ArrayBuffer;
+  blob: ArrayBuffer; // Raw audio data (not encrypted)
   fileName: string;
   duration: number;
   mimeType: string;
@@ -18,7 +22,10 @@ interface StoredRecording {
   recordingId?: string; // Supabase recording ID if uploaded
   sessionId?: string; // Supabase session ID if uploaded
   uploadError?: string;
-  iv: ArrayBuffer; // Initialization Vector for decryption
+  // Legacy fields for backward compatibility with existing encrypted recordings
+  encryptedBlob?: ArrayBuffer;
+  iv?: ArrayBuffer;
+  isEncrypted?: boolean;
 }
 
 const DB_NAME = 'psipilot-recordings';
@@ -148,7 +155,7 @@ async function checkStorageQuota(): Promise<{ available: boolean; reason?: strin
 }
 
 /**
- * Save recording to IndexedDB (encrypted)
+ * Save recording to IndexedDB (unencrypted - local storage is trusted)
  */
 export async function saveRecordingLocally(
   blob: Blob,
@@ -157,10 +164,6 @@ export async function saveRecordingLocally(
   mimeType: string = 'audio/webm',
   sessionId?: string
 ): Promise<string> {
-  if (!isCryptoAvailable()) {
-    throw new Error('Web Crypto API is not available');
-  }
-
   // Проверяем квоту перед сохранением
   const quotaCheck = await checkStorageQuota();
   if (!quotaCheck.available) {
@@ -172,13 +175,13 @@ export async function saveRecordingLocally(
 
   const db = await openDB();
   const id = `local-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-  
-  // Encrypt the blob
-  const { encryptedData, iv } = await encryptBlob(blob);
-  
+
+  // Store blob as ArrayBuffer (no encryption)
+  const arrayBuffer = await blob.arrayBuffer();
+
   const recording: StoredRecording = {
     id,
-    encryptedBlob: encryptedData,
+    blob: arrayBuffer,
     fileName,
     duration,
     mimeType,
@@ -186,7 +189,7 @@ export async function saveRecordingLocally(
     expiresAt: Date.now() + TTL_MS,
     uploaded: false,
     sessionId,
-    iv,
+    isEncrypted: false,
   };
 
   return new Promise((resolve, reject) => {
@@ -203,7 +206,8 @@ export async function saveRecordingLocally(
 }
 
 /**
- * Get recording from IndexedDB and decrypt it
+ * Get recording from IndexedDB
+ * Handles both new unencrypted recordings and legacy encrypted ones
  */
 export async function getLocalRecording(id: string): Promise<{
   blob: Blob;
@@ -217,7 +221,7 @@ export async function getLocalRecording(id: string): Promise<{
   uploadError?: string;
 } | null> {
   const db = await openDB();
-  
+
   const recording = await new Promise<StoredRecording | null>((resolve, reject) => {
     const transaction = db.transaction([STORE_NAME], 'readonly');
     const store = transaction.objectStore(STORE_NAME);
@@ -238,8 +242,27 @@ export async function getLocalRecording(id: string): Promise<{
     return null;
   }
 
-  // Decrypt the blob
-  const blob = await decryptBlob(recording.encryptedBlob, recording.iv, recording.mimeType);
+  let blob: Blob;
+
+  // Handle legacy encrypted recordings (backward compatibility)
+  if (recording.encryptedBlob && recording.iv) {
+    try {
+      // Dynamically import decryption only when needed for legacy data
+      const { decryptBlob } = await import('./recording-encryption');
+      blob = await decryptBlob(recording.encryptedBlob, recording.iv, recording.mimeType);
+      console.log('[LocalStorage] Decrypted legacy encrypted recording:', id);
+    } catch (error) {
+      console.error('[LocalStorage] Failed to decrypt legacy recording:', id, error);
+      // Cannot recover - encryption key might be lost
+      return null;
+    }
+  } else if (recording.blob) {
+    // New unencrypted format
+    blob = new Blob([recording.blob], { type: recording.mimeType });
+  } else {
+    console.error('[LocalStorage] Recording has no blob data:', id);
+    return null;
+  }
 
   return {
     blob,
@@ -444,7 +467,7 @@ export async function downloadLocalRecording(id: string): Promise<void> {
  */
 export async function getStorageUsage(): Promise<{ count: number; totalSize: number }> {
   const db = await openDB();
-  
+
   return new Promise((resolve, reject) => {
     const transaction = db.transaction([STORE_NAME], 'readonly');
     const store = transaction.objectStore(STORE_NAME);
@@ -455,7 +478,11 @@ export async function getStorageUsage(): Promise<{ count: number; totalSize: num
       const now = Date.now();
       // Only count non-expired recordings
       const validRecordings = recordings.filter(r => r.expiresAt > now);
-      const totalSize = validRecordings.reduce((sum, r) => sum + r.encryptedBlob.byteLength, 0);
+      const totalSize = validRecordings.reduce((sum, r) => {
+        // Handle both new (blob) and legacy (encryptedBlob) formats
+        const blobData = r.blob || r.encryptedBlob;
+        return sum + (blobData?.byteLength || 0);
+      }, 0);
       resolve({
         count: validRecordings.length,
         totalSize,
