@@ -450,21 +450,22 @@ export function useTranscriptionRecovery(
   // On mount: fetch processing recordings and start polling
   useEffect(() => {
     isMountedRef.current = true;
+    let timeoutId: NodeJS.Timeout | null = null;
 
     if (isAuthenticated && user?.id) {
       console.log('[useTranscriptionRecovery] Component mounted, refreshing from database...');
       // Small delay to ensure component is fully mounted
-      const timeoutId = setTimeout(() => {
+      timeoutId = setTimeout(() => {
         refreshFromDatabase();
       }, 100);
-      
-      return () => {
-        clearTimeout(timeoutId);
-      };
     }
 
+    // Unified cleanup function - always runs on unmount
     return () => {
       isMountedRef.current = false;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
       stopAllPolling();
     };
   }, [isAuthenticated, user?.id]); // intentionally not including refreshFromDatabase to avoid loops

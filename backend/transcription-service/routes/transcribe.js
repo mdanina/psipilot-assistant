@@ -1,6 +1,8 @@
 import express from 'express';
 import { AssemblyAI } from 'assemblyai';
 import { createClient } from '@supabase/supabase-js';
+import { encrypt, isEncryptionConfigured } from '../services/encryption.js';
+import { getUserRoleFromRecording, formatTranscriptWithSpeakers } from '../services/transcript-formatting.js';
 
 const router = express.Router();
 
@@ -40,69 +42,6 @@ function getSupabaseAdmin() {
 }
 
 /**
- * Get user role from recording
- * @param {Object} recording - Recording object with user_id
- * @param {Object} supabase - Supabase admin client
- * @returns {Promise<string>} User role in Russian ('Врач', 'Администратор', 'Ассистент')
- */
-async function getUserRoleFromRecording(recording, supabase) {
-  try {
-    if (!recording?.user_id) {
-      console.warn('Recording has no user_id, defaulting to "Врач"');
-      return 'Врач';
-    }
-
-    const { data: profile, error } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', recording.user_id)
-      .single();
-
-    if (error || !profile) {
-      console.warn('Failed to fetch user profile:', error?.message, 'Defaulting to "Врач"');
-      return 'Врач';
-    }
-
-    // Map role to Russian name
-    const roleMap = {
-      'doctor': 'Врач',
-      'admin': 'Администратор',
-      'assistant': 'Ассистент'
-    };
-
-    return roleMap[profile.role] || 'Врач';
-  } catch (error) {
-    console.error('Error getting user role:', error);
-    return 'Врач'; // Default fallback
-  }
-}
-
-/**
- * Format transcript with speaker labels using user role
- * @param {Array} utterances - Array of utterance objects from AssemblyAI
- * @param {string} userRole - Role of the first user (in Russian)
- * @returns {string} Formatted transcript text
- */
-function formatTranscriptWithSpeakers(utterances, userRole = 'Врач') {
-  if (!utterances || utterances.length === 0) {
-    return '';
-  }
-
-  const speakerMap = {};
-  let speakerIndex = 0;
-  // First speaker gets the user's role, second is always "Пациент", others are "Участник N"
-  const speakerNames = [userRole, 'Пациент', 'Участник 3', 'Участник 4'];
-
-  return utterances.map(utterance => {
-    if (!speakerMap[utterance.speaker]) {
-      speakerMap[utterance.speaker] = speakerNames[speakerIndex] || `Участник ${speakerIndex + 1}`;
-      speakerIndex++;
-    }
-    return `${speakerMap[utterance.speaker]}: ${utterance.text}`;
-  }).join('\n');
-}
-
-/**
  * Sync transcription status from AssemblyAI API
  */
 async function syncTranscriptionStatus(recording) {
@@ -133,8 +72,25 @@ async function syncTranscriptionStatus(recording) {
       }
 
       updateData.transcription_status = 'completed';
-      updateData.transcription_text = formattedText;
       updateData.transcribed_at = new Date().toISOString();
+
+      // SECURITY: Encrypt transcript before saving
+      if (isEncryptionConfigured()) {
+        try {
+          updateData.transcription_text = encrypt(formattedText);
+          updateData.transcription_encrypted = true;
+        } catch (encryptError) {
+          console.error('[syncTranscriptionStatus] Encryption failed:', encryptError.message);
+          updateData.transcription_text = formattedText;
+          updateData.transcription_encrypted = false;
+        }
+      } else {
+        if (process.env.NODE_ENV === 'production') {
+          console.warn('[SECURITY WARNING] ENCRYPTION_KEY not configured in production!');
+        }
+        updateData.transcription_text = formattedText;
+        updateData.transcription_encrypted = false;
+      }
     } else if (transcript.status === 'error') {
       updateData.transcription_status = 'failed';
       updateData.transcription_error = transcript.error || 'Transcription failed';
@@ -156,6 +112,39 @@ async function syncTranscriptionStatus(recording) {
   } catch (error) {
     console.error('Error syncing transcription status:', error);
     return null;
+  }
+}
+
+/**
+ * Verify user has access to a session (owner only)
+ * @param {string} userId - User ID from JWT token
+ * @param {string} sessionId - Session ID to check access for
+ * @param {Object} supabase - Supabase admin client
+ * @returns {Promise<{authorized: boolean, error?: string, session?: Object}>}
+ */
+async function verifySessionAccess(userId, sessionId, supabase) {
+  try {
+    // Get session with user_id
+    const { data: session, error: sessionError } = await supabase
+      .from('sessions')
+      .select('user_id, clinic_id')
+      .eq('id', sessionId)
+      .single();
+
+    if (sessionError || !session) {
+      return { authorized: false, error: 'Session not found' };
+    }
+
+    // Check access: owner only
+    if (session.user_id !== userId) {
+      console.warn('[verifySessionAccess] Access denied: user', userId, 'is not owner');
+      return { authorized: false, error: 'Access denied' };
+    }
+
+    return { authorized: true, session };
+  } catch (error) {
+    console.error('[verifySessionAccess] Error:', error);
+    return { authorized: false, error: 'Internal error checking access' };
   }
 }
 
@@ -230,15 +219,10 @@ router.post('/transcribe', async (req, res) => {
       return res.status(404).json({ error: 'Recording not found' });
     }
 
-    // Verify user has access to this recording
-    const { data: session } = await supabase
-      .from('sessions')
-      .select('user_id, clinic_id')
-      .eq('id', recording.session_id)
-      .single();
-
-    if (!session || session.user_id !== user.id) {
-      return res.status(403).json({ error: 'Forbidden: Access denied' });
+    // SECURITY: Verify user has access to this recording (owner only)
+    const accessCheck = await verifySessionAccess(user.id, recording.session_id, supabase);
+    if (!accessCheck.authorized) {
+      return res.status(403).json({ error: `Forbidden: ${accessCheck.error}` });
     }
 
     // Get signed URL for audio file from Supabase Storage
@@ -290,6 +274,7 @@ router.post('/transcribe', async (req, res) => {
     // If transcription is already complete (synchronous), update immediately
     if (transcript.status === 'completed') {
       updateData.transcription_status = 'completed';
+      updateData.transcribed_at = new Date().toISOString();
 
       // Format transcript with speaker labels if available
       let formattedText = transcript.text;
@@ -299,8 +284,23 @@ router.post('/transcribe', async (req, res) => {
         formattedText = formatTranscriptWithSpeakers(transcript.utterances, userRole);
       }
 
-      updateData.transcription_text = formattedText;
-      updateData.transcribed_at = new Date().toISOString();
+      // SECURITY: Encrypt transcript before saving
+      if (isEncryptionConfigured()) {
+        try {
+          updateData.transcription_text = encrypt(formattedText);
+          updateData.transcription_encrypted = true;
+        } catch (encryptError) {
+          console.error('[POST /transcribe] Encryption failed:', encryptError.message);
+          updateData.transcription_text = formattedText;
+          updateData.transcription_encrypted = false;
+        }
+      } else {
+        if (process.env.NODE_ENV === 'production') {
+          console.warn('[SECURITY WARNING] ENCRYPTION_KEY not configured in production!');
+        }
+        updateData.transcription_text = formattedText;
+        updateData.transcription_encrypted = false;
+      }
     } else if (transcript.status === 'error') {
       updateData.transcription_status = 'failed';
       updateData.transcription_error = transcript.error || 'Transcription failed';
@@ -377,15 +377,10 @@ router.post('/transcribe/:recordingId/sync', async (req, res) => {
       return res.status(404).json({ error: 'Recording not found' });
     }
 
-    // Verify user has access
-    const { data: session } = await supabase
-      .from('sessions')
-      .select('user_id')
-      .eq('id', recording.session_id)
-      .single();
-
-    if (!session || session.user_id !== user.id) {
-      return res.status(403).json({ error: 'Forbidden: Access denied' });
+    // SECURITY: Verify user has access (owner only)
+    const accessCheck = await verifySessionAccess(user.id, recording.session_id, supabase);
+    if (!accessCheck.authorized) {
+      return res.status(403).json({ error: `Forbidden: ${accessCheck.error}` });
     }
 
     // Check if transcript_id exists
@@ -454,15 +449,10 @@ router.get('/transcribe/:recordingId/status', async (req, res) => {
       return res.status(404).json({ error: 'Recording not found' });
     }
 
-    // SECURITY: Verify user has access to this recording
-    const { data: session } = await supabase
-      .from('sessions')
-      .select('user_id')
-      .eq('id', recording.session_id)
-      .single();
-
-    if (!session || session.user_id !== user.id) {
-      return res.status(403).json({ error: 'Forbidden: Access denied' });
+    // SECURITY: Verify user has access to this recording (owner only)
+    const accessCheck = await verifySessionAccess(user.id, recording.session_id, supabase);
+    if (!accessCheck.authorized) {
+      return res.status(403).json({ error: `Forbidden: ${accessCheck.error}` });
     }
 
     // Auto-sync if status is processing and enough time has passed, or if sync=true

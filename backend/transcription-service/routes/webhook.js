@@ -1,6 +1,8 @@
 import express from 'express';
 import { createClient } from '@supabase/supabase-js';
 import { webhookAuth, getWebhookMetrics } from '../middleware/webhook-auth.js';
+import { encrypt, isEncryptionConfigured } from '../services/encryption.js';
+import { getUserRoleFromRecording, formatTranscriptWithSpeakers } from '../services/transcript-formatting.js';
 
 const router = express.Router();
 
@@ -23,69 +25,6 @@ function getSupabaseAdmin() {
       persistSession: false
     }
   });
-}
-
-/**
- * Get user role from recording
- * @param {Object} recording - Recording object with user_id
- * @param {Object} supabase - Supabase admin client
- * @returns {Promise<string>} User role in Russian ('Врач', 'Администратор', 'Ассистент')
- */
-async function getUserRoleFromRecording(recording, supabase) {
-  try {
-    if (!recording?.user_id) {
-      console.warn('Recording has no user_id, defaulting to "Врач"');
-      return 'Врач';
-    }
-
-    const { data: profile, error } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', recording.user_id)
-      .single();
-
-    if (error || !profile) {
-      console.warn('Failed to fetch user profile:', error?.message, 'Defaulting to "Врач"');
-      return 'Врач';
-    }
-
-    // Map role to Russian name
-    const roleMap = {
-      'doctor': 'Врач',
-      'admin': 'Администратор',
-      'assistant': 'Ассистент'
-    };
-
-    return roleMap[profile.role] || 'Врач';
-  } catch (error) {
-    console.error('Error getting user role:', error);
-    return 'Врач'; // Default fallback
-  }
-}
-
-/**
- * Format transcript with speaker labels using user role
- * @param {Array} utterances - Array of utterance objects from AssemblyAI
- * @param {string} userRole - Role of the first user (in Russian)
- * @returns {string} Formatted transcript text
- */
-function formatTranscriptWithSpeakers(utterances, userRole = 'Врач') {
-  if (!utterances || utterances.length === 0) {
-    return '';
-  }
-
-  const speakerMap = {};
-  let speakerIndex = 0;
-  // First speaker gets the user's role, second is always "Пациент", others are "Участник N"
-  const speakerNames = [userRole, 'Пациент', 'Участник 3', 'Участник 4'];
-
-  return utterances.map(utterance => {
-    if (!speakerMap[utterance.speaker]) {
-      speakerMap[utterance.speaker] = speakerNames[speakerIndex] || `Участник ${speakerIndex + 1}`;
-      speakerIndex++;
-    }
-    return `${speakerMap[utterance.speaker]}: ${utterance.text}`;
-  }).join('\n');
 }
 
 /**
@@ -171,10 +110,28 @@ router.post('/webhook/assemblyai', webhookAuth, async (req, res) => {
       }
 
       updateData.transcription_status = 'completed';
-      updateData.transcription_text = formattedText;
       updateData.transcribed_at = new Date().toISOString();
-      
-      console.log('Updating recording with completed transcription:', recording.id);
+
+      // SECURITY: Encrypt transcript before saving to database
+      if (isEncryptionConfigured()) {
+        try {
+          updateData.transcription_text = encrypt(formattedText);
+          updateData.transcription_encrypted = true;
+          console.log('Updating recording with encrypted transcription:', recording.id);
+        } catch (encryptError) {
+          // FALLBACK: If encryption fails, save plaintext but log error
+          console.error('Encryption failed, saving plaintext:', encryptError.message);
+          updateData.transcription_text = formattedText;
+          updateData.transcription_encrypted = false;
+        }
+      } else {
+        // Encryption not configured - save plaintext with warning in production
+        if (process.env.NODE_ENV === 'production') {
+          console.warn('[SECURITY WARNING] ENCRYPTION_KEY not configured in production! Transcript saved as plaintext.');
+        }
+        updateData.transcription_text = formattedText;
+        updateData.transcription_encrypted = false;
+      }
     } else if (status === 'error') {
       updateData.transcription_status = 'failed';
       updateData.transcription_error = error || 'Transcription failed';
