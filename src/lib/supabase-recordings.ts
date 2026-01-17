@@ -5,6 +5,18 @@ type Recording = Database['public']['Tables']['recordings']['Row'];
 type RecordingInsert = Database['public']['Tables']['recordings']['Insert'];
 type RecordingUpdate = Database['public']['Tables']['recordings']['Update'];
 
+// ============================================================================
+// Upload configuration
+// ============================================================================
+
+/** Maximum file size in MB (100MB default, ~2 hours of audio at 128kbps) */
+const MAX_FILE_SIZE_MB = 100;
+const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+
+/** Retry configuration for upload */
+const UPLOAD_MAX_RETRIES = 3;
+const UPLOAD_INITIAL_BACKOFF_MS = 1000; // 1 second
+
 export interface CreateRecordingParams {
   sessionId: string;
   userId: string;
@@ -61,40 +73,113 @@ export async function createRecording(params: CreateRecordingParams): Promise<Re
 }
 
 /**
- * Upload audio file to Supabase Storage
+ * Check if an error is retryable (network errors, timeouts, 5xx errors)
+ */
+function isRetryableError(error: unknown): boolean {
+  if (error instanceof Error) {
+    const message = error.message.toLowerCase();
+    // Network errors
+    if (message.includes('network') || message.includes('fetch') || message.includes('timeout')) {
+      return true;
+    }
+    // Server errors (5xx)
+    if (message.includes('500') || message.includes('502') || message.includes('503') || message.includes('504')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Sleep for specified milliseconds
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Validate file size before upload
+ * @throws Error if file is too large
+ */
+export function validateFileSize(blob: Blob, maxSizeMB: number = MAX_FILE_SIZE_MB): void {
+  const maxSizeBytes = maxSizeMB * 1024 * 1024;
+  if (blob.size > maxSizeBytes) {
+    const actualSizeMB = Math.round(blob.size / 1024 / 1024 * 10) / 10;
+    throw new Error(
+      `Файл слишком большой (${actualSizeMB} MB). Максимальный размер: ${maxSizeMB} MB. ` +
+      `Попробуйте записать более короткую сессию.`
+    );
+  }
+}
+
+/**
+ * Upload audio file to Supabase Storage with retry logic
  */
 export async function uploadAudioFile(params: UploadAudioParams): Promise<string> {
   const { recordingId, audioBlob, fileName, mimeType } = params;
 
+  // Validate file size before attempting upload
+  validateFileSize(audioBlob);
+
   // Generate file path: recordings/{recordingId}/{fileName}
   const filePath = `recordings/${recordingId}/${fileName}`;
 
-  // Upload file to Supabase Storage
-  const { data, error } = await supabase.storage
-    .from('recordings')
-    .upload(filePath, audioBlob, {
-      contentType: mimeType,
-      upsert: false,
-    });
+  let lastError: Error | null = null;
 
-  if (error) {
-    console.error('Error uploading audio file:', error);
-    throw new Error(`Failed to upload audio file: ${error.message}`);
+  // Retry loop with exponential backoff
+  for (let attempt = 1; attempt <= UPLOAD_MAX_RETRIES; attempt++) {
+    try {
+      console.log(`[uploadAudioFile] Attempt ${attempt}/${UPLOAD_MAX_RETRIES} for ${filePath}`);
+
+      // Upload file to Supabase Storage
+      const { data, error } = await supabase.storage
+        .from('recordings')
+        .upload(filePath, audioBlob, {
+          contentType: mimeType,
+          upsert: attempt > 1, // Allow upsert on retry (file might be partially uploaded)
+        });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      if (!data) {
+        throw new Error('No data returned from upload');
+      }
+
+      console.log(`[uploadAudioFile] Upload successful on attempt ${attempt}`);
+
+      // Update recording with file path and size
+      const fileSizeBytes = audioBlob.size;
+      await updateRecording(recordingId, {
+        file_path: filePath,
+        file_size_bytes: fileSizeBytes,
+        mime_type: mimeType,
+      });
+
+      return filePath;
+
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.warn(`[uploadAudioFile] Attempt ${attempt} failed:`, lastError.message);
+
+      // Check if we should retry
+      if (attempt < UPLOAD_MAX_RETRIES && isRetryableError(error)) {
+        // Exponential backoff: 1s, 2s, 4s
+        const backoffMs = UPLOAD_INITIAL_BACKOFF_MS * Math.pow(2, attempt - 1);
+        console.log(`[uploadAudioFile] Retrying in ${backoffMs}ms...`);
+        await sleep(backoffMs);
+      } else if (attempt < UPLOAD_MAX_RETRIES && !isRetryableError(error)) {
+        // Non-retryable error (e.g., auth error, file too large) - fail immediately
+        console.error('[uploadAudioFile] Non-retryable error, failing immediately');
+        break;
+      }
+    }
   }
 
-  if (!data) {
-    throw new Error('Failed to upload audio file: No data returned');
-  }
-
-  // Update recording with file path and size
-  const fileSizeBytes = audioBlob.size;
-  await updateRecording(recordingId, {
-    file_path: filePath,
-    file_size_bytes: fileSizeBytes,
-    mime_type: mimeType,
-  });
-
-  return filePath;
+  // All retries exhausted
+  console.error(`[uploadAudioFile] Upload failed after ${UPLOAD_MAX_RETRIES} attempts`);
+  throw new Error(`Не удалось загрузить аудио после ${UPLOAD_MAX_RETRIES} попыток: ${lastError?.message}`);
 }
 
 /**
