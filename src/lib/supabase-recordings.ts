@@ -11,7 +11,6 @@ type RecordingUpdate = Database['public']['Tables']['recordings']['Update'];
 
 /** Maximum file size in MB (100MB default, ~2 hours of audio at 128kbps) */
 const MAX_FILE_SIZE_MB = 100;
-const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
 /** Retry configuration for upload */
 const UPLOAD_MAX_RETRIES = 3;
