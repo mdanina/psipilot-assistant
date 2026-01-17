@@ -116,7 +116,7 @@ async function syncTranscriptionStatus(recording) {
 }
 
 /**
- * Verify user has access to a session (owner OR same clinic)
+ * Verify user has access to a session (owner only)
  * @param {string} userId - User ID from JWT token
  * @param {string} sessionId - Session ID to check access for
  * @param {Object} supabase - Supabase admin client
@@ -124,19 +124,7 @@ async function syncTranscriptionStatus(recording) {
  */
 async function verifySessionAccess(userId, sessionId, supabase) {
   try {
-    // Get user's profile with clinic_id
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('clinic_id')
-      .eq('id', userId)
-      .single();
-
-    if (profileError || !profile?.clinic_id) {
-      console.warn('[verifySessionAccess] User has no clinic:', profileError?.message);
-      return { authorized: false, error: 'User has no clinic assigned' };
-    }
-
-    // Get session with user_id and clinic_id
+    // Get session with user_id
     const { data: session, error: sessionError } = await supabase
       .from('sessions')
       .select('user_id, clinic_id')
@@ -147,12 +135,9 @@ async function verifySessionAccess(userId, sessionId, supabase) {
       return { authorized: false, error: 'Session not found' };
     }
 
-    // Check access: either owner OR same clinic
-    const isOwner = session.user_id === userId;
-    const isSameClinic = session.clinic_id === profile.clinic_id;
-
-    if (!isOwner && !isSameClinic) {
-      console.warn('[verifySessionAccess] Access denied: user', userId, 'not owner and different clinic');
+    // Check access: owner only
+    if (session.user_id !== userId) {
+      console.warn('[verifySessionAccess] Access denied: user', userId, 'is not owner');
       return { authorized: false, error: 'Access denied' };
     }
 
