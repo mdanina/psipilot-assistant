@@ -10,20 +10,42 @@
  * - shadow: Только логирование (не блокирует) - для начального тестирования
  * - warn: Логирование + warning (не блокирует)
  * - soft: Отклоняет невалидные, но возвращает 200 (без retry от AssemblyAI)
- * - strict: Полное отклонение с 401
+ * - strict: Полное отклонение с 401 (DEFAULT когда auth настроен)
  *
  * Настройка:
- * WEBHOOK_VERIFICATION_MODE=shadow (по умолчанию)
+ * WEBHOOK_VERIFICATION_MODE=strict (по умолчанию когда auth настроен)
  * WEBHOOK_AUTH_HEADER_NAME=X-Webhook-Secret (имя заголовка)
  * WEBHOOK_AUTH_HEADER_VALUE=your_secret_here (значение для проверки)
+ *
+ * SECURITY: В production если auth не настроен - выводится громкое предупреждение
  */
 
 import crypto from 'crypto';
 
 // Режим верификации из env
-const VERIFICATION_MODE = process.env.WEBHOOK_VERIFICATION_MODE || 'shadow';
 const AUTH_HEADER_NAME = process.env.WEBHOOK_AUTH_HEADER_NAME;
 const AUTH_HEADER_VALUE = process.env.WEBHOOK_AUTH_HEADER_VALUE;
+const IS_AUTH_CONFIGURED = !!(AUTH_HEADER_NAME && AUTH_HEADER_VALUE);
+
+// Default mode: strict если auth настроен, shadow если нет
+const VERIFICATION_MODE = process.env.WEBHOOK_VERIFICATION_MODE || (IS_AUTH_CONFIGURED ? 'strict' : 'shadow');
+
+// SECURITY WARNING: Log once at startup if not configured in production
+if (!IS_AUTH_CONFIGURED && process.env.NODE_ENV === 'production') {
+  console.error('');
+  console.error('╔══════════════════════════════════════════════════════════════════════╗');
+  console.error('║  ⚠️  CRITICAL SECURITY WARNING: WEBHOOK AUTH NOT CONFIGURED!         ║');
+  console.error('║                                                                      ║');
+  console.error('║  Anyone can send fake webhook requests and modify transcriptions!   ║');
+  console.error('║                                                                      ║');
+  console.error('║  To fix, set these environment variables:                           ║');
+  console.error('║    WEBHOOK_AUTH_HEADER_NAME=X-AssemblyAI-Secret                     ║');
+  console.error('║    WEBHOOK_AUTH_HEADER_VALUE=<your-secret-value>                    ║');
+  console.error('║                                                                      ║');
+  console.error('║  Then configure the same values in AssemblyAI webhook settings.     ║');
+  console.error('╚══════════════════════════════════════════════════════════════════════╝');
+  console.error('');
+}
 
 // Метрики для мониторинга
 const metrics = {
@@ -88,17 +110,19 @@ function logVerification(req, result, mode) {
 export function webhookAuth(req, res, next) {
   metrics.total++;
 
-  // Проверяем, настроена ли аутентификация
-  const isConfigured = !!(AUTH_HEADER_NAME && AUTH_HEADER_VALUE);
-
-  // Если не настроено - пропускаем (обратная совместимость)
-  if (!isConfigured) {
+  // Если не настроено - пропускаем с предупреждением (обратная совместимость)
+  if (!IS_AUTH_CONFIGURED) {
     metrics.notConfigured++;
+
+    // Log warning for each request in production
+    if (process.env.NODE_ENV === 'production') {
+      console.warn('[SECURITY] Webhook request accepted without authentication - AUTH NOT CONFIGURED!');
+    }
 
     const verificationResult = {
       hasAuthHeader: false,
       isConfigured: false,
-      isValid: true, // Считаем валидным если не настроено
+      isValid: true, // Считаем валидным если не настроено (для обратной совместимости)
     };
 
     req.webhookVerification = verificationResult;
@@ -191,8 +215,10 @@ export function webhookAuth(req, res, next) {
 export function getWebhookMetrics() {
   return {
     mode: VERIFICATION_MODE,
-    authConfigured: !!(AUTH_HEADER_NAME && AUTH_HEADER_VALUE),
+    authConfigured: IS_AUTH_CONFIGURED,
     headerName: AUTH_HEADER_NAME || 'not configured',
+    isProduction: process.env.NODE_ENV === 'production',
+    securityWarning: !IS_AUTH_CONFIGURED && process.env.NODE_ENV === 'production',
     metrics: { ...metrics },
     successRate: metrics.total > 0
       ? Math.round((metrics.valid / metrics.total) * 100)
