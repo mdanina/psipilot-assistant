@@ -143,10 +143,11 @@ export function useDeleteSession() {
       await deleteSession(sessionId);
       return { success: true };
     },
-    // Invalidate activities cache after successful deletion
-    onSuccess: (_, sessionId) => {
-      // Invalidate all patient activities queries
-      queryClient.invalidateQueries({ queryKey: ['patients'] });
+    // Refetch activities cache after successful deletion
+    // Note: We use refetchQueries instead of invalidateQueries because with staleTime: Infinity,
+    // invalidateQueries only marks data as stale but doesn't trigger a refetch
+    onSuccess: async () => {
+      await queryClient.refetchQueries({ queryKey: ['patients'] });
     },
   });
 }
@@ -163,22 +164,22 @@ export function useDeleteClinicalNote() {
       await softDeleteClinicalNote(noteId);
       return { success: true };
     },
-    // Invalidate activities cache after successful deletion
-    onSuccess: () => {
-      // Invalidate all patient activities queries
-      queryClient.invalidateQueries({ queryKey: ['patients'] });
+    // Refetch activities cache after successful deletion
+    onSuccess: async () => {
+      await queryClient.refetchQueries({ queryKey: ['patients'] });
     },
   });
 }
 
 /**
- * Invalidate patient activities cache
+ * Refetch patient activities cache
+ * Note: Named "invalidate" for backward compatibility, but actually refetches
  */
 export function useInvalidatePatientActivities() {
   const queryClient = useQueryClient();
-  
-  return (patientId: string) => {
-    queryClient.invalidateQueries({ queryKey: ['patients', patientId, 'activities'] });
+
+  return async (patientId: string) => {
+    await queryClient.refetchQueries({ queryKey: ['patients', patientId, 'activities'] });
   };
 }
 

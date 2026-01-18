@@ -238,10 +238,8 @@ export async function startTranscription(
     throw new Error(`Failed to start transcription: ${errorText}`);
   }
 
-  // Update recording status to processing
-  await updateRecording(recordingId, {
-    transcription_status: 'processing',
-  });
+  // Backend already sets transcription_status to 'processing' and saves transcript_id
+  // No need to update here - it would be redundant
 }
 
 /**
