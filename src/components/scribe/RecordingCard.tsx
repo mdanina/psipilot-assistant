@@ -23,9 +23,7 @@ export const RecordingCard = ({
   const {
     isRecording,
     isPaused,
-    isStopped,
     recordingTime,
-    audioBlob,
     error: recorderError,
     wasPartialSave,
     startRecording,
@@ -38,6 +36,7 @@ export const RecordingCard = ({
 
   const { toast } = useToast();
   const [isStopping, setIsStopping] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false); // Защита от двойного submit
   const [completedRecording, setCompletedRecording] = useState<{
     blob: Blob;
     duration: number;
@@ -141,6 +140,10 @@ export const RecordingCard = ({
 
   const handleGenerateNote = async () => {
     if (completedRecording) {
+      // Защита от двойного submit
+      if (isSubmitting) return;
+      setIsSubmitting(true);
+
       // If we have a completed recording, send it first
       try {
         await onRecordingComplete(completedRecording.blob, completedRecording.duration);
@@ -154,6 +157,8 @@ export const RecordingCard = ({
           description: "Не удалось обработать сессию",
           variant: "destructive",
         });
+      } finally {
+        setIsSubmitting(false);
       }
     } else {
       // No recording, just navigate to sessions
@@ -341,7 +346,7 @@ export const RecordingCard = ({
             variant={completedRecording ? "default" : "outline"}
             onClick={handleGenerateNote}
             className="gap-2"
-            disabled={isProcessing}
+            disabled={isProcessing || isSubmitting}
           >
             <FileText className="w-4 h-4" />
             Транскрибировать

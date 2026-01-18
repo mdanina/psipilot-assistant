@@ -72,6 +72,7 @@ const ScribePage = () => {
 
   // Состояние для не загруженных записей
   const [showRecoveryDialog, setShowRecoveryDialog] = useState(false);
+  const [retryingUploadIds, setRetryingUploadIds] = useState<Set<string>>(new Set()); // Защита от двойного retry
   const [unuploadedRecordings, setUnuploadedRecordings] = useState<Array<{
     id: string;
     fileName: string;
@@ -195,6 +196,13 @@ const ScribePage = () => {
   }) => {
     if (!user || !profile || !profile.clinic_id) return;
 
+    // Защита от двойного вызова для одной записи
+    if (retryingUploadIds.has(localId)) {
+      console.log(`[ScribePage] Upload already in progress for ${localId}, skipping`);
+      return;
+    }
+    setRetryingUploadIds(prev => new Set(prev).add(localId));
+
     try {
       // If we have existing recordingId, check if it already exists
       if (recording.recordingId) {
@@ -212,7 +220,7 @@ const ScribePage = () => {
         userId: user.id,
         clinicId: profile.clinic_id,
         patientId: null,
-        title: `Сессия ${new Date(recording.duration * 1000).toLocaleString('ru-RU')}`,
+        title: `Сессия ${new Date().toLocaleString('ru-RU')}`, // Исправлено: используем текущую дату
       });
 
       // Create recording record
@@ -273,6 +281,13 @@ const ScribePage = () => {
         error: errorMessage,
       });
       throw error;
+    } finally {
+      // Убираем из списка загружаемых
+      setRetryingUploadIds(prev => {
+        const next = new Set(prev);
+        next.delete(localId);
+        return next;
+      });
     }
   };
 
