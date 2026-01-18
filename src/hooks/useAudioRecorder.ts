@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 
 export interface UseAudioRecorderReturn {
   isRecording: boolean;
@@ -226,6 +226,8 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
 
       // Handle errors
       mediaRecorder.onerror = (event) => {
+        // Защита от позднего вызова onstop после ошибки
+        stopResolvedRef.current = true;
         setError('Ошибка записи аудио');
         console.error('MediaRecorder error:', event);
         cleanup();
@@ -236,6 +238,7 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
       mediaRecorder.start(1000); // Collect data every second
       setIsRecording(true);
       setIsPaused(false);
+      setIsStopped(false); // Сбрасываем флаг от предыдущей записи
       pausedTimeRef.current = 0;
       startTimer();
     } catch (err) {
@@ -386,6 +389,43 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
 
   const getCurrentMimeType = useCallback((): string => {
     return currentMimeTypeRef.current;
+  }, []);
+
+  // Cleanup on unmount - останавливаем запись и освобождаем ресурсы
+  useEffect(() => {
+    return () => {
+      // Помечаем как resolved чтобы onstop не обновлял state после unmount
+      stopResolvedRef.current = true;
+
+      // Очищаем timeout
+      if (stopTimeoutRef.current) {
+        clearTimeout(stopTimeoutRef.current);
+        stopTimeoutRef.current = null;
+      }
+
+      // Очищаем interval таймера
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+
+      // Останавливаем MediaRecorder
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        try {
+          mediaRecorderRef.current.stop();
+        } catch (e) {
+          // Ignore errors when stopping on unmount
+        }
+      }
+
+      // Освобождаем медиа-поток
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+
+      mediaRecorderRef.current = null;
+    };
   }, []);
 
   return {
