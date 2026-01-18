@@ -33,6 +33,7 @@ export interface PendingUpload {
   duration: number;
   sessionId?: string; // If already has a session (SessionsPage)
   patientId?: string; // For creating new session (ScribePage)
+  fileName?: string; // Original filename for external files
   clinicId: string;
   userId: string;
   status: 'queued' | 'uploading' | 'transcribing' | 'completed' | 'failed';
@@ -49,6 +50,7 @@ interface BackgroundUploadContextType {
     duration: number;
     sessionId?: string;
     patientId?: string;
+    fileName?: string; // Original filename for external files
   }) => Promise<string>;
   /** Get all pending uploads */
   pendingUploads: Map<string, PendingUpload>;
@@ -96,7 +98,8 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
 
     const { id, blob, duration, sessionId, patientId, clinicId, userId } = upload;
     let localRecordingId = upload.localRecordingId;
-    const fileName = `recording-${Date.now()}.webm`;
+    // Use original filename for external files, or generate one for recordings
+    const fileName = upload.fileName || `recording-${Date.now()}.webm`;
     const mimeType = blob.type || 'audio/webm';
 
     try {
@@ -249,6 +252,7 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
     duration: number;
     sessionId?: string;
     patientId?: string;
+    fileName?: string;
   }): Promise<string> => {
     if (!user || !profile?.clinic_id) {
       throw new Error('Необходима авторизация');
@@ -275,6 +279,7 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
       duration: params.duration,
       sessionId: params.sessionId,
       patientId: params.patientId,
+      fileName: params.fileName,
       clinicId: profile.clinic_id,
       userId: user.id,
       status: 'queued',

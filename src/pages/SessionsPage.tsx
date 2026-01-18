@@ -21,7 +21,7 @@ import { Input } from "@/components/ui/input";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { getSession, checkSessionClinicalNotes, createSession } from "@/lib/supabase-sessions";
-import { getSessionRecordings, getRecordingStatus, createRecording, uploadAudioFile, updateRecording, startTranscription, syncTranscriptionStatus, deleteRecording, validateFileSize, MAX_FILE_SIZE_MB } from "@/lib/supabase-recordings";
+import { getSessionRecordings, getRecordingStatus, createRecording, uploadAudioFile, updateRecording, startTranscription, syncTranscriptionStatus, deleteRecording } from "@/lib/supabase-recordings";
 import { usePatients } from "@/hooks/usePatients";
 import { useSessions, useSessionsByIds, useCreateSession, useDeleteSession as useDeleteSessionMutation, useCompleteSession, useLinkSessionToPatient, useInvalidateSessions } from "@/hooks/useSessions";
 import { useQueryClient } from "@tanstack/react-query";
@@ -155,7 +155,7 @@ const SessionsPage = () => {
   const linkSessionMutation = useLinkSessionToPatient();
   const invalidateSessions = useInvalidateSessions();
   const queryClient = useQueryClient();
-  const { queueUpload } = useBackgroundUpload();
+  const { queueUpload, hasActiveUploads, pendingUploads } = useBackgroundUpload();
   const [selectedPatientId, setSelectedPatientId] = useState<string>("");
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [relinkWarning, setRelinkWarning] = useState<{
@@ -195,8 +195,6 @@ const SessionsPage = () => {
   // Recording state
   const [isRecordingInSession, setIsRecordingInSession] = useState(false);
   const [isSavingRecording, setIsSavingRecording] = useState(false);
-  const [isUploadingAudio, setIsUploadingAudio] = useState(false);
-  const [uploadingFileName, setUploadingFileName] = useState<string | null>(null);
   const currentRecordingSessionIdRef = useRef<string | null>(null);
   const audioFileInputRef = useRef<HTMLInputElement>(null);
   const lastCheckpointRef = useRef<string | null>(null);
@@ -1774,117 +1772,30 @@ const SessionsPage = () => {
       return;
     }
 
-    // Validate file size BEFORE creating database record
+    // Get audio duration before queuing
+    let duration = 0;
     try {
-      validateFileSize(file);
-    } catch (sizeError) {
-      const fileSizeMB = Math.round(file.size / 1024 / 1024 * 10) / 10;
-      toast({
-        title: "Файл слишком большой",
-        description: `Размер файла ${fileSizeMB} МБ превышает лимит ${MAX_FILE_SIZE_MB} МБ. Попробуйте сжать аудио или разбить на части.`,
-        variant: "destructive",
-      });
-      return;
+      duration = await getAudioDuration(file);
+    } catch (error) {
+      console.warn('Could not determine audio duration:', error);
+      // Continue with 0 duration
     }
 
-    setIsUploadingAudio(true);
-    setUploadingFileName(file.name);
-
+    // Queue for background upload (validation happens inside queueUpload)
     try {
-      // Get audio duration
-      let duration: number | null = null;
-      try {
-        duration = await getAudioDuration(file);
-      } catch (error) {
-        console.warn('Could not determine audio duration:', error);
-        // Continue without duration
-      }
-
-      // Read file as Blob
-      const audioBlob = file;
-
-      // Create recording record
-      const recording = await createRecording({
+      await queueUpload({
+        blob: file,
+        duration,
         sessionId: activeSession,
-        userId: user.id,
         fileName: file.name,
       });
-
-      // Upload audio file
-      await uploadAudioFile({
-        recordingId: recording.id,
-        audioBlob,
-        fileName: file.name,
-        mimeType: file.type,
-      });
-
-      // Update recording with duration if available
-      if (duration !== null) {
-        await updateRecording(recording.id, {
-          duration_seconds: duration,
-        });
-      }
-
-      // Start transcription with retry
-      const transcriptionStarted = await startTranscriptionWithRetry(
-        recording.id,
-        transcriptionApiUrl,
-        (attempt, max) => {
-          if (attempt > 1) {
-            toast({
-              title: "Повторная попытка",
-              description: `Попытка запуска транскрипции ${attempt}/${max}...`,
-            });
-          }
-        }
-      );
-
-      if (transcriptionStarted) {
-        // Track transcription in recovery hook
-        if (activeSession) {
-          addTranscription(recording.id, activeSession);
-        }
-        toast({
-          title: "Успешно",
-          description: "Аудио файл загружен. Транскрипция запущена.",
-        });
-      } else {
-        console.error('Error starting transcription after all retries');
-        toast({
-          title: "Предупреждение",
-          description: "Аудио файл загружен, но транскрипция не запущена после 3 попыток. Попробуйте позже.",
-          variant: "default",
-        });
-      }
-
-      // Reload recordings
-      await loadRecordings(activeSession);
-    } catch (error) {
-      console.error('Error uploading audio file:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Неизвестная ошибка';
-
-      let userFriendlyMessage = errorMessage;
-      if (errorMessage.includes('exceeded') && errorMessage.includes('maximum allowed size')) {
-        userFriendlyMessage = `Файл слишком большой для загрузки. Максимальный размер: ${MAX_FILE_SIZE_MB} МБ. Попробуйте сжать аудио.`;
-      } else if (errorMessage.includes('Файл слишком большой')) {
-        userFriendlyMessage = errorMessage; // Already user-friendly
-      } else if (errorMessage.includes('Failed to create recording')) {
-        userFriendlyMessage = 'Не удалось создать запись в базе данных. Проверьте подключение к Supabase.';
-      } else if (errorMessage.includes('Failed to upload audio file') || errorMessage.includes('Не удалось загрузить')) {
-        userFriendlyMessage = 'Не удалось загрузить аудио файл. Проверьте, что bucket "recordings" создан в Supabase Storage.';
-      } else if (errorMessage.includes('row-level security')) {
-        userFriendlyMessage = 'Ошибка прав доступа. Убедитесь, что вы авторизованы и имеете права на создание записей.';
-      }
-
-      toast({
-        title: "Ошибка",
-        description: userFriendlyMessage,
-        variant: "destructive",
-      });
-    } finally {
-      setIsUploadingAudio(false);
-      setUploadingFileName(null);
       // Reset file input
+      if (audioFileInputRef.current) {
+        audioFileInputRef.current.value = '';
+      }
+    } catch (error) {
+      console.error('Error queuing audio file:', error);
+      // Error toast is already shown by queueUpload
       if (audioFileInputRef.current) {
         audioFileInputRef.current.value = '';
       }
@@ -2528,11 +2439,11 @@ const SessionsPage = () => {
                 </div>
               ) : (
                 <>
-                  {isUploadingAudio ? (
+                  {hasActiveUploads ? (
                     <div className="flex items-center gap-2 flex-1">
                       <Loader2 className="w-4 h-4 animate-spin text-primary" />
                       <span className="text-sm text-muted-foreground">
-                        Загрузка {uploadingFileName ? `файла "${uploadingFileName}"...` : 'аудио файла...'}
+                        Загрузка в фоне ({pendingUploads.size})...
                       </span>
                     </div>
                   ) : (
@@ -2547,7 +2458,7 @@ const SessionsPage = () => {
                       size="sm"
                       variant="default"
                       onClick={handleStartRecordingInSession}
-                      disabled={!activeSession || isUploadingAudio}
+                      disabled={!activeSession}
                       className="gap-1"
                     >
                   <Mic className="w-4 h-4" />
@@ -2556,7 +2467,7 @@ const SessionsPage = () => {
                   size="sm"
                   variant="outline"
                   onClick={() => audioFileInputRef.current?.click()}
-                  disabled={!activeSession || isUploadingAudio}
+                  disabled={!activeSession}
                   className="gap-1"
                   title="Загрузить аудио файл"
                 >
@@ -2574,7 +2485,7 @@ const SessionsPage = () => {
                       variant="ghost"
                       className="gap-1"
                       onClick={() => setNotesDialogOpen(true)}
-                      disabled={!activeSession || isUploadingAudio}
+                      disabled={!activeSession}
                       title="Добавить заметку специалиста"
                     >
                       <FileText className="w-4 h-4" />
