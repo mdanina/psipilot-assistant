@@ -59,46 +59,34 @@ const session = await createSession({
 
 ---
 
-### 2.2. Session Timeout во время активной записи
+### 2.2. ~~Session Timeout во время активной записи~~ (ИСПРАВЛЕНО)
 
-**Файл:** `src/contexts/AuthContext.tsx:282-296`
+**Файлы:** `src/pages/ScribePage.tsx`, `src/pages/SessionsPage.tsx`
+
+**Статус:** ИСПРАВЛЕНО
+
+Добавлена защита от session timeout во время активной записи:
 
 ```typescript
+// Обновление activity во время записи для предотвращения session timeout
 useEffect(() => {
-  if (!state.isAuthenticated || !state.session) {
-    return;
-  }
-  const checkTimeout = () => {
-    const now = Date.now();
-    const timeSinceActivity = now - state.lastActivity;
-    if (timeSinceActivity >= SESSION_TIMEOUT) {
-      signOut(); // ПРОБЛЕМА: может произойти во время записи!
-    }
-  };
-  const interval = setInterval(checkTimeout, 60000);
-  return () => clearInterval(interval);
-}, [state.isAuthenticated, state.session]);
-```
+  if (!isRecording) return;
 
-**Проблема:**
-- 15-минутный timeout может сработать во время записи сессии
-- `updateActivity()` вызывается только при взаимодействии пользователя
-- Запись не считается "активностью"
-
-**Решение:**
-```typescript
-// Добавить проверку активной записи перед logout
-const checkTimeout = () => {
-  // Проверить глобальное состояние записи
-  const isRecordingActive = window.__isRecordingActive;
-  if (isRecordingActive) {
-    // Продлить сессию автоматически
+  // Обновляем activity каждые 30 секунд во время записи
+  const intervalId = setInterval(() => {
     updateActivity();
-    return;
-  }
-  // ... остальная логика
-};
+  }, 30000);
+
+  // Также обновляем сразу при начале записи
+  updateActivity();
+
+  return () => {
+    clearInterval(intervalId);
+  };
+}, [isRecording, updateActivity]);
 ```
+
+Также защита для транскрипций реализована в `useTranscriptionRecovery.ts:137-138`.
 
 ---
 
@@ -390,18 +378,18 @@ const handleDeleteClick = async (e: React.MouseEvent, patientId: string) => {
 
 ### 5.2. Высокий приоритет (P1)
 
-#### 5.2.1. Предотвратить logout во время записи
+#### 5.2.1. ~~Предотвратить logout во время записи~~ (ИСПРАВЛЕНО)
+
+Реализовано в `ScribePage.tsx` и `SessionsPage.tsx`:
 
 ```typescript
-// AuthContext.tsx
-const checkTimeout = () => {
-  // Проверить активную запись через глобальное состояние или событие
-  if (document.querySelector('[data-recording-active="true"]')) {
-    updateActivity();
-    return;
-  }
-  // ... существующая логика
-};
+// Обновление activity во время записи для предотвращения session timeout
+useEffect(() => {
+  if (!isRecording) return;
+  const intervalId = setInterval(() => updateActivity(), 30000);
+  updateActivity();
+  return () => clearInterval(intervalId);
+}, [isRecording, updateActivity]);
 ```
 
 #### 5.2.2. Добавить пагинацию для сессий
