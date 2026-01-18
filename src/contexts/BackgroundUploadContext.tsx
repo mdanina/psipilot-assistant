@@ -5,7 +5,7 @@
  * the user navigates to a different page.
  */
 
-import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import { useAuth } from './AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
@@ -15,6 +15,8 @@ import {
   uploadAudioFile,
   updateRecording,
   startTranscription,
+  validateFileSize,
+  MAX_FILE_SIZE_MB,
 } from '@/lib/supabase-recordings';
 import {
   saveRecordingLocally,
@@ -31,6 +33,7 @@ export interface PendingUpload {
   duration: number;
   sessionId?: string; // If already has a session (SessionsPage)
   patientId?: string; // For creating new session (ScribePage)
+  fileName?: string; // Original filename for external files
   clinicId: string;
   userId: string;
   status: 'queued' | 'uploading' | 'transcribing' | 'completed' | 'failed';
@@ -47,13 +50,22 @@ interface BackgroundUploadContextType {
     duration: number;
     sessionId?: string;
     patientId?: string;
+    fileName?: string; // Original filename for external files
   }) => Promise<string>;
   /** Get all pending uploads */
   pendingUploads: Map<string, PendingUpload>;
   /** Check if any uploads are in progress */
   hasActiveUploads: boolean;
+  /** Check if any uploads failed */
+  hasFailedUploads: boolean;
+  /** Get count of failed uploads */
+  failedUploadsCount: number;
+  /** Retry a failed upload */
+  retryUpload: (uploadId: string) => void;
   /** Cancel a pending upload */
   cancelUpload: (uploadId: string) => void;
+  /** Dismiss a failed upload (remove from list) */
+  dismissFailedUpload: (uploadId: string) => void;
 }
 
 const BackgroundUploadContext = createContext<BackgroundUploadContextType | null>(null);
@@ -94,7 +106,8 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
 
     const { id, blob, duration, sessionId, patientId, clinicId, userId } = upload;
     let localRecordingId = upload.localRecordingId;
-    const fileName = `recording-${Date.now()}.webm`;
+    // Use original filename for external files, or generate one for recordings
+    const fileName = upload.fileName || `recording-${Date.now()}.webm`;
     const mimeType = blob.type || 'audio/webm';
 
     try {
@@ -224,9 +237,17 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
         error: errorMessage
       });
 
+      // User-friendly error messages
+      let userFriendlyDescription = "Запись сохранена локально и будет загружена позже";
+      if (errorMessage.includes('exceeded') && errorMessage.includes('maximum allowed size')) {
+        userFriendlyDescription = `Файл слишком большой. Лимит: ${MAX_FILE_SIZE_MB} МБ`;
+      } else if (errorMessage.includes('Файл слишком большой')) {
+        userFriendlyDescription = errorMessage;
+      }
+
       toast({
         title: "Ошибка загрузки",
-        description: "Запись сохранена локально и будет загружена позже",
+        description: userFriendlyDescription,
         variant: "destructive",
       });
 
@@ -239,9 +260,23 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
     duration: number;
     sessionId?: string;
     patientId?: string;
+    fileName?: string;
   }): Promise<string> => {
     if (!user || !profile?.clinic_id) {
       throw new Error('Необходима авторизация');
+    }
+
+    // Validate file size BEFORE queuing
+    try {
+      validateFileSize(params.blob);
+    } catch (sizeError) {
+      const fileSizeMB = Math.round(params.blob.size / 1024 / 1024 * 10) / 10;
+      toast({
+        title: "Файл слишком большой",
+        description: `Размер записи ${fileSizeMB} МБ превышает лимит ${MAX_FILE_SIZE_MB} МБ. Попробуйте записать более короткую сессию.`,
+        variant: "destructive",
+      });
+      throw new Error(`Файл слишком большой: ${fileSizeMB} МБ`);
     }
 
     const uploadId = `upload-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -252,6 +287,7 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
       duration: params.duration,
       sessionId: params.sessionId,
       patientId: params.patientId,
+      fileName: params.fileName,
       clinicId: profile.clinic_id,
       userId: user.id,
       status: 'queued',
@@ -290,16 +326,66 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
     }
   }, [pendingUploads, removeUpload, toast]);
 
+  // Retry a failed upload
+  const retryUpload = useCallback((uploadId: string) => {
+    const upload = pendingUploads.get(uploadId);
+    if (upload && upload.status === 'failed') {
+      // Reset status and retry
+      updateUpload(uploadId, { status: 'queued', error: undefined });
+      processingRef.current.delete(uploadId);
+      setTimeout(() => processUpload(upload), 0);
+      toast({
+        title: "Повторная загрузка",
+        description: "Пробуем загрузить запись снова...",
+      });
+    }
+  }, [pendingUploads, updateUpload, processUpload, toast]);
+
+  // Dismiss a failed upload without deleting local recording
+  const dismissFailedUpload = useCallback((uploadId: string) => {
+    const upload = pendingUploads.get(uploadId);
+    if (upload && upload.status === 'failed') {
+      removeUpload(uploadId);
+      // Note: local recording is preserved for RecoveryDialog
+    }
+  }, [pendingUploads, removeUpload]);
+
   const hasActiveUploads = Array.from(pendingUploads.values()).some(
     u => u.status === 'queued' || u.status === 'uploading' || u.status === 'transcribing'
   );
+
+  const failedUploads = Array.from(pendingUploads.values()).filter(
+    u => u.status === 'failed'
+  );
+  const hasFailedUploads = failedUploads.length > 0;
+  const failedUploadsCount = failedUploads.length;
+
+  // Warn user before closing tab if uploads are in progress
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasActiveUploads) {
+        e.preventDefault();
+        e.returnValue = 'Идёт загрузка записей. Если вы закроете страницу, загрузка будет прервана. Записи сохранены локально и будут доступны для повторной загрузки.';
+        return e.returnValue;
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [hasActiveUploads]);
 
   return (
     <BackgroundUploadContext.Provider value={{
       queueUpload,
       pendingUploads,
       hasActiveUploads,
+      hasFailedUploads,
+      failedUploadsCount,
+      retryUpload,
       cancelUpload,
+      dismissFailedUpload,
     }}>
       {children}
     </BackgroundUploadContext.Provider>
