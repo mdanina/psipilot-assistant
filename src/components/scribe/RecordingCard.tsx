@@ -3,14 +3,20 @@ import { Mic, FileText, X, Pause, Play, Square, Sparkles, Loader2, Music } from 
 import { Button } from "@/components/ui/button";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { useToast } from "@/hooks/use-toast";
+import { useBackgroundUpload } from "@/contexts/BackgroundUploadContext";
 
 interface RecordingCardProps {
-  onRecordingComplete: (audioBlob: Blob, duration: number) => Promise<void>;
+  /** @deprecated Use background upload instead. Kept for backward compatibility. */
+  onRecordingComplete?: (audioBlob: Blob, duration: number) => Promise<void>;
   onGenerateNote: () => void;
   isProcessing?: boolean;
   transcriptionStatus?: 'pending' | 'processing' | 'completed' | 'failed';
   /** Called when recording starts or stops. Used for navigation blocking. */
   onRecordingStateChange?: (isRecording: boolean) => void;
+  /** Session ID for SessionsPage flow (upload to existing session) */
+  sessionId?: string;
+  /** Patient ID for ScribePage flow (create new session) */
+  patientId?: string;
 }
 
 export const RecordingCard = ({
@@ -19,6 +25,8 @@ export const RecordingCard = ({
   isProcessing = false,
   transcriptionStatus = 'pending',
   onRecordingStateChange,
+  sessionId,
+  patientId,
 }: RecordingCardProps) => {
   const {
     status,
@@ -34,6 +42,7 @@ export const RecordingCard = ({
   } = useAudioRecorder();
 
   const { toast } = useToast();
+  const { queueUpload } = useBackgroundUpload();
   const [isSubmitting, setIsSubmitting] = useState(false); // Защита от двойного submit
 
   // Вычисляемые значения из status
@@ -145,17 +154,26 @@ export const RecordingCard = ({
       if (isSubmitting) return;
       setIsSubmitting(true);
 
-      // If we have a completed recording, send it first
       try {
-        await onRecordingComplete(completedRecording.blob, completedRecording.duration);
-        // Clear completed recording after successful upload
+        // Queue upload in background - user can navigate away immediately
+        await queueUpload({
+          blob: completedRecording.blob,
+          duration: completedRecording.duration,
+          sessionId,
+          patientId,
+        });
+
+        // Clear state immediately so user can start new recording or navigate
         setCompletedRecording(null);
         reset();
+
+        // Navigate to sessions page
+        onGenerateNote();
       } catch (error) {
-        console.error('Error processing recording:', error);
+        console.error('Error queuing upload:', error);
         toast({
           title: "Ошибка",
-          description: "Не удалось обработать сессию",
+          description: "Не удалось начать загрузку",
           variant: "destructive",
         });
       } finally {
