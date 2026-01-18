@@ -5,7 +5,7 @@
  * the user navigates to a different page.
  */
 
-import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import { useAuth } from './AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
@@ -321,6 +321,22 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
   const hasActiveUploads = Array.from(pendingUploads.values()).some(
     u => u.status === 'queued' || u.status === 'uploading' || u.status === 'transcribing'
   );
+
+  // Warn user before closing tab if uploads are in progress
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasActiveUploads) {
+        e.preventDefault();
+        e.returnValue = 'Идёт загрузка записей. Если вы закроете страницу, загрузка будет прервана. Записи сохранены локально и будут доступны для повторной загрузки.';
+        return e.returnValue;
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [hasActiveUploads]);
 
   return (
     <BackgroundUploadContext.Provider value={{
