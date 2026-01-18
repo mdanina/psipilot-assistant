@@ -186,6 +186,19 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
 
       // Handle recording stop
       mediaRecorder.onstop = () => {
+        // Проверяем, не был ли уже выполнен resolve (например, по timeout)
+        // Если да - не перезаписываем state, чтобы избежать рассинхронизации
+        if (stopResolvedRef.current) {
+          console.log('[Recording] onstop called after timeout resolve, skipping state update');
+          // Только очистка, без изменения state
+          if (streamRef.current) {
+            streamRef.current.getTracks().forEach(track => track.stop());
+            streamRef.current = null;
+          }
+          mediaRecorderRef.current = null;
+          return;
+        }
+
         let blob: Blob | null = null;
         if (chunksRef.current.length > 0) {
           blob = new Blob(chunksRef.current, {
@@ -302,12 +315,14 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
           setIsStopped(true);
           safeResolve(partialBlob, true);
 
-          // Cleanup без повторного вызова stop()
+          // Cleanup без повторного вызова stop() чтобы не вызвать ещё один onstop
+          // Если onstop всё же вызовется позже, он проверит stopResolvedRef и пропустит обновление state
           if (streamRef.current) {
             streamRef.current.getTracks().forEach(track => track.stop());
             streamRef.current = null;
           }
           mediaRecorderRef.current = null;
+          stopTimer();
         }, timeoutMs);
 
         // Обёртка для onstop handler
