@@ -75,9 +75,9 @@ export function useCreateSession() {
     mutationFn: async (params: Parameters<typeof createSession>[0]) => {
       return await createSession(params);
     },
-    // Invalidate sessions cache after successful creation
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['sessions', variables.clinicId] });
+    // Refetch sessions cache after successful creation
+    onSuccess: async (_, variables) => {
+      await queryClient.refetchQueries({ queryKey: ['sessions', variables.clinicId] });
     },
   });
 }
@@ -94,10 +94,9 @@ export function useDeleteSession() {
       await deleteSession(sessionId);
       return { success: true };
     },
-    // Invalidate sessions cache after successful deletion
-    onSuccess: () => {
-      // Invalidate all sessions queries
-      queryClient.invalidateQueries({ queryKey: ['sessions'] });
+    // Refetch sessions cache after successful deletion
+    onSuccess: async () => {
+      await queryClient.refetchQueries({ queryKey: ['sessions'] });
     },
   });
 }
@@ -112,9 +111,9 @@ export function useCompleteSession() {
     mutationFn: async (sessionId: string) => {
       return await completeSession(sessionId);
     },
-    // Invalidate sessions cache after successful completion
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['sessions'] });
+    // Refetch sessions cache after successful completion
+    onSuccess: async () => {
+      await queryClient.refetchQueries({ queryKey: ['sessions'] });
     },
   });
 }
@@ -140,13 +139,14 @@ export function useLinkSessionToPatient() {
     }) => {
       return await linkSessionToPatient(sessionId, patientId, options);
     },
-    // Invalidate sessions cache after successful linking
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['sessions'] });
-      // Also invalidate patients cache in case patient data changed
-      queryClient.invalidateQueries({ queryKey: ['patients'] });
-      // Invalidate patient activities cache so the session appears in patient's card
-      queryClient.invalidateQueries({
+    // Refetch caches after successful linking
+    // Note: We use refetchQueries instead of invalidateQueries because with staleTime: Infinity,
+    // invalidateQueries only marks data as stale but doesn't trigger a refetch
+    onSuccess: async (_, variables) => {
+      // Refetch sessions cache
+      await queryClient.refetchQueries({ queryKey: ['sessions'] });
+      // Refetch patient activities cache so the session appears in patient's card
+      await queryClient.refetchQueries({
         queryKey: ['patients', variables.patientId, 'activities']
       });
     },
@@ -200,19 +200,20 @@ export function useSessionsByIds(sessionIds: string[]) {
 }
 
 /**
- * Invalidate sessions cache
+ * Refetch sessions cache
+ * Note: Named "invalidate" for backward compatibility, but actually refetches
  */
 export function useInvalidateSessions() {
   const queryClient = useQueryClient();
 
-  return (clinicId?: string) => {
+  return async (clinicId?: string) => {
     if (clinicId) {
-      queryClient.invalidateQueries({ queryKey: ['sessions', clinicId] });
+      await queryClient.refetchQueries({ queryKey: ['sessions', clinicId] });
     } else {
-      queryClient.invalidateQueries({ queryKey: ['sessions'] });
+      await queryClient.refetchQueries({ queryKey: ['sessions'] });
     }
-    // Also invalidate sessions by IDs cache
-    queryClient.invalidateQueries({ queryKey: ['sessions', 'byIds'] });
+    // Also refetch sessions by IDs cache
+    await queryClient.refetchQueries({ queryKey: ['sessions', 'byIds'] });
   };
 }
 
