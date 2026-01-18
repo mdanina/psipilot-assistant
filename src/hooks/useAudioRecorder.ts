@@ -95,6 +95,8 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
   const stopResolvedRef = useRef<boolean>(false);
   const currentMimeTypeRef = useRef<string>('audio/webm');
   const recordingTimeRef = useRef<number>(0); // Ref для использования в callbacks без пересоздания
+  const isStartingRef = useRef<boolean>(false); // Ref для защиты от двойного startRecording (closure-safe)
+  const isStoppingRef = useRef<boolean>(false); // Ref для защиты от двойного stopRecording (closure-safe)
 
   // Вычисляемые значения для обратной совместимости
   const isRecording = status === 'recording' || status === 'paused';
@@ -111,6 +113,8 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     pausedTimeRef.current = 0;
     recordingTimeRef.current = 0;
     stopResolveRef.current = null;
+    isStartingRef.current = false; // Разрешаем новый startRecording после reset
+    isStoppingRef.current = false; // Разрешаем новый stopRecording после reset
     // НЕ сбрасываем stopResolvedRef здесь!
     // Он сбрасывается только в stopRecording() перед началом остановки.
     // Если сбросить здесь, то onstop может перезаписать состояние после cancel.
@@ -163,11 +167,12 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
   }, [stopTimer]);
 
   const startRecording = useCallback(async () => {
-    // Защита от двойного вызова: проверяем статус вместо отдельного ref
-    if (status === 'starting') {
+    // Защита от двойного вызова через ref (closure-safe, не зависит от батчинга React)
+    if (isStartingRef.current) {
       console.log('[Recording] startRecording already in progress, ignoring');
       return;
     }
+    isStartingRef.current = true;
 
     setStatus('starting');
 
@@ -314,6 +319,8 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
       setStatus('error');
       console.error('Error starting recording:', err);
       cleanup();
+    } finally {
+      isStartingRef.current = false;
     }
   }, [status, startTimer, cleanup]);
 
@@ -336,12 +343,20 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
 
   const stopRecording = useCallback((): Promise<Blob | null> => {
     return new Promise((resolve) => {
+      // Защита от двойного вызова через ref (closure-safe)
+      if (isStoppingRef.current) {
+        console.log('[Recording] stopRecording already in progress, ignoring');
+        resolve(null);
+        return;
+      }
+
       // Защита от вызова в неподходящем состоянии
       if (status !== 'recording' && status !== 'paused') {
         resolve(null);
         return;
       }
 
+      isStoppingRef.current = true;
       setStatus('stopping');
 
       // Используем ref для получения актуального времени без пересоздания callback
@@ -363,6 +378,7 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
         const safeResolve = (blob: Blob | null, isPartial: boolean) => {
           if (stopResolvedRef.current) return;
           stopResolvedRef.current = true;
+          isStoppingRef.current = false; // Разрешаем следующий вызов stopRecording
 
           // Очистить timeout если ещё не сработал
           if (stopTimeoutRef.current) {
@@ -417,7 +433,9 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
 
         mediaRecorderRef.current.stop();
       } else {
-        setStatus('idle');
+        // MediaRecorder недоступен или уже остановлен - это edge case
+        // Не меняем status (оставляем 'stopping'), просто resolve с null
+        isStoppingRef.current = false;
         resolve(null);
       }
 
@@ -436,6 +454,7 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     // чтобы onstop handler не вызвал resolve с данными при cancel
     stopResolveRef.current = null;
     stopResolvedRef.current = true; // Помечаем как resolved чтобы onstop пропустил обработку
+    isStoppingRef.current = false; // Разрешаем следующий stopRecording
 
     // Очищаем pending timeout
     if (stopTimeoutRef.current) {
