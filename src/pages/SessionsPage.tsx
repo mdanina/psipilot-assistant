@@ -35,6 +35,7 @@ import { GenerationProgress } from "@/components/analysis/GenerationProgress";
 import { useToast } from "@/hooks/use-toast";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { useTranscriptionRecovery } from "@/hooks/useTranscriptionRecovery";
+import { useBackgroundUpload } from "@/contexts/BackgroundUploadContext";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import {
   saveRecordingLocally,
@@ -154,6 +155,7 @@ const SessionsPage = () => {
   const linkSessionMutation = useLinkSessionToPatient();
   const invalidateSessions = useInvalidateSessions();
   const queryClient = useQueryClient();
+  const { queueUpload } = useBackgroundUpload();
   const [selectedPatientId, setSelectedPatientId] = useState<string>("");
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [relinkWarning, setRelinkWarning] = useState<{
@@ -1638,7 +1640,7 @@ const SessionsPage = () => {
     }
   };
 
-  // Handle stop recording in session context
+  // Handle stop recording in session context - uses background upload
   const handleStopRecordingInSession = async () => {
     if (!currentRecordingSessionIdRef.current || !user) {
       await stopRecording();
@@ -1650,165 +1652,55 @@ const SessionsPage = () => {
     const sessionId = currentRecordingSessionIdRef.current;
     const duration = recordingTime;
 
-    setIsSavingRecording(true);
-
-    let localRecordingId: string | null = null;
-    let fileName = `recording-${Date.now()}.webm`; // Объявляем до try для доступа в catch
-
     try {
-      // Stop recording and get the blob directly
+      // Stop recording and get the blob
       const blob = await stopRecording();
 
       if (!blob) {
-        throw new Error('Не удалось получить аудио данные');
-      }
-
-      // 1. СНАЧАЛА сохраняем локально (независимо от интернета)
-      const mimeType = blob.type || 'audio/webm';
-      
-      try {
-        localRecordingId = await saveRecordingLocally(
-          blob,
-          fileName,
-          duration,
-          mimeType,
-          sessionId
-        );
-        console.log('[SessionsPage] Recording saved locally:', localRecordingId);
-        await logLocalStorageOperation('local_storage_save', null, {
-          fileName,
-          duration,
-        });
-      } catch (localError) {
-        console.warn('[SessionsPage] Failed to save locally (non-critical):', localError);
-        // Продолжаем даже если локальное сохранение не удалось
-      }
-
-      // 2. Теперь пытаемся загрузить в Supabase
-      const recording = await createRecording({
-        sessionId,
-        userId: user.id,
-        fileName,
-      });
-
-      await uploadAudioFile({
-        recordingId: recording.id,
-        audioBlob: blob,
-        fileName: recording.file_name || fileName,
-        mimeType,
-      });
-
-      await updateRecording(recording.id, {
-        duration_seconds: duration,
-      });
-
-      // 3. Если загрузка успешна, помечаем локальную запись как загруженную
-      if (localRecordingId) {
-        try {
-          await markRecordingUploaded(localRecordingId, recording.id, sessionId);
-          await logLocalStorageOperation('local_storage_upload_success', recording.id, {
-            fileName,
-            duration,
-          });
-        } catch (markError) {
-          console.warn('[SessionsPage] Failed to mark as uploaded:', markError);
-        }
-      }
-
-      // Start transcription with retry
-      const transcriptionStarted = await startTranscriptionWithRetry(
-        recording.id,
-        transcriptionApiUrl,
-        (attempt, max) => {
-          if (attempt > 1) {
-            toast({
-              title: "Повторная попытка",
-              description: `Попытка запуска транскрипции ${attempt}/${max}...`,
-            });
-          }
-        }
-      );
-
-      if (transcriptionStarted) {
-        // Track transcription in recovery hook
-        addTranscription(recording.id, sessionId);
         toast({
-          title: "Успешно",
-          description: "Сессия сохранена. Транскрипция запущена.",
+          title: "Ошибка записи",
+          description: "Не удалось сохранить аудио. Попробуйте записать ещё раз.",
+          variant: "destructive",
         });
-      } else {
-        console.error('Error starting transcription after all retries');
-        toast({
-          title: "Предупреждение",
-          description: "Сессия сохранена, но транскрипция не запущена после 3 попыток. Попробуйте позже.",
-          variant: "default",
-        });
+        reset();
+        setIsRecordingInSession(false);
+        currentRecordingSessionIdRef.current = null;
+        return;
       }
 
-      // Reload recordings
-      await loadRecordings(sessionId);
+      // Queue upload in background - user can continue working immediately
+      await queueUpload({
+        blob,
+        duration,
+        sessionId, // Passing sessionId so it uploads to existing session
+      });
 
+      // Reset recording state immediately - upload continues in background
       reset();
       setIsRecordingInSession(false);
       currentRecordingSessionIdRef.current = null;
-    } catch (error) {
-      console.error('Error saving recording:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Неизвестная ошибка';
 
-      // 4. Если загрузка не удалась, помечаем локальную запись как не загруженную
-      if (localRecordingId) {
-        try {
-          await markRecordingUploadFailed(localRecordingId, errorMessage);
-          await logLocalStorageOperation('local_storage_upload_failed', null, {
-            fileName,
-            error: errorMessage,
-          });
-          console.log('[SessionsPage] Recording saved locally but upload failed:', localRecordingId);
-          
-          // Refresh unuploaded list
-          const unuploaded = await getUnuploadedRecordings();
-          setUnuploadedRecordings(unuploaded);
-          if (unuploaded.length > 0) {
-            setShowRecoveryDialog(true);
-          }
-        } catch (markError) {
-          console.warn('[SessionsPage] Failed to mark upload error:', markError);
-        }
-      }
-
-      // More detailed error messages
-      let userFriendlyMessage = errorMessage;
-      if (errorMessage.includes('Failed to create recording')) {
-        userFriendlyMessage = 'Не удалось создать сессию в базе данных. Запись сохранена локально и будет загружена автоматически при восстановлении соединения.';
-      } else if (errorMessage.includes('Failed to upload audio file')) {
-        userFriendlyMessage = 'Не удалось загрузить аудио файл. Запись сохранена локально и будет загружена автоматически при восстановлении соединения.';
-      } else if (errorMessage.includes('row-level security')) {
-        userFriendlyMessage = 'Ошибка прав доступа. Запись сохранена локально.';
-      } else {
-        userFriendlyMessage = `Ошибка: ${errorMessage}. Запись сохранена локально.`;
-      }
-
-      toast({
-        title: "Ошибка загрузки",
-        description: userFriendlyMessage,
-        variant: "destructive",
-      });
-
-      // Удаляем checkpoint при ошибке (он все равно не нужен)
+      // Delete checkpoint since recording is now queued
       if (lastCheckpointRef.current) {
         try {
           await deleteLocalRecording(lastCheckpointRef.current);
           lastCheckpointRef.current = null;
-        } catch (error) {
-          // Игнорируем ошибки удаления
+        } catch {
+          // Ignore errors
         }
       }
+
+    } catch (error) {
+      console.error('Error queuing upload:', error);
+      toast({
+        title: "Ошибка",
+        description: "Не удалось начать загрузку записи",
+        variant: "destructive",
+      });
 
       reset();
       setIsRecordingInSession(false);
       currentRecordingSessionIdRef.current = null;
-    } finally {
-      setIsSavingRecording(false);
     }
   };
 
