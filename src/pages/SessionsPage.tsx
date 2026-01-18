@@ -1812,8 +1812,7 @@ const SessionsPage = () => {
 
   // Handle cancel recording
   const handleCancelRecordingInSession = () => {
-    cancelRecording();
-    reset();
+    cancelRecording(); // cancelRecording уже вызывает reset() внутри
     setIsRecordingInSession(false);
     currentRecordingSessionIdRef.current = null;
   };
