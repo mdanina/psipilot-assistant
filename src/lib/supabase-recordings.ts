@@ -10,8 +10,8 @@ type RecordingUpdate = Database['public']['Tables']['recordings']['Update'];
 // Upload configuration
 // ============================================================================
 
-/** Maximum file size in MB (50MB = typical Supabase Storage limit, ~1 hour of audio at 128kbps) */
-export const MAX_FILE_SIZE_MB = 50;
+/** Maximum file size in MB (500MB = ~5-6 hours of audio at 128kbps) */
+export const MAX_FILE_SIZE_MB = 500;
 
 /** Retry configuration for upload */
 const UPLOAD_MAX_RETRIES = 3;
