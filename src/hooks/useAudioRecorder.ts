@@ -134,7 +134,15 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
   const startRecording = useCallback(async () => {
     try {
       setError(null);
-      
+
+      // Очищаем любой pending timeout от предыдущего stopRecording
+      // чтобы избежать конфликта с новой записью
+      if (stopTimeoutRef.current) {
+        clearTimeout(stopTimeoutRef.current);
+        stopTimeoutRef.current = null;
+      }
+      stopResolvedRef.current = true; // Защита на случай позднего вызова onstop
+
       // Request microphone access
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -271,6 +279,12 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
       stopResolvedRef.current = false;
       setWasPartialSave(false);
 
+      // Очищаем предыдущий timeout если есть (защита от двойного вызова)
+      if (stopTimeoutRef.current) {
+        clearTimeout(stopTimeoutRef.current);
+        stopTimeoutRef.current = null;
+      }
+
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         const timeoutMs = calculateStopTimeout(recordingTime);
 
@@ -342,6 +356,23 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
   }, [stopTimer, recordingTime]);
 
   const cancelRecording = useCallback(() => {
+    // Resolve pending stopRecording promise с null перед сбросом
+    // (если cancelRecording вызван после stopRecording)
+    if (stopResolveRef.current && !stopResolvedRef.current) {
+      stopResolveRef.current(null);
+    }
+
+    // Сбрасываем stopResolveRef ПЕРЕД вызовом stop(),
+    // чтобы onstop handler не вызвал resolve с данными при cancel
+    stopResolveRef.current = null;
+    stopResolvedRef.current = true; // Помечаем как resolved чтобы onstop пропустил обработку
+
+    // Очищаем pending timeout
+    if (stopTimeoutRef.current) {
+      clearTimeout(stopTimeoutRef.current);
+      stopTimeoutRef.current = null;
+    }
+
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     }
