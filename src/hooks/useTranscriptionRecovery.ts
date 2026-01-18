@@ -154,17 +154,19 @@ export function useTranscriptionRecovery(
       
       const status = await getRecordingStatus(recordingId, transcriptionApiUrl, shouldSync);
       
-      // Check if sync failed and recording is very old with "No transcript_id" error
+      // Check if sync failed and recording is stuck with "No transcript_id" error
       const syncError = (status as any).syncError as Error | undefined;
       if (shouldSync && syncError) {
-        const isVeryOld = recordingAge > 24 * 60 * 60 * 1000; // 24 hours
+        // If transcription has been in "processing" for 10+ minutes without a transcript_id,
+        // it's clearly stuck (transcription was never actually started)
+        const isStuck = recordingAge > 10 * 60 * 1000; // 10 minutes
         const errorMessage = syncError.message;
-        const isNoTranscriptIdError = errorMessage.includes('No transcript_id found') || 
+        const isNoTranscriptIdError = errorMessage.includes('No transcript_id found') ||
                                       errorMessage.includes('transcript_id') ||
-                                      errorMessage.includes('transcript_id');
+                                      errorMessage.includes('Transcription may not have started');
 
-        if (isVeryOld && isNoTranscriptIdError) {
-          console.warn(`[useTranscriptionRecovery] Very old transcription (${Math.round(recordingAge / 1000 / 60)}min) with no transcript_id, marking as failed: ${recordingId}`);
+        if (isStuck && isNoTranscriptIdError) {
+          console.warn(`[useTranscriptionRecovery] Stuck transcription (${Math.round(recordingAge / 1000 / 60)}min) with no transcript_id, marking as failed: ${recordingId}`);
           
           // Mark as failed in database
           try {
@@ -172,7 +174,7 @@ export function useTranscriptionRecovery(
               .from('recordings')
               .update({
                 transcription_status: 'failed',
-                transcription_error: 'Транскрипция не была запущена или была потеряна. Запись слишком старая для восстановления.',
+                transcription_error: 'Транскрипция не была запущена. Попробуйте повторить транскрипцию.',
               })
               .eq('id', recordingId);
 
@@ -181,7 +183,7 @@ export function useTranscriptionRecovery(
             } else {
               // Update status to reflect the change
               (status as any).status = 'failed';
-              (status as any).error = 'Транскрипция не была запущена или была потеряна';
+              (status as any).error = 'Транскрипция не была запущена';
               
               // For stuck transcriptions, remove from list after a short delay
               // This keeps the UI clean while still showing the toast notification
