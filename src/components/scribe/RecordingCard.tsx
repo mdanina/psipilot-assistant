@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Mic, FileText, X, Pause, Play, Square, Sparkles, Music } from "lucide-react";
+import { Mic, FileText, X, Pause, Play, Square, Sparkles, Loader2, Music } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { useToast } from "@/hooks/use-toast";
