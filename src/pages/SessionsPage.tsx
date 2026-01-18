@@ -202,12 +202,11 @@ const SessionsPage = () => {
 
   // Audio recorder hook
   const {
-    isRecording,
-    isPaused,
-    isStopped,
+    status: recorderStatus,
     recordingTime,
     audioBlob,
     error: recorderError,
+    wasPartialSave,
     startRecording,
     pauseRecording,
     resumeRecording,
@@ -217,6 +216,10 @@ const SessionsPage = () => {
     getCurrentChunks,
     getCurrentMimeType,
   } = useAudioRecorder();
+
+  // Вычисляемые значения из status для удобства
+  const isRecording = recorderStatus === 'recording' || recorderStatus === 'paused';
+  const isPaused = recorderStatus === 'paused';
 
   // Обновление activity во время записи для предотвращения session timeout
   useEffect(() => {
@@ -296,6 +299,17 @@ const SessionsPage = () => {
       });
     }
   }, [recorderError, toast]);
+
+  // Show warning if recording was partially saved due to timeout
+  useEffect(() => {
+    if (wasPartialSave && audioBlob) {
+      toast({
+        title: "Предупреждение",
+        description: "Запись сохранена. Возможна потеря последних секунд из-за медленной обработки браузером.",
+        variant: "default",
+      });
+    }
+  }, [wasPartialSave, audioBlob, toast]);
 
   // Block navigation while recording
   const recordingBlocker = useNavigationBlocker(
@@ -1639,6 +1653,7 @@ const SessionsPage = () => {
     setIsSavingRecording(true);
 
     let localRecordingId: string | null = null;
+    let fileName = `recording-${Date.now()}.webm`; // Объявляем до try для доступа в catch
 
     try {
       // Stop recording and get the blob directly
@@ -1649,7 +1664,6 @@ const SessionsPage = () => {
       }
 
       // 1. СНАЧАЛА сохраняем локально (независимо от интернета)
-      const fileName = `recording-${Date.now()}.webm`;
       const mimeType = blob.type || 'audio/webm';
       
       try {
@@ -1800,8 +1814,7 @@ const SessionsPage = () => {
 
   // Handle cancel recording
   const handleCancelRecordingInSession = () => {
-    cancelRecording();
-    reset();
+    cancelRecording(); // cancelRecording уже вызывает reset() внутри
     setIsRecordingInSession(false);
     currentRecordingSessionIdRef.current = null;
   };

@@ -21,12 +21,10 @@ export const RecordingCard = ({
   onRecordingStateChange,
 }: RecordingCardProps) => {
   const {
-    isRecording,
-    isPaused,
-    isStopped,
+    status,
     recordingTime,
-    audioBlob,
     error: recorderError,
+    wasPartialSave,
     startRecording,
     pauseRecording,
     resumeRecording,
@@ -36,7 +34,12 @@ export const RecordingCard = ({
   } = useAudioRecorder();
 
   const { toast } = useToast();
-  const [isStopping, setIsStopping] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false); // Защита от двойного submit
+
+  // Вычисляемые значения из status
+  const isActiveRecording = status === 'recording' || status === 'paused';
+  const isPaused = status === 'paused';
+  const isStopping = status === 'stopping';
   const [completedRecording, setCompletedRecording] = useState<{
     blob: Blob;
     duration: number;
@@ -48,8 +51,8 @@ export const RecordingCard = ({
 
   // Notify parent about recording state changes (for navigation blocking)
   useEffect(() => {
-    onRecordingStateChange?.(isRecording);
-  }, [isRecording, onRecordingStateChange]);
+    onRecordingStateChange?.(isActiveRecording);
+  }, [isActiveRecording, onRecordingStateChange]);
 
   // ИСПРАВЛЕНО: Toast перенесён в useEffect вместо render
   // Ранее toast вызывался при каждом рендере, вызывая множественные уведомления
@@ -66,10 +69,10 @@ export const RecordingCard = ({
 
   // Сбрасываем отслеживание ошибки при успешном старте записи
   useEffect(() => {
-    if (isRecording) {
+    if (status === 'recording') {
       shownErrorRef.current = null;
     }
-  }, [isRecording]);
+  }, [status]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -93,7 +96,7 @@ export const RecordingCard = ({
   };
 
   const handleStopRecording = async () => {
-    setIsStopping(true);
+    // status переходит в 'stopping' внутри stopRecording()
     try {
       const blob = await stopRecording();
       if (blob) {
@@ -103,6 +106,7 @@ export const RecordingCard = ({
           duration: recordingTime,
           fileName,
         });
+        // Предупреждение о частичном сохранении показывается через useEffect
       }
     } catch (error) {
       console.error('Error stopping recording:', error);
@@ -111,10 +115,19 @@ export const RecordingCard = ({
         description: "Не удалось остановить сессию",
         variant: "destructive",
       });
-    } finally {
-      setIsStopping(false);
     }
   };
+
+  // Показываем предупреждение если было частичное сохранение
+  useEffect(() => {
+    if (wasPartialSave && completedRecording) {
+      toast({
+        title: "Предупреждение",
+        description: "Запись сохранена. Возможна потеря последних секунд из-за медленной обработки браузером.",
+        variant: "default",
+      });
+    }
+  }, [wasPartialSave, completedRecording, toast]);
 
   const handleCancelRecording = () => {
     cancelRecording();
@@ -128,6 +141,10 @@ export const RecordingCard = ({
 
   const handleGenerateNote = async () => {
     if (completedRecording) {
+      // Защита от двойного submit
+      if (isSubmitting) return;
+      setIsSubmitting(true);
+
       // If we have a completed recording, send it first
       try {
         await onRecordingComplete(completedRecording.blob, completedRecording.duration);
@@ -141,6 +158,8 @@ export const RecordingCard = ({
           description: "Не удалось обработать сессию",
           variant: "destructive",
         });
+      } finally {
+        setIsSubmitting(false);
       }
     } else {
       // No recording, just navigate to sessions
@@ -149,11 +168,11 @@ export const RecordingCard = ({
   };
 
   // State 1: Recording in progress
-  if (isRecording || isStopping) {
+  if (isActiveRecording || isStopping) {
     return (
       <div className="bg-card rounded-2xl shadow-elevated p-8 max-w-lg w-full relative">
         {/* Cancel button */}
-        {isRecording && !isStopping && (
+        {isActiveRecording && !isStopping && (
           <button
             onClick={handleCancelRecording}
             className="absolute top-4 right-4 text-destructive hover:text-destructive/80"
@@ -328,7 +347,7 @@ export const RecordingCard = ({
             variant={completedRecording ? "default" : "outline"}
             onClick={handleGenerateNote}
             className="gap-2"
-            disabled={isProcessing}
+            disabled={isProcessing || isSubmitting}
           >
             <FileText className="w-4 h-4" />
             Транскрибировать
