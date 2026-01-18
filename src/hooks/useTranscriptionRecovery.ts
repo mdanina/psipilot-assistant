@@ -157,53 +157,62 @@ export function useTranscriptionRecovery(
       const shouldSync = shouldSyncOnFirstAttempt || shouldSyncEarly || shouldSyncRegular;
       
       const status = await getRecordingStatus(recordingId, transcriptionApiUrl, shouldSync);
-      
-      // Check if sync failed and recording is stuck with "No transcript_id" error
+
+      // Check for stuck transcriptions
       const syncError = (status as any).syncError as Error | undefined;
-      if (shouldSync && syncError) {
-        // If transcription has been in "processing" for 10+ minutes without a transcript_id,
-        // it's clearly stuck (transcription was never actually started)
-        const isStuck = recordingAge > 10 * 60 * 1000; // 10 minutes
-        const errorMessage = syncError.message;
+      const isVeryOld = recordingAge > 24 * 60 * 60 * 1000; // > 24 hours
+      const isModeratelyOld = recordingAge > 10 * 60 * 1000; // > 10 minutes
+
+      // Mark as stuck/failed if:
+      // 1. Recording is > 24 hours old (regardless of sync status)
+      // 2. Recording is > 10 minutes old AND sync failed with any error
+      const shouldMarkAsFailed = isVeryOld || (isModeratelyOld && shouldSync && syncError);
+
+      if (shouldMarkAsFailed && status.status === 'processing') {
+        const errorMessage = syncError?.message || '';
         const isNoTranscriptIdError = errorMessage.includes('No transcript_id found') ||
                                       errorMessage.includes('transcript_id') ||
                                       errorMessage.includes('Transcription may not have started');
 
-        if (isStuck && isNoTranscriptIdError) {
-          console.warn(`[useTranscriptionRecovery] Stuck transcription (${Math.round(recordingAge / 1000 / 60)}min) with no transcript_id, marking as failed: ${recordingId}`);
-          
-          // Mark as failed in database
-          try {
-            const { error: updateError } = await supabase
-              .from('recordings')
-              .update({
-                transcription_status: 'failed',
-                transcription_error: 'Транскрипция не была запущена. Попробуйте повторить транскрипцию.',
-              })
-              .eq('id', recordingId);
+        const failureReason = isVeryOld
+          ? 'Транскрипция зависла (более 24 часов). Попробуйте повторить.'
+          : isNoTranscriptIdError
+            ? 'Транскрипция не была запущена. Попробуйте повторить транскрипцию.'
+            : 'Не удалось синхронизировать статус транскрипции. Попробуйте повторить.';
 
-            if (updateError) {
-              console.error('[useTranscriptionRecovery] Failed to mark recording as failed:', updateError);
-            } else {
-              // Update status to reflect the change
-              (status as any).status = 'failed';
-              (status as any).error = 'Транскрипция не была запущена';
-              
-              // For stuck transcriptions, remove from list after a short delay
-              // This keeps the UI clean while still showing the toast notification
-              setTimeout(() => {
-                stopPolling(recordingId);
-                setProcessingTranscriptions(prev => {
-                  const next = new Map(prev);
-                  next.delete(recordingId);
-                  return next;
-                });
-                console.log(`[useTranscriptionRecovery] Removed stuck transcription from UI: ${recordingId}`);
-              }, 5000); // Remove after 5 seconds
-            }
-          } catch (updateErr) {
-            console.error('[useTranscriptionRecovery] Error updating recording status:', updateErr);
+        console.warn(`[useTranscriptionRecovery] Stuck transcription (${Math.round(recordingAge / 1000 / 60)}min), marking as failed: ${recordingId}. Reason: ${failureReason}`);
+
+        // Mark as failed in database
+        try {
+          const { error: updateError } = await supabase
+            .from('recordings')
+            .update({
+              transcription_status: 'failed',
+              transcription_error: failureReason,
+            })
+            .eq('id', recordingId);
+
+          if (updateError) {
+            console.error('[useTranscriptionRecovery] Failed to mark recording as failed:', updateError);
+          } else {
+            // Update status to reflect the change
+            (status as any).status = 'failed';
+            (status as any).error = failureReason;
+
+            // For stuck transcriptions, remove from list after a short delay
+            // This keeps the UI clean while still showing the toast notification
+            setTimeout(() => {
+              stopPolling(recordingId);
+              setProcessingTranscriptions(prev => {
+                const next = new Map(prev);
+                next.delete(recordingId);
+                return next;
+              });
+              console.log(`[useTranscriptionRecovery] Removed stuck transcription from UI: ${recordingId}`);
+            }, 5000); // Remove after 5 seconds
           }
+        } catch (updateErr) {
+          console.error('[useTranscriptionRecovery] Error updating recording status:', updateErr);
         }
       }
       

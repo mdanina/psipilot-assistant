@@ -110,6 +110,14 @@ export const RecordingCard = ({
           fileName,
         });
         // Предупреждение о частичном сохранении показывается через useEffect
+      } else {
+        // КРИТИЧНО: blob не получен - запись потеряна
+        console.error('[RecordingCard] stopRecording returned null blob');
+        toast({
+          title: "Ошибка записи",
+          description: "Не удалось сохранить аудио. Попробуйте записать ещё раз.",
+          variant: "destructive",
+        });
       }
     } catch (error) {
       console.error('Error stopping recording:', error);
@@ -143,39 +151,46 @@ export const RecordingCard = ({
   };
 
   const handleGenerateNote = async () => {
-    if (completedRecording) {
-      // Защита от двойного submit
-      if (isSubmitting) return;
-      setIsSubmitting(true);
+    // Эта функция вызывается ТОЛЬКО когда есть completedRecording
+    // (кнопка "Транскрибировать" видна только при наличии записи)
+    if (!completedRecording) {
+      console.error('[RecordingCard] handleGenerateNote called without completedRecording');
+      toast({
+        title: "Нет записи",
+        description: "Сначала запишите аудио",
+        variant: "destructive",
+      });
+      return;
+    }
 
-      try {
-        // Queue upload in background - user can navigate away immediately
-        await queueUpload({
-          blob: completedRecording.blob,
-          duration: completedRecording.duration,
-          sessionId,
-          patientId,
-        });
+    // Защита от двойного submit
+    if (isSubmitting) return;
+    setIsSubmitting(true);
 
-        // Clear state immediately so user can start new recording or navigate
-        setCompletedRecording(null);
-        reset();
+    try {
+      // Queue upload in background - user can navigate away immediately
+      await queueUpload({
+        blob: completedRecording.blob,
+        duration: completedRecording.duration,
+        sessionId,
+        patientId,
+      });
 
-        // Navigate to sessions page
-        onGenerateNote();
-      } catch (error) {
-        console.error('Error queuing upload:', error);
-        toast({
-          title: "Ошибка",
-          description: "Не удалось начать загрузку",
-          variant: "destructive",
-        });
-      } finally {
-        setIsSubmitting(false);
-      }
-    } else {
-      // No recording, just navigate to sessions
+      // Clear state immediately so user can start new recording or navigate
+      setCompletedRecording(null);
+      reset();
+
+      // Navigate to sessions page
       onGenerateNote();
+    } catch (error) {
+      console.error('Error queuing upload:', error);
+      toast({
+        title: "Ошибка",
+        description: "Не удалось начать загрузку",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -333,15 +348,26 @@ export const RecordingCard = ({
             <Mic className="w-4 h-4" />
             {completedRecording ? "Записать ещё" : "Включить запись"}
           </Button>
-          <Button
-            variant={completedRecording ? "default" : "outline"}
-            onClick={handleGenerateNote}
-            className="gap-2"
-            disabled={isSubmitting}
-          >
-            <FileText className="w-4 h-4" />
-            Транскрибировать
-          </Button>
+          {completedRecording ? (
+            <Button
+              variant="default"
+              onClick={handleGenerateNote}
+              className="gap-2"
+              disabled={isSubmitting}
+            >
+              <FileText className="w-4 h-4" />
+              Транскрибировать
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              onClick={onGenerateNote}
+              className="gap-2"
+            >
+              <FileText className="w-4 h-4" />
+              Перейти к сессиям
+            </Button>
+          )}
         </div>
       </div>
     </div>
