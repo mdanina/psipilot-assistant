@@ -21,8 +21,7 @@ export const RecordingCard = ({
   onRecordingStateChange,
 }: RecordingCardProps) => {
   const {
-    isRecording,
-    isPaused,
+    status,
     recordingTime,
     error: recorderError,
     wasPartialSave,
@@ -35,8 +34,12 @@ export const RecordingCard = ({
   } = useAudioRecorder();
 
   const { toast } = useToast();
-  const [isStopping, setIsStopping] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false); // Защита от двойного submit
+
+  // Вычисляемые значения из status
+  const isActiveRecording = status === 'recording' || status === 'paused';
+  const isPaused = status === 'paused';
+  const isStopping = status === 'stopping';
   const [completedRecording, setCompletedRecording] = useState<{
     blob: Blob;
     duration: number;
@@ -48,8 +51,8 @@ export const RecordingCard = ({
 
   // Notify parent about recording state changes (for navigation blocking)
   useEffect(() => {
-    onRecordingStateChange?.(isRecording);
-  }, [isRecording, onRecordingStateChange]);
+    onRecordingStateChange?.(isActiveRecording);
+  }, [isActiveRecording, onRecordingStateChange]);
 
   // ИСПРАВЛЕНО: Toast перенесён в useEffect вместо render
   // Ранее toast вызывался при каждом рендере, вызывая множественные уведомления
@@ -66,10 +69,10 @@ export const RecordingCard = ({
 
   // Сбрасываем отслеживание ошибки при успешном старте записи
   useEffect(() => {
-    if (isRecording) {
+    if (status === 'recording') {
       shownErrorRef.current = null;
     }
-  }, [isRecording]);
+  }, [status]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -93,7 +96,7 @@ export const RecordingCard = ({
   };
 
   const handleStopRecording = async () => {
-    setIsStopping(true);
+    // status переходит в 'stopping' внутри stopRecording()
     try {
       const blob = await stopRecording();
       if (blob) {
@@ -112,8 +115,6 @@ export const RecordingCard = ({
         description: "Не удалось остановить сессию",
         variant: "destructive",
       });
-    } finally {
-      setIsStopping(false);
     }
   };
 
@@ -167,11 +168,11 @@ export const RecordingCard = ({
   };
 
   // State 1: Recording in progress
-  if (isRecording || isStopping) {
+  if (isActiveRecording || isStopping) {
     return (
       <div className="bg-card rounded-2xl shadow-elevated p-8 max-w-lg w-full relative">
         {/* Cancel button */}
-        {isRecording && !isStopping && (
+        {isActiveRecording && !isStopping && (
           <button
             onClick={handleCancelRecording}
             className="absolute top-4 right-4 text-destructive hover:text-destructive/80"

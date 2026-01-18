@@ -202,9 +202,7 @@ const SessionsPage = () => {
 
   // Audio recorder hook
   const {
-    isRecording,
-    isPaused,
-    isStopped,
+    status: recorderStatus,
     recordingTime,
     audioBlob,
     error: recorderError,
@@ -218,6 +216,10 @@ const SessionsPage = () => {
     getCurrentChunks,
     getCurrentMimeType,
   } = useAudioRecorder();
+
+  // Вычисляемые значения из status для удобства
+  const isRecording = recorderStatus === 'recording' || recorderStatus === 'paused';
+  const isPaused = recorderStatus === 'paused';
 
   // Обновление activity во время записи для предотвращения session timeout
   useEffect(() => {
