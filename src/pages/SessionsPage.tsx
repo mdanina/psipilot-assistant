@@ -2335,6 +2335,38 @@ const SessionsPage = () => {
                                 Синхронизировать
                               </Button>
                             )}
+                            {recording.transcription_status === 'failed' && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={async () => {
+                                  try {
+                                    toast({
+                                      title: "Повторный запуск",
+                                      description: "Запускаем транскрипцию...",
+                                    });
+                                    await startTranscription(recording.id, transcriptionApiUrl);
+                                    addTranscription(recording.id, recording.session_id);
+                                    await loadRecordings(activeSession || '');
+                                    toast({
+                                      title: "Транскрипция запущена",
+                                      description: "Ожидайте завершения обработки",
+                                    });
+                                  } catch (error) {
+                                    console.error('Error retrying transcription:', error);
+                                    toast({
+                                      title: "Ошибка",
+                                      description: "Не удалось запустить транскрипцию",
+                                      variant: "destructive",
+                                    });
+                                  }
+                                }}
+                                className="h-6 px-2 text-xs"
+                              >
+                                <RefreshCw className="w-3 h-3 mr-1" />
+                                Повторить
+                              </Button>
+                            )}
                             <Button
                               variant="ghost"
                               size="sm"
