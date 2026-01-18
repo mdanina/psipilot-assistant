@@ -15,6 +15,8 @@ import {
   uploadAudioFile,
   updateRecording,
   startTranscription,
+  validateFileSize,
+  MAX_FILE_SIZE_MB,
 } from '@/lib/supabase-recordings';
 import {
   saveRecordingLocally,
@@ -224,9 +226,17 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
         error: errorMessage
       });
 
+      // User-friendly error messages
+      let userFriendlyDescription = "Запись сохранена локально и будет загружена позже";
+      if (errorMessage.includes('exceeded') && errorMessage.includes('maximum allowed size')) {
+        userFriendlyDescription = `Файл слишком большой. Лимит: ${MAX_FILE_SIZE_MB} МБ`;
+      } else if (errorMessage.includes('Файл слишком большой')) {
+        userFriendlyDescription = errorMessage;
+      }
+
       toast({
         title: "Ошибка загрузки",
-        description: "Запись сохранена локально и будет загружена позже",
+        description: userFriendlyDescription,
         variant: "destructive",
       });
 
@@ -242,6 +252,19 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
   }): Promise<string> => {
     if (!user || !profile?.clinic_id) {
       throw new Error('Необходима авторизация');
+    }
+
+    // Validate file size BEFORE queuing
+    try {
+      validateFileSize(params.blob);
+    } catch (sizeError) {
+      const fileSizeMB = Math.round(params.blob.size / 1024 / 1024 * 10) / 10;
+      toast({
+        title: "Файл слишком большой",
+        description: `Размер записи ${fileSizeMB} МБ превышает лимит ${MAX_FILE_SIZE_MB} МБ. Попробуйте записать более короткую сессию.`,
+        variant: "destructive",
+      });
+      throw new Error(`Файл слишком большой: ${fileSizeMB} МБ`);
     }
 
     const uploadId = `upload-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;

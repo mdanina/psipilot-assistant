@@ -21,7 +21,7 @@ import { Input } from "@/components/ui/input";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { getSession, checkSessionClinicalNotes, createSession } from "@/lib/supabase-sessions";
-import { getSessionRecordings, getRecordingStatus, createRecording, uploadAudioFile, updateRecording, startTranscription, syncTranscriptionStatus, deleteRecording } from "@/lib/supabase-recordings";
+import { getSessionRecordings, getRecordingStatus, createRecording, uploadAudioFile, updateRecording, startTranscription, syncTranscriptionStatus, deleteRecording, validateFileSize, MAX_FILE_SIZE_MB } from "@/lib/supabase-recordings";
 import { usePatients } from "@/hooks/usePatients";
 import { useSessions, useSessionsByIds, useCreateSession, useDeleteSession as useDeleteSessionMutation, useCompleteSession, useLinkSessionToPatient, useInvalidateSessions } from "@/hooks/useSessions";
 import { useQueryClient } from "@tanstack/react-query";
@@ -1774,6 +1774,19 @@ const SessionsPage = () => {
       return;
     }
 
+    // Validate file size BEFORE creating database record
+    try {
+      validateFileSize(file);
+    } catch (sizeError) {
+      const fileSizeMB = Math.round(file.size / 1024 / 1024 * 10) / 10;
+      toast({
+        title: "Файл слишком большой",
+        description: `Размер файла ${fileSizeMB} МБ превышает лимит ${MAX_FILE_SIZE_MB} МБ. Попробуйте сжать аудио или разбить на части.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsUploadingAudio(true);
     setUploadingFileName(file.name);
 
@@ -1851,9 +1864,13 @@ const SessionsPage = () => {
       const errorMessage = error instanceof Error ? error.message : 'Неизвестная ошибка';
 
       let userFriendlyMessage = errorMessage;
-      if (errorMessage.includes('Failed to create recording')) {
-        userFriendlyMessage = 'Не удалось создать сессию в базе данных. Проверьте подключение к Supabase.';
-      } else if (errorMessage.includes('Failed to upload audio file')) {
+      if (errorMessage.includes('exceeded') && errorMessage.includes('maximum allowed size')) {
+        userFriendlyMessage = `Файл слишком большой для загрузки. Максимальный размер: ${MAX_FILE_SIZE_MB} МБ. Попробуйте сжать аудио.`;
+      } else if (errorMessage.includes('Файл слишком большой')) {
+        userFriendlyMessage = errorMessage; // Already user-friendly
+      } else if (errorMessage.includes('Failed to create recording')) {
+        userFriendlyMessage = 'Не удалось создать запись в базе данных. Проверьте подключение к Supabase.';
+      } else if (errorMessage.includes('Failed to upload audio file') || errorMessage.includes('Не удалось загрузить')) {
         userFriendlyMessage = 'Не удалось загрузить аудио файл. Проверьте, что bucket "recordings" создан в Supabase Storage.';
       } else if (errorMessage.includes('row-level security')) {
         userFriendlyMessage = 'Ошибка прав доступа. Убедитесь, что вы авторизованы и имеете права на создание записей.';
