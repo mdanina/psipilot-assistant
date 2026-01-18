@@ -27,6 +27,7 @@ export const RecordingCard = ({
     recordingTime,
     audioBlob,
     error: recorderError,
+    wasPartialSave,
     startRecording,
     pauseRecording,
     resumeRecording,
@@ -103,6 +104,7 @@ export const RecordingCard = ({
           duration: recordingTime,
           fileName,
         });
+        // Предупреждение о частичном сохранении показывается через useEffect
       }
     } catch (error) {
       console.error('Error stopping recording:', error);
@@ -115,6 +117,17 @@ export const RecordingCard = ({
       setIsStopping(false);
     }
   };
+
+  // Показываем предупреждение если было частичное сохранение
+  useEffect(() => {
+    if (wasPartialSave && completedRecording) {
+      toast({
+        title: "Предупреждение",
+        description: "Запись сохранена. Возможна потеря последних секунд из-за медленной обработки браузером.",
+        variant: "default",
+      });
+    }
+  }, [wasPartialSave, completedRecording, toast]);
 
   const handleCancelRecording = () => {
     cancelRecording();

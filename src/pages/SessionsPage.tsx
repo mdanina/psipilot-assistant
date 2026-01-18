@@ -208,6 +208,7 @@ const SessionsPage = () => {
     recordingTime,
     audioBlob,
     error: recorderError,
+    wasPartialSave,
     startRecording,
     pauseRecording,
     resumeRecording,
@@ -296,6 +297,17 @@ const SessionsPage = () => {
       });
     }
   }, [recorderError, toast]);
+
+  // Show warning if recording was partially saved due to timeout
+  useEffect(() => {
+    if (wasPartialSave && audioBlob) {
+      toast({
+        title: "Предупреждение",
+        description: "Запись сохранена. Возможна потеря последних секунд из-за медленной обработки браузером.",
+        variant: "default",
+      });
+    }
+  }, [wasPartialSave, audioBlob, toast]);
 
   // Block navigation while recording
   const recordingBlocker = useNavigationBlocker(

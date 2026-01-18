@@ -7,6 +7,7 @@ export interface UseAudioRecorderReturn {
   recordingTime: number;
   audioBlob: Blob | null;
   error: string | null;
+  wasPartialSave: boolean;
   startRecording: () => Promise<void>;
   pauseRecording: () => void;
   resumeRecording: () => void;
@@ -15,6 +16,34 @@ export interface UseAudioRecorderReturn {
   reset: () => void;
   getCurrentChunks: () => Blob[];
   getCurrentMimeType: () => string;
+}
+
+/**
+ * Рассчитывает адаптивный timeout для остановки записи
+ * на основе длительности записи и характеристик устройства
+ */
+function calculateStopTimeout(recordingTimeSeconds: number): number {
+  const baseTimeout = 30000; // 30 сек базовый (консервативно)
+
+  // Определяем "медленный" браузер/устройство
+  const isSafariIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) &&
+                      !(window as any).MSStream;
+  const isOldDevice = navigator.hardwareConcurrency
+    ? navigator.hardwareConcurrency <= 2
+    : false;
+
+  let multiplier = 1;
+  if (isSafariIOS) multiplier *= 1.5;
+  if (isOldDevice) multiplier *= 1.5;
+
+  // +10 сек за каждый час записи
+  const extraPerHour = 10000 * multiplier;
+  const hours = recordingTimeSeconds / 3600;
+
+  const timeout = baseTimeout * multiplier + hours * extraPerHour;
+
+  // Минимум 30 сек, максимум 2 минуты
+  return Math.max(30000, Math.min(timeout, 120000));
 }
 
 /**
@@ -28,6 +57,7 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
   const [recordingTime, setRecordingTime] = useState(0);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [wasPartialSave, setWasPartialSave] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -36,6 +66,8 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
   const startTimeRef = useRef<number>(0);
   const pausedTimeRef = useRef<number>(0);
   const stopResolveRef = useRef<((blob: Blob | null) => void) | null>(null);
+  const stopTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const stopResolvedRef = useRef<boolean>(false);
   const finalRecordingTimeRef = useRef<number>(0);
   const currentMimeTypeRef = useRef<string>('audio/webm');
 
@@ -46,14 +78,21 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     setRecordingTime(0);
     setAudioBlob(null);
     setError(null);
+    setWasPartialSave(false);
     chunksRef.current = [];
     pausedTimeRef.current = 0;
     finalRecordingTimeRef.current = 0;
     stopResolveRef.current = null;
+    stopResolvedRef.current = false;
 
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
+    }
+
+    if (stopTimeoutRef.current) {
+      clearTimeout(stopTimeoutRef.current);
+      stopTimeoutRef.current = null;
     }
   }, []);
 
@@ -216,14 +255,71 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     return new Promise((resolve) => {
       // Save current recording time before stopping
       finalRecordingTimeRef.current = recordingTime;
+      stopResolvedRef.current = false;
+      setWasPartialSave(false);
 
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        // Store resolve function for the onstop handler
-        stopResolveRef.current = resolve;
+        const timeoutMs = calculateStopTimeout(recordingTime);
+
+        // Функция для безопасного resolve (только один раз)
+        const safeResolve = (blob: Blob | null, isPartial: boolean) => {
+          if (stopResolvedRef.current) return;
+          stopResolvedRef.current = true;
+
+          // Очистить timeout если ещё не сработал
+          if (stopTimeoutRef.current) {
+            clearTimeout(stopTimeoutRef.current);
+            stopTimeoutRef.current = null;
+          }
+
+          if (isPartial) {
+            setWasPartialSave(true);
+            console.warn(
+              '[Recording] Partial save due to timeout.',
+              `Duration: ${recordingTime}s, Blob size: ${blob?.size || 0} bytes`
+            );
+          }
+
+          resolve(blob);
+        };
+
+        // Timeout для защиты от зависания
+        stopTimeoutRef.current = setTimeout(() => {
+          console.error(
+            `[Recording] Stop timeout after ${timeoutMs}ms.`,
+            `Chunks available: ${chunksRef.current.length}`
+          );
+
+          // Собираем частичные данные из накопленных chunks
+          let partialBlob: Blob | null = null;
+          if (chunksRef.current.length > 0) {
+            partialBlob = new Blob(chunksRef.current, {
+              type: currentMimeTypeRef.current || 'audio/webm',
+            });
+            setAudioBlob(partialBlob);
+          }
+
+          setIsStopped(true);
+          safeResolve(partialBlob, true);
+
+          // Cleanup без повторного вызова stop()
+          if (streamRef.current) {
+            streamRef.current.getTracks().forEach(track => track.stop());
+            streamRef.current = null;
+          }
+          mediaRecorderRef.current = null;
+        }, timeoutMs);
+
+        // Обёртка для onstop handler
+        stopResolveRef.current = (blob) => {
+          safeResolve(blob, false);
+        };
+
         mediaRecorderRef.current.stop();
       } else {
         resolve(null);
       }
+
       setIsRecording(false);
       setIsPaused(false);
       stopTimer();
@@ -253,6 +349,7 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     recordingTime,
     audioBlob,
     error,
+    wasPartialSave,
     startRecording,
     pauseRecording,
     resumeRecording,
