@@ -83,7 +83,9 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     pausedTimeRef.current = 0;
     finalRecordingTimeRef.current = 0;
     stopResolveRef.current = null;
-    stopResolvedRef.current = false;
+    // НЕ сбрасываем stopResolvedRef здесь!
+    // Он сбрасывается только в stopRecording() перед началом остановки.
+    // Если сбросить здесь, то onstop может перезаписать состояние после cancel.
 
     if (timerRef.current) {
       clearInterval(timerRef.current);
@@ -142,6 +144,20 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
         stopTimeoutRef.current = null;
       }
       stopResolvedRef.current = true; // Защита на случай позднего вызова onstop
+
+      // Очищаем предыдущую запись если она существует (защита от двойного вызова)
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        try {
+          mediaRecorderRef.current.stop();
+        } catch (e) {
+          // Ignore errors
+        }
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+      mediaRecorderRef.current = null;
 
       // Request microphone access
       const stream = await navigator.mediaDevices.getUserMedia({
