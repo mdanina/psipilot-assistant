@@ -35,7 +35,7 @@ import { logLocalStorageOperation } from "@/lib/local-recording-audit";
 import { RecoveryDialog } from "@/components/scribe/RecoveryDialog";
 
 const ScribePage = () => {
-  const { user, profile } = useAuth();
+  const { user, profile, updateActivity } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
 
@@ -82,6 +82,23 @@ const ScribePage = () => {
   const handleRecordingStateChange = useCallback((recording: boolean) => {
     setIsRecording(recording);
   }, []);
+
+  // Обновление activity во время записи для предотвращения session timeout
+  useEffect(() => {
+    if (!isRecording) return;
+
+    // Обновляем activity каждые 30 секунд во время записи
+    const intervalId = setInterval(() => {
+      updateActivity();
+    }, 30000);
+
+    // Также обновляем сразу при начале записи
+    updateActivity();
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [isRecording, updateActivity]);
 
   // Проверка не загруженных записей при загрузке страницы
   useEffect(() => {

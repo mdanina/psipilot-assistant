@@ -55,7 +55,7 @@ type Patient = Database['public']['Tables']['patients']['Row'];
 type SessionNote = Database['public']['Tables']['session_notes']['Row'];
 
 const SessionsPage = () => {
-  const { user, profile } = useAuth();
+  const { user, profile, updateActivity } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
@@ -189,6 +189,23 @@ const SessionsPage = () => {
     getCurrentChunks,
     getCurrentMimeType,
   } = useAudioRecorder();
+
+  // Обновление activity во время записи для предотвращения session timeout
+  useEffect(() => {
+    if (!isRecording) return;
+
+    // Обновляем activity каждые 30 секунд во время записи
+    const intervalId = setInterval(() => {
+      updateActivity();
+    }, 30000);
+
+    // Также обновляем сразу при начале записи
+    updateActivity();
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [isRecording, updateActivity]);
 
   // Transcription recovery hook - tracks processing transcriptions for ALL user's sessions
   // This replaces the local polling logic and survives page navigation
