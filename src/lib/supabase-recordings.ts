@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { decryptPHI } from './encryption';
 import type { Database } from '@/types/database.types';
 
 type Recording = Database['public']['Tables']['recordings']['Row'];
@@ -265,7 +266,7 @@ export async function getRecordingStatus(
 
   const { data, error } = await supabase
     .from('recordings')
-    .select('transcription_status, transcription_text, transcription_error')
+    .select('transcription_status, transcription_text, transcription_error, transcription_encrypted')
     .eq('id', recordingId)
     .is('deleted_at', null) // Only get non-deleted recordings
     .single();
@@ -279,9 +280,20 @@ export async function getRecordingStatus(
     throw new Error('Recording not found');
   }
 
+  // Decrypt transcription_text if encrypted
+  let transcriptionText = data.transcription_text;
+  if (data.transcription_encrypted && transcriptionText) {
+    try {
+      transcriptionText = await decryptPHI(transcriptionText);
+    } catch (decryptError) {
+      console.error(`Failed to decrypt transcription for recording ${recordingId}:`, decryptError);
+      // Keep encrypted text - UI will show it as-is
+    }
+  }
+
   const result: TranscriptionStatus = {
     status: data.transcription_status,
-    transcriptionText: data.transcription_text,
+    transcriptionText,
     error: data.transcription_error || undefined,
   };
 
@@ -348,6 +360,7 @@ export async function getRecording(recordingId: string): Promise<Recording> {
 
 /**
  * Get all recordings for a session
+ * Automatically decrypts transcription_text if encrypted
  */
 export async function getSessionRecordings(sessionId: string): Promise<Recording[]> {
   const { data, error } = await supabase
@@ -362,7 +375,26 @@ export async function getSessionRecordings(sessionId: string): Promise<Recording
     throw new Error(`Failed to get session recordings: ${error.message}`);
   }
 
-  return data || [];
+  if (!data) return [];
+
+  // Decrypt transcription_text if encrypted
+  const decryptedRecordings = await Promise.all(
+    data.map(async (recording) => {
+      if (recording.transcription_encrypted && recording.transcription_text) {
+        try {
+          const decryptedText = await decryptPHI(recording.transcription_text);
+          return { ...recording, transcription_text: decryptedText };
+        } catch (decryptError) {
+          console.error(`Failed to decrypt transcription for recording ${recording.id}:`, decryptError);
+          // Return with encrypted text if decryption fails (UI will show error)
+          return recording;
+        }
+      }
+      return recording;
+    })
+  );
+
+  return decryptedRecordings;
 }
 
 /**
