@@ -56,8 +56,16 @@ interface BackgroundUploadContextType {
   pendingUploads: Map<string, PendingUpload>;
   /** Check if any uploads are in progress */
   hasActiveUploads: boolean;
+  /** Check if any uploads failed */
+  hasFailedUploads: boolean;
+  /** Get count of failed uploads */
+  failedUploadsCount: number;
+  /** Retry a failed upload */
+  retryUpload: (uploadId: string) => void;
   /** Cancel a pending upload */
   cancelUpload: (uploadId: string) => void;
+  /** Dismiss a failed upload (remove from list) */
+  dismissFailedUpload: (uploadId: string) => void;
 }
 
 const BackgroundUploadContext = createContext<BackgroundUploadContextType | null>(null);
@@ -318,9 +326,39 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
     }
   }, [pendingUploads, removeUpload, toast]);
 
+  // Retry a failed upload
+  const retryUpload = useCallback((uploadId: string) => {
+    const upload = pendingUploads.get(uploadId);
+    if (upload && upload.status === 'failed') {
+      // Reset status and retry
+      updateUpload(uploadId, { status: 'queued', error: undefined });
+      processingRef.current.delete(uploadId);
+      setTimeout(() => processUpload(upload), 0);
+      toast({
+        title: "Повторная загрузка",
+        description: "Пробуем загрузить запись снова...",
+      });
+    }
+  }, [pendingUploads, updateUpload, processUpload, toast]);
+
+  // Dismiss a failed upload without deleting local recording
+  const dismissFailedUpload = useCallback((uploadId: string) => {
+    const upload = pendingUploads.get(uploadId);
+    if (upload && upload.status === 'failed') {
+      removeUpload(uploadId);
+      // Note: local recording is preserved for RecoveryDialog
+    }
+  }, [pendingUploads, removeUpload]);
+
   const hasActiveUploads = Array.from(pendingUploads.values()).some(
     u => u.status === 'queued' || u.status === 'uploading' || u.status === 'transcribing'
   );
+
+  const failedUploads = Array.from(pendingUploads.values()).filter(
+    u => u.status === 'failed'
+  );
+  const hasFailedUploads = failedUploads.length > 0;
+  const failedUploadsCount = failedUploads.length;
 
   // Warn user before closing tab if uploads are in progress
   useEffect(() => {
@@ -343,7 +381,11 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
       queueUpload,
       pendingUploads,
       hasActiveUploads,
+      hasFailedUploads,
+      failedUploadsCount,
+      retryUpload,
       cancelUpload,
+      dismissFailedUpload,
     }}>
       {children}
     </BackgroundUploadContext.Provider>
