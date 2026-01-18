@@ -1,24 +1,26 @@
 import { useState, useEffect, useRef } from "react";
-import { Mic, FileText, X, Pause, Play, Square, Sparkles, Loader2, Music } from "lucide-react";
+import { Mic, FileText, X, Pause, Play, Square, Sparkles, Music } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { useToast } from "@/hooks/use-toast";
+import { useBackgroundUpload } from "@/contexts/BackgroundUploadContext";
 
 interface RecordingCardProps {
-  onRecordingComplete: (audioBlob: Blob, duration: number) => Promise<void>;
+  /** Called when user clicks "Транскрибировать" - typically navigates to sessions */
   onGenerateNote: () => void;
-  isProcessing?: boolean;
-  transcriptionStatus?: 'pending' | 'processing' | 'completed' | 'failed';
   /** Called when recording starts or stops. Used for navigation blocking. */
   onRecordingStateChange?: (isRecording: boolean) => void;
+  /** Session ID for SessionsPage flow (upload to existing session) */
+  sessionId?: string;
+  /** Patient ID for ScribePage flow (create new session) */
+  patientId?: string;
 }
 
 export const RecordingCard = ({
-  onRecordingComplete,
   onGenerateNote,
-  isProcessing = false,
-  transcriptionStatus = 'pending',
   onRecordingStateChange,
+  sessionId,
+  patientId,
 }: RecordingCardProps) => {
   const {
     status,
@@ -34,6 +36,7 @@ export const RecordingCard = ({
   } = useAudioRecorder();
 
   const { toast } = useToast();
+  const { queueUpload } = useBackgroundUpload();
   const [isSubmitting, setIsSubmitting] = useState(false); // Защита от двойного submit
 
   // Вычисляемые значения из status
@@ -145,17 +148,26 @@ export const RecordingCard = ({
       if (isSubmitting) return;
       setIsSubmitting(true);
 
-      // If we have a completed recording, send it first
       try {
-        await onRecordingComplete(completedRecording.blob, completedRecording.duration);
-        // Clear completed recording after successful upload
+        // Queue upload in background - user can navigate away immediately
+        await queueUpload({
+          blob: completedRecording.blob,
+          duration: completedRecording.duration,
+          sessionId,
+          patientId,
+        });
+
+        // Clear state immediately so user can start new recording or navigate
         setCompletedRecording(null);
         reset();
+
+        // Navigate to sessions page
+        onGenerateNote();
       } catch (error) {
-        console.error('Error processing recording:', error);
+        console.error('Error queuing upload:', error);
         toast({
           title: "Ошибка",
-          description: "Не удалось обработать сессию",
+          description: "Не удалось начать загрузку",
           variant: "destructive",
         });
       } finally {
@@ -262,30 +274,9 @@ export const RecordingCard = ({
     );
   }
 
-  // State 2: Processing (uploading and transcribing)
-  if (isProcessing) {
-    return (
-      <div className="bg-card rounded-2xl shadow-elevated p-8 max-w-lg w-full relative">
-        <div className="absolute bottom-4 left-4 text-primary/30">
-          <Sparkles className="w-5 h-5" />
-        </div>
+  // Note: Processing state removed - now handled by BackgroundUploadIndicator in the header
 
-        <div className="text-center space-y-4">
-          <h3 className="text-xl font-semibold text-primary">Обработка записи</h3>
-          <p className="text-muted-foreground text-sm">
-            {transcriptionStatus === 'processing'
-              ? "Транскрипция в процессе..."
-              : "Загрузка и сохранение..."}
-          </p>
-          <div className="flex items-center justify-center py-4">
-            <Loader2 className="w-6 h-6 animate-spin text-primary" />
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // State 3: Initial state or with completed recording
+  // State 2: Initial state or with completed recording
   return (
     <div className="bg-card rounded-2xl shadow-elevated p-8 max-w-lg w-full relative">
       {/* Sparkle decoration */}
@@ -337,7 +328,6 @@ export const RecordingCard = ({
           <Button
             onClick={handleStartRecording}
             className="gap-2"
-            disabled={isProcessing}
             variant={completedRecording ? "outline" : "default"}
           >
             <Mic className="w-4 h-4" />
@@ -347,21 +337,12 @@ export const RecordingCard = ({
             variant={completedRecording ? "default" : "outline"}
             onClick={handleGenerateNote}
             className="gap-2"
-            disabled={isProcessing || isSubmitting}
+            disabled={isSubmitting}
           >
             <FileText className="w-4 h-4" />
             Транскрибировать
           </Button>
         </div>
-
-        {/* Transcription status indicator */}
-        {transcriptionStatus === 'failed' && (
-          <div className="mt-4 text-center">
-            <p className="text-sm text-destructive">
-              Ошибка транскрипции. Попробуйте еще раз.
-            </p>
-          </div>
-        )}
       </div>
     </div>
   );

@@ -67,8 +67,7 @@ const ScribePage = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
 
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [transcriptionStatus, setTranscriptionStatus] = useState<'pending' | 'processing' | 'completed' | 'failed'>('pending');
+  // Note: isProcessing and transcriptionStatus removed - RecordingCard now uses BackgroundUploadContext
 
   // Состояние для не загруженных записей
   const [showRecoveryDialog, setShowRecoveryDialog] = useState(false);
@@ -291,163 +290,8 @@ const ScribePage = () => {
     }
   };
 
-  const handleRecordingComplete = async (audioBlob: Blob, duration: number) => {
-    if (!user || !profile || !profile.clinic_id) {
-      toast({
-        title: "Ошибка",
-        description: "Необходима авторизация и привязка к клинике",
-        variant: "destructive",
-      });
-      throw new Error("Unauthorized");
-    }
-
-    setIsProcessing(true);
-    setTranscriptionStatus('pending');
-
-    let localRecordingId: string | null = null;
-    const fileName = `recording-${Date.now()}.webm`;
-
-    try {
-      // 1. СНАЧАЛА сохраняем локально (независимо от интернета)
-      const mimeType = audioBlob.type || 'audio/webm';
-
-      try {
-        localRecordingId = await saveRecordingLocally(
-          audioBlob,
-          fileName,
-          duration,
-          mimeType
-        );
-        console.log('[ScribePage] Recording saved locally:', localRecordingId);
-        await logLocalStorageOperation('local_storage_save', null, {
-          fileName,
-          duration,
-        });
-      } catch (localError) {
-        console.warn('[ScribePage] Failed to save locally (non-critical):', localError);
-        // Продолжаем даже если локальное сохранение не удалось
-      }
-
-      // 2. Теперь пытаемся загрузить в Supabase
-      const session = await createSession({
-        userId: user.id,
-        clinicId: profile.clinic_id,
-        patientId: null, // Will be linked later on Sessions page
-        title: `Сессия ${new Date().toLocaleString('ru-RU')}`,
-      });
-
-      const recording = await createRecording({
-        sessionId: session.id,
-        userId: user.id,
-        fileName,
-      });
-
-      await uploadAudioFile({
-        recordingId: recording.id,
-        audioBlob,
-        fileName: recording.file_name || fileName,
-        mimeType: audioBlob.type || 'audio/webm',
-      });
-
-      await updateRecording(recording.id, {
-        duration_seconds: duration,
-      });
-
-      // 3. Если загрузка успешна, помечаем локальную запись как загруженную
-      if (localRecordingId) {
-        try {
-          await markRecordingUploaded(localRecordingId, recording.id, session.id);
-          await logLocalStorageOperation('local_storage_upload_success', recording.id, {
-            fileName,
-            duration,
-            sessionId: session.id,
-          });
-        } catch (markError) {
-          console.warn('[ScribePage] Failed to mark as uploaded:', markError);
-        }
-      }
-
-      toast({
-        title: "Успешно",
-        description: "Сессия сохранена. Запуск транскрипции...",
-      });
-
-      // Start transcription with retry
-      const transcriptionStarted = await startTranscriptionWithRetry(
-        recording.id,
-        transcriptionApiUrl,
-        (attempt, max) => {
-          if (attempt > 1) {
-            toast({
-              title: "Повторная попытка",
-              description: `Попытка запуска транскрипции ${attempt}/${max}...`,
-            });
-          }
-        }
-      );
-
-      if (transcriptionStarted) {
-        // Используем хук для отслеживания транскрипции
-        addTranscription(recording.id, session.id);
-        setIsProcessing(false);
-        setTranscriptionStatus('pending');
-      } else {
-        console.error('Error starting transcription after all retries');
-        setTranscriptionStatus('failed');
-        setIsProcessing(false);
-        toast({
-          title: "Предупреждение",
-          description: "Сессия сохранена, но транскрипция не запущена после 3 попыток. Вы можете запустить её позже в разделе 'Сессии'.",
-          variant: "default",
-        });
-      }
-    } catch (error) {
-      console.error('Error saving recording:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Неизвестная ошибка';
-
-      // 4. Если загрузка не удалась, помечаем локальную запись как не загруженную
-      if (localRecordingId) {
-        try {
-          await markRecordingUploadFailed(localRecordingId, errorMessage);
-          await logLocalStorageOperation('local_storage_upload_failed', null, {
-            fileName,
-            error: errorMessage,
-          });
-          console.log('[ScribePage] Recording saved locally but upload failed:', localRecordingId);
-
-          // Refresh unuploaded list
-          const unuploaded = await getUnuploadedRecordings();
-          setUnuploadedRecordings(unuploaded);
-          if (unuploaded.length > 0) {
-            setShowRecoveryDialog(true);
-          }
-        } catch (markError) {
-          console.warn('[ScribePage] Failed to mark upload error:', markError);
-        }
-      }
-
-      let userFriendlyMessage = errorMessage;
-      if (errorMessage.includes('Failed to create recording')) {
-        userFriendlyMessage = 'Не удалось создать сессию в базе данных. Запись сохранена локально и будет загружена автоматически при восстановлении соединения.';
-      } else if (errorMessage.includes('Failed to upload audio file')) {
-        userFriendlyMessage = 'Не удалось загрузить аудио файл. Запись сохранена локально и будет загружена автоматически при восстановлении соединения.';
-      } else if (errorMessage.includes('row-level security')) {
-        userFriendlyMessage = 'Ошибка прав доступа. Запись сохранена локально.';
-      } else {
-        userFriendlyMessage = `Ошибка: ${errorMessage}. Запись сохранена локально.`;
-      }
-
-      toast({
-        title: "Ошибка загрузки",
-        description: userFriendlyMessage,
-        variant: "destructive",
-      });
-
-      setIsProcessing(false);
-      setTranscriptionStatus('pending');
-      throw error;
-    }
-  };
+  // Note: handleRecordingComplete removed - RecordingCard now uses BackgroundUploadContext
+  // The upload logic is handled by BackgroundUploadProvider which persists across navigation
 
   const handleGenerateNote = () => {
     // Navigate to sessions page where user can create a note
@@ -517,12 +361,9 @@ const ScribePage = () => {
           </div>
         )}
 
-        {/* Recording card */}
+        {/* Recording card - uses background upload, navigation happens immediately */}
         <RecordingCard
-          onRecordingComplete={handleRecordingComplete}
           onGenerateNote={handleGenerateNote}
-          isProcessing={isProcessing}
-          transcriptionStatus={transcriptionStatus}
           onRecordingStateChange={handleRecordingStateChange}
         />
       </div>

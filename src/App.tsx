@@ -5,6 +5,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { SidebarProvider } from "@/contexts/SidebarContext";
+import { BackgroundUploadProvider } from "@/contexts/BackgroundUploadContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { SessionTimeoutWarning } from "@/components/auth/SessionTimeoutWarning";
 import { MainLayout } from "@/components/layout/MainLayout";
@@ -32,6 +33,7 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <AuthProvider>
+            <BackgroundUploadProvider>
             <SidebarProvider>
             {/* SessionTimeoutWarning is rendered globally but only activates when authenticated */}
             <SessionTimeoutWarning />
@@ -181,6 +183,7 @@ const App = () => (
             <Route path="*" element={<NotFound />} />
           </Routes>
             </SidebarProvider>
+            </BackgroundUploadProvider>
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>
