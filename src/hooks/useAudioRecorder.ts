@@ -294,9 +294,17 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
       mediaRecorder.onerror = (event) => {
         // Защита от позднего вызова onstop после ошибки
         stopResolvedRef.current = true;
+        isStoppingRef.current = false; // Разрешаем следующий stopRecording
         setError('Ошибка записи аудио');
         setStatus('error');
         console.error('MediaRecorder error:', event);
+
+        // Resolve pending stopRecording promise с null если есть
+        if (stopResolveRef.current) {
+          stopResolveRef.current(null);
+          stopResolveRef.current = null;
+        }
+
         cleanup();
       };
 
@@ -434,7 +442,8 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
         mediaRecorderRef.current.stop();
       } else {
         // MediaRecorder недоступен или уже остановлен - это edge case
-        // Не меняем status (оставляем 'stopping'), просто resolve с null
+        // Сбрасываем в idle т.к. нечего останавливать
+        setStatus('idle');
         isStoppingRef.current = false;
         resolve(null);
       }
