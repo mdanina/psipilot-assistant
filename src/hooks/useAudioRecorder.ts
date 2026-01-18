@@ -70,6 +70,7 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
   const stopResolvedRef = useRef<boolean>(false);
   const finalRecordingTimeRef = useRef<number>(0);
   const currentMimeTypeRef = useRef<string>('audio/webm');
+  const isStartingRef = useRef<boolean>(false); // Защита от двойного вызова startRecording
 
   const reset = useCallback(() => {
     setIsRecording(false);
@@ -83,6 +84,7 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     pausedTimeRef.current = 0;
     finalRecordingTimeRef.current = 0;
     stopResolveRef.current = null;
+    isStartingRef.current = false; // Разрешаем повторный вызов startRecording после reset
     // НЕ сбрасываем stopResolvedRef здесь!
     // Он сбрасывается только в stopRecording() перед началом остановки.
     // Если сбросить здесь, то onstop может перезаписать состояние после cancel.
@@ -134,6 +136,13 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
   }, [stopTimer]);
 
   const startRecording = useCallback(async () => {
+    // Защита от двойного вызова во время ожидания getUserMedia
+    if (isStartingRef.current) {
+      console.log('[Recording] startRecording already in progress, ignoring');
+      return;
+    }
+    isStartingRef.current = true;
+
     try {
       setError(null);
 
@@ -279,6 +288,8 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
       console.error('Error starting recording:', err);
       cleanup();
       reset();
+    } finally {
+      isStartingRef.current = false;
     }
   }, [startTimer, cleanup, reset]);
 
