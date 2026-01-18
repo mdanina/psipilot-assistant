@@ -68,9 +68,9 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
   const stopResolveRef = useRef<((blob: Blob | null) => void) | null>(null);
   const stopTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const stopResolvedRef = useRef<boolean>(false);
-  const finalRecordingTimeRef = useRef<number>(0);
   const currentMimeTypeRef = useRef<string>('audio/webm');
   const isStartingRef = useRef<boolean>(false); // Защита от двойного вызова startRecording
+  const recordingTimeRef = useRef<number>(0); // Ref для использования в callbacks без пересоздания
 
   const reset = useCallback(() => {
     setIsRecording(false);
@@ -82,7 +82,7 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     setWasPartialSave(false);
     chunksRef.current = [];
     pausedTimeRef.current = 0;
-    finalRecordingTimeRef.current = 0;
+    recordingTimeRef.current = 0;
     stopResolveRef.current = null;
     isStartingRef.current = false; // Разрешаем повторный вызов startRecording после reset
     // НЕ сбрасываем stopResolvedRef здесь!
@@ -110,9 +110,10 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
   const startTimer = useCallback(() => {
     stopTimer();
     startTimeRef.current = Date.now() - pausedTimeRef.current;
-    
+
     timerRef.current = setInterval(() => {
       const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
+      recordingTimeRef.current = elapsed; // Обновляем ref для callbacks
       setRecordingTime(elapsed);
     }, 100);
   }, [stopTimer]);
@@ -298,9 +299,9 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
       mediaRecorderRef.current.pause();
       setIsPaused(true);
       stopTimer();
-      pausedTimeRef.current = recordingTime * 1000; // Save current time in milliseconds
+      pausedTimeRef.current = recordingTimeRef.current * 1000; // Save current time in milliseconds
     }
-  }, [recordingTime, stopTimer]);
+  }, [stopTimer]);
 
   const resumeRecording = useCallback(() => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'paused') {
@@ -312,8 +313,9 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
 
   const stopRecording = useCallback((): Promise<Blob | null> => {
     return new Promise((resolve) => {
-      // Save current recording time before stopping
-      finalRecordingTimeRef.current = recordingTime;
+      // Используем ref для получения актуального времени без пересоздания callback
+      const currentRecordingTime = recordingTimeRef.current;
+
       stopResolvedRef.current = false;
       setWasPartialSave(false);
 
@@ -324,7 +326,7 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
       }
 
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        const timeoutMs = calculateStopTimeout(recordingTime);
+        const timeoutMs = calculateStopTimeout(currentRecordingTime);
 
         // Функция для безопасного resolve (только один раз)
         const safeResolve = (blob: Blob | null, isPartial: boolean) => {
@@ -341,7 +343,7 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
             setWasPartialSave(true);
             console.warn(
               '[Recording] Partial save due to timeout.',
-              `Duration: ${recordingTime}s, Blob size: ${blob?.size || 0} bytes`
+              `Duration: ${currentRecordingTime}s, Blob size: ${blob?.size || 0} bytes`
             );
           }
 
@@ -391,7 +393,7 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
       setIsPaused(false);
       stopTimer();
     });
-  }, [stopTimer, recordingTime]);
+  }, [stopTimer]);
 
   const cancelRecording = useCallback(() => {
     // Resolve pending stopRecording promise с null перед сбросом

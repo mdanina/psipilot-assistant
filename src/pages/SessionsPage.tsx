@@ -1651,6 +1651,7 @@ const SessionsPage = () => {
     setIsSavingRecording(true);
 
     let localRecordingId: string | null = null;
+    let fileName = `recording-${Date.now()}.webm`; // Объявляем до try для доступа в catch
 
     try {
       // Stop recording and get the blob directly
@@ -1661,7 +1662,6 @@ const SessionsPage = () => {
       }
 
       // 1. СНАЧАЛА сохраняем локально (независимо от интернета)
-      const fileName = `recording-${Date.now()}.webm`;
       const mimeType = blob.type || 'audio/webm';
       
       try {
