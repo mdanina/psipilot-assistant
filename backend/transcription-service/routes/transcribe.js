@@ -306,10 +306,15 @@ router.post('/transcribe', async (req, res) => {
       updateData.transcription_error = transcript.error || 'Transcription failed';
     }
 
-    await supabase
+    const { error: updateError } = await supabase
       .from('recordings')
       .update(updateData)
       .eq('id', recordingId);
+
+    if (updateError) {
+      console.error('Error saving transcript_id to database:', updateError);
+      throw new Error(`Failed to save transcription status: ${updateError.message}`);
+    }
 
     // Return transcription ID for polling or webhook
     res.json({
