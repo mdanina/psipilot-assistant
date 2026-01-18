@@ -143,6 +143,14 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
         clearTimeout(stopTimeoutRef.current);
         stopTimeoutRef.current = null;
       }
+
+      // Resolve pending stopRecording promise с null, если есть
+      // (если startRecording вызван во время stopRecording)
+      if (stopResolveRef.current && !stopResolvedRef.current) {
+        stopResolveRef.current(null);
+        stopResolveRef.current = null;
+      }
+
       stopResolvedRef.current = true; // Защита на случай позднего вызова onstop
 
       // Очищаем предыдущую запись если она существует (защита от двойного вызова)
