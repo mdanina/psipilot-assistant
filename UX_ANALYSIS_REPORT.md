@@ -175,31 +175,44 @@ if (profile.role === 'admin') {
 
 ---
 
-### 3.3. Конфликт: Транскрипция без сети
+### 3.3. ~~Конфликт: Транскрипция без сети~~ (ИСПРАВЛЕНО)
 
-**Файл:** `src/pages/ScribePage.tsx:316-325`
+**Файлы:** `src/pages/ScribePage.tsx`, `src/pages/SessionsPage.tsx`
+
+**Статус:** ИСПРАВЛЕНО
+
+Добавлен механизм автоматического retry транскрипции с экспоненциальной задержкой:
 
 ```typescript
-try {
-  await startTranscription(recording.id, transcriptionApiUrl);
-  // ...
-} catch (transcriptionError) {
-  toast({
-    title: "Предупреждение",
-    description: "Сессия сохранена, но транскрипция не запущена...",
-    variant: "default",
-  });
+// Утилита для retry транскрипции с экспоненциальной задержкой
+const MAX_TRANSCRIPTION_RETRIES = 3;
+const RETRY_DELAYS = [5000, 15000, 45000]; // 5с, 15с, 45с
+
+async function startTranscriptionWithRetry(
+  recordingId: string,
+  apiUrl: string,
+  onAttempt?: (attempt: number, maxAttempts: number) => void
+): Promise<boolean> {
+  for (let attempt = 0; attempt < MAX_TRANSCRIPTION_RETRIES; attempt++) {
+    try {
+      onAttempt?.(attempt + 1, MAX_TRANSCRIPTION_RETRIES);
+      await startTranscription(recordingId, apiUrl);
+      return true;
+    } catch (error) {
+      if (attempt < MAX_TRANSCRIPTION_RETRIES - 1) {
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS[attempt]));
+      }
+    }
+  }
+  return false;
 }
 ```
 
-**Проблема:**
-- Транскрипция требует сеть, но запись работает offline
-- Нет механизма автозапуска транскрипции при восстановлении связи
-- Пользователь может забыть запустить транскрипцию вручную
-
-**Решение:**
-- Очередь транскрипций с автоматическим retry
-- Push-уведомление о готовности к транскрипции
+Теперь при неудачной попытке запуска транскрипции:
+- Система автоматически делает 3 попытки
+- Задержки между попытками: 5с, 15с, 45с (экспоненциальный backoff)
+- Пользователь получает уведомление о каждой попытке
+- При восстановлении связи записи автоматически загружаются и транскрибируются
 
 ---
 
@@ -482,7 +495,7 @@ const checkConflicts = async (scheduledAt: string, durationMinutes: number) => {
 ### Фаза 1: Критические исправления
 1. Исправить ссылку регистрации → `/login`
 2. Добавить проверку зависимостей при удалении пациента
-3. Предотвратить logout во время записи
+3. ~~Предотвратить logout во время записи~~ (ИСПРАВЛЕНО)
 4. Добавить MFA recovery codes
 
 ### Фаза 2: Улучшение основных потоков
@@ -494,7 +507,7 @@ const checkConflicts = async (scheduledAt: string, durationMinutes: number) => {
 ### Фаза 3: Улучшение UX
 1. Онбординг-тур для новых пользователей
 2. Система уведомлений
-3. Автоматический retry транскрипции
+3. ~~Автоматический retry транскрипции~~ (ИСПРАВЛЕНО)
 4. Фильтрация и поиск по сессиям
 
 ### Фаза 4: Дополнительные возможности

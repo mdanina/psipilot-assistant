@@ -34,6 +34,34 @@ import {
 import { logLocalStorageOperation } from "@/lib/local-recording-audit";
 import { RecoveryDialog } from "@/components/scribe/RecoveryDialog";
 
+// Утилита для retry транскрипции с экспоненциальной задержкой
+const MAX_TRANSCRIPTION_RETRIES = 3;
+const RETRY_DELAYS = [5000, 15000, 45000]; // 5с, 15с, 45с
+
+async function startTranscriptionWithRetry(
+  recordingId: string,
+  apiUrl: string,
+  onAttempt?: (attempt: number, maxAttempts: number) => void
+): Promise<boolean> {
+  for (let attempt = 0; attempt < MAX_TRANSCRIPTION_RETRIES; attempt++) {
+    try {
+      onAttempt?.(attempt + 1, MAX_TRANSCRIPTION_RETRIES);
+      await startTranscription(recordingId, apiUrl);
+      return true;
+    } catch (error) {
+      console.warn(`[Transcription] Attempt ${attempt + 1}/${MAX_TRANSCRIPTION_RETRIES} failed:`, error);
+
+      if (attempt < MAX_TRANSCRIPTION_RETRIES - 1) {
+        // Ждём перед следующей попыткой
+        const delay = RETRY_DELAYS[attempt];
+        console.log(`[Transcription] Retrying in ${delay / 1000}s...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  return false;
+}
+
 const ScribePage = () => {
   const { user, profile, updateActivity } = useAuth();
   const { toast } = useToast();
@@ -214,19 +242,28 @@ const ScribePage = () => {
         duration: recording.duration,
       });
 
-      // Start transcription
-      try {
-        await startTranscription(newRecording.id, transcriptionApiUrl);
+      // Start transcription with retry
+      const transcriptionStarted = await startTranscriptionWithRetry(
+        newRecording.id,
+        transcriptionApiUrl,
+        (attempt, max) => console.log(`[ScribePage] Transcription attempt ${attempt}/${max} for recovered recording`)
+      );
+
+      if (transcriptionStarted) {
         // Используем хук для отслеживания
         addTranscription(newRecording.id, session.id);
-      } catch (transcriptionError) {
-        console.warn('Transcription not started for retried recording:', transcriptionError);
+        toast({
+          title: "Запись восстановлена",
+          description: `Запись "${recording.fileName}" успешно загружена и транскрипция запущена`,
+        });
+      } else {
+        console.warn('[ScribePage] Transcription not started after all retries for recovered recording');
+        toast({
+          title: "Запись восстановлена",
+          description: `Запись "${recording.fileName}" загружена, но транскрипция не запущена. Попробуйте позже.`,
+          variant: "default",
+        });
       }
-
-      toast({
-        title: "Запись восстановлена",
-        description: `Запись "${recording.fileName}" успешно загружена`,
-      });
     } catch (error) {
       console.error('[ScribePage] Retry upload failed:', error);
       const errorMessage = error instanceof Error ? error.message : 'Неизвестная ошибка';
@@ -317,26 +354,35 @@ const ScribePage = () => {
 
       toast({
         title: "Успешно",
-        description: "Сессия сохранена. Транскрипция запущена в фоне.",
+        description: "Сессия сохранена. Запуск транскрипции...",
       });
 
-      // Start transcription
-      try {
-        await startTranscription(recording.id, transcriptionApiUrl);
+      // Start transcription with retry
+      const transcriptionStarted = await startTranscriptionWithRetry(
+        recording.id,
+        transcriptionApiUrl,
+        (attempt, max) => {
+          if (attempt > 1) {
+            toast({
+              title: "Повторная попытка",
+              description: `Попытка запуска транскрипции ${attempt}/${max}...`,
+            });
+          }
+        }
+      );
 
+      if (transcriptionStarted) {
         // Используем хук для отслеживания транскрипции
         addTranscription(recording.id, session.id);
-
         setIsProcessing(false);
         setTranscriptionStatus('pending');
-
-      } catch (transcriptionError) {
-        console.error('Error starting transcription:', transcriptionError);
+      } else {
+        console.error('Error starting transcription after all retries');
         setTranscriptionStatus('failed');
         setIsProcessing(false);
         toast({
           title: "Предупреждение",
-          description: "Сессия сохранена, но транскрипция не запущена. Вы можете запустить её позже в разделе 'Сессии'.",
+          description: "Сессия сохранена, но транскрипция не запущена после 3 попыток. Вы можете запустить её позже в разделе 'Сессии'.",
           variant: "default",
         });
       }
