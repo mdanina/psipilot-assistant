@@ -90,6 +90,7 @@ export function useTranscriptionRecovery(
   // Refs for polling management
   const pollingTimeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const pollingAttemptsRef = useRef<Map<string, number>>(new Map());
+  const pollingActiveRef = useRef<Set<string>>(new Set()); // Tracks active polling to prevent duplicates
   const recordingInfoRef = useRef<Map<string, { startedAt?: string }>>(new Map());
   const isMountedRef = useRef(true);
 
@@ -101,6 +102,7 @@ export function useTranscriptionRecovery(
       pollingTimeoutsRef.current.delete(recordingId);
     }
     pollingAttemptsRef.current.delete(recordingId);
+    pollingActiveRef.current.delete(recordingId);
   }, []);
 
   // Cleanup all polling
@@ -108,6 +110,7 @@ export function useTranscriptionRecovery(
     pollingTimeoutsRef.current.forEach(timeout => clearTimeout(timeout));
     pollingTimeoutsRef.current.clear();
     pollingAttemptsRef.current.clear();
+    pollingActiveRef.current.clear();
   }, []);
 
   // Poll status for a single recording
@@ -144,13 +147,14 @@ export function useTranscriptionRecovery(
         : 0;
       
       // Determine if we should sync:
-      // 1. First sync after 30 seconds (6 attempts at 5sec) - for short recordings
-      // 2. Sync immediately if recording is older than 2 minutes (likely stuck)
-      // 3. Then sync every 1 minute (every 12 attempts at 5sec, or every 2 attempts at 30sec)
+      // 1. First sync at attempt 1 if recording is older than 2 minutes (likely a recovery)
+      // 2. Then sync at attempt 7 (after 30 seconds) - for short recordings
+      // 3. Then sync every ~2 minutes (every 4 attempts at 30sec interval, which is attempts 10, 14, 18...)
       const isOldRecording = recordingAge > 120000; // 2 minutes
+      const shouldSyncOnFirstAttempt = attempts === 1 && isOldRecording;
       const shouldSyncEarly = attempts === 7; // After 30 seconds (6 * 5sec = 30sec)
-      const shouldSyncRegular = attempts > 7 && (attempts % 12 === 0 || (attempts > 6 && attempts % 2 === 0 && attempts > 12));
-      const shouldSync = isOldRecording || shouldSyncEarly || shouldSyncRegular;
+      const shouldSyncRegular = attempts > 7 && ((attempts - 7) % 4 === 0); // Every ~2 min after initial
+      const shouldSync = shouldSyncOnFirstAttempt || shouldSyncEarly || shouldSyncRegular;
       
       const status = await getRecordingStatus(recordingId, transcriptionApiUrl, shouldSync);
       
@@ -325,10 +329,14 @@ export function useTranscriptionRecovery(
 
   // Start polling for a recording
   const startPolling = useCallback((recordingId: string, sessionIdForRecording: string) => {
-    // Don't start if already polling
-    if (pollingTimeoutsRef.current.has(recordingId)) {
+    // Don't start if already polling (check both active flag and timeout)
+    if (pollingActiveRef.current.has(recordingId) || pollingTimeoutsRef.current.has(recordingId)) {
+      console.log(`[useTranscriptionRecovery] Polling already active for ${recordingId}, skipping`);
       return;
     }
+
+    // Mark as active BEFORE starting async operation to prevent race conditions
+    pollingActiveRef.current.add(recordingId);
 
     // Start immediately
     pollRecordingStatus(recordingId, sessionIdForRecording);
