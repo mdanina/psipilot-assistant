@@ -128,7 +128,8 @@ const SessionsPage = () => {
   } = usePatients();
   
   // Extract patients from React Query data (patients have documentCount, but we need just Patient[])
-  const patients = patientsData.map(p => ({
+  // Memoized to prevent unnecessary recalculations on every render
+  const patients = useMemo(() => patientsData.map(p => ({
     id: p.id,
     clinic_id: p.clinic_id,
     created_by: p.created_by,
@@ -144,7 +145,34 @@ const SessionsPage = () => {
     created_at: p.created_at,
     updated_at: p.updated_at,
     deleted_at: p.deleted_at,
-  })) as Patient[];
+  })) as Patient[], [patientsData]);
+
+  // Create Map for O(1) patient lookups instead of O(n) find()
+  const patientsMap = useMemo(() => {
+    const map = new Map<string, Patient>();
+    for (const patient of patients) {
+      map.set(patient.id, patient);
+    }
+    return map;
+  }, [patients]);
+
+  // Create Map for O(1) session lookups from tabSessions
+  const tabSessionsMap = useMemo(() => {
+    const map = new Map<string, Session>();
+    for (const session of tabSessions) {
+      map.set(session.id, session);
+    }
+    return map;
+  }, [tabSessions]);
+
+  // Create Map for O(1) session lookups from all sessions
+  const sessionsMap = useMemo(() => {
+    const map = new Map<string, Session>();
+    for (const session of sessions) {
+      map.set(session.id, session);
+    }
+    return map;
+  }, [sessions]);
   
   const isLoading = isLoadingSessions || isLoadingPatients;
   
@@ -1185,7 +1213,7 @@ const SessionsPage = () => {
   const handleCloseSession = async (sessionId: string, e?: React.MouseEvent) => {
     e?.stopPropagation(); // Prevent session selection
 
-    const session = tabSessions.find(s => s.id === sessionId) || sessions.find(s => s.id === sessionId);
+    const session = tabSessionsMap.get(sessionId) || sessionsMap.get(sessionId);
     if (!session) {
       return;
     }
@@ -1361,7 +1389,7 @@ const SessionsPage = () => {
     setSelectedPatientId("");
 
     // Check if session already has a patient and clinical notes
-    const session = tabSessions.find(s => s.id === activeSession);
+    const session = tabSessionsMap.get(activeSession);
     if (session?.patient_id) {
       try {
         const notesCheck = await checkSessionClinicalNotes(activeSession);
@@ -1392,7 +1420,7 @@ const SessionsPage = () => {
 
     try {
       // Determine if this is a re-link
-      const session = tabSessions.find(s => s.id === activeSession);
+      const session = tabSessionsMap.get(activeSession);
       const isRelinking = session?.patient_id !== null && session?.patient_id !== selectedPatientId;
       
       // Get notes check for re-linking
@@ -1445,7 +1473,7 @@ const SessionsPage = () => {
       
       // Wait a bit for cache to update, then find the session
       setTimeout(() => {
-        const sessionToSelect = sessions.find(s => s.id === savedSessionId) || sessions[0];
+        const sessionToSelect = sessionsMap.get(savedSessionId!) || sessions[0];
         if (sessionToSelect) {
           setActiveSession(sessionToSelect.id);
         } else if (sessions.length > 0) {
@@ -1553,7 +1581,7 @@ const SessionsPage = () => {
 
         // Search by patient name
         if (session.patient_id) {
-          const patient = patients.find((p) => p.id === session.patient_id);
+          const patient = patientsMap.get(session.patient_id);
           if (patient && patient.name && patient.name.toLowerCase().includes(query)) {
             return true;
           }
@@ -1586,23 +1614,41 @@ const SessionsPage = () => {
     }
 
     return result;
-  }, [tabSessions, patients, searchQuery, openTabs]);
+  }, [tabSessions, patientsMap, searchQuery, openTabs]);
 
   // Get current session from tab sessions (loaded by ID)
-  const currentSession = activeSession && openTabs.has(activeSession)
-    ? tabSessions.find(s => s.id === activeSession) || null
-    : null;
-  const currentRecordings = recordings.filter(r => r.session_id === activeSession);
-  const currentNotes = sessionNotes.filter(n => n.session_id === activeSession);
+  const currentSession = useMemo(() =>
+    activeSession && openTabs.has(activeSession)
+      ? tabSessionsMap.get(activeSession) || null
+      : null,
+    [activeSession, openTabs, tabSessionsMap]
+  );
 
-  // Get transcript text from recordings
-  const rawTranscriptText = currentRecordings
-    .filter(r => r.transcription_status === 'completed' && r.transcription_text)
-    .map(r => r.transcription_text)
-    .join('\n\n');
+  // Memoize filtered recordings and notes to avoid recalculating on every render
+  const currentRecordings = useMemo(() =>
+    recordings.filter(r => r.session_id === activeSession),
+    [recordings, activeSession]
+  );
+
+  const currentNotes = useMemo(() =>
+    sessionNotes.filter(n => n.session_id === activeSession),
+    [sessionNotes, activeSession]
+  );
+
+  // Get transcript text from recordings - memoized for performance
+  const rawTranscriptText = useMemo(() =>
+    currentRecordings
+      .filter(r => r.transcription_status === 'completed' && r.transcription_text)
+      .map(r => r.transcription_text)
+      .join('\n\n'),
+    [currentRecordings]
+  );
 
   // Combined transcript with specialist notes
-  const transcriptText = getCombinedTranscriptWithNotes(rawTranscriptText, currentNotes);
+  const transcriptText = useMemo(() =>
+    getCombinedTranscriptWithNotes(rawTranscriptText, currentNotes),
+    [rawTranscriptText, currentNotes]
+  );
 
   // Handle start recording in session context
   const handleStartRecordingInSession = async () => {
@@ -2015,7 +2061,7 @@ const SessionsPage = () => {
                 }}>
                   <DialogTrigger asChild>
                     {(() => {
-                      const linkedPatient = patients.find(p => p.id === currentSession.patient_id);
+                      const linkedPatient = currentSession.patient_id ? patientsMap.get(currentSession.patient_id) : undefined;
                       return linkedPatient ? (
                         <button
                           onClick={handleOpenLinkDialog}
@@ -2542,7 +2588,7 @@ const SessionsPage = () => {
                         return;
                       }
 
-                      const session = tabSessions.find(s => s.id === activeSession);
+                      const session = tabSessionsMap.get(activeSession);
                       if (!session?.patient_id) {
                         toast({
                           title: 'Ошибка',
@@ -2587,11 +2633,11 @@ const SessionsPage = () => {
                         setIsGenerating(false);
                       }
                     }}
-                    disabled={!activeSession || !tabSessions.find(s => s.id === activeSession)?.patient_id || !selectedTemplateId || isGenerating}
+                    disabled={!activeSession || !(activeSession && tabSessionsMap.get(activeSession)?.patient_id) || !selectedTemplateId || isGenerating}
                     title={
                       !activeSession
                         ? 'Выберите сессию'
-                        : !tabSessions.find(s => s.id === activeSession)?.patient_id
+                        : !(activeSession && tabSessionsMap.get(activeSession)?.patient_id)
                         ? 'Сессия должна быть привязана к пациенту'
                         : !selectedTemplateId
                         ? 'Выберите шаблон'
