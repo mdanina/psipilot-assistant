@@ -28,6 +28,7 @@ services:
         VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
         VITE_API_URL: ${VITE_API_URL:-/api}
         VITE_N8N_SUPERVISOR_WEBHOOK_URL: ${VITE_N8N_SUPERVISOR_WEBHOOK_URL}
+        VITE_TELEGRAM_SUPPORT_BOT: ${VITE_TELEGRAM_SUPPORT_BOT}
     container_name: psipilot-frontend
     expose:
       - "80"
