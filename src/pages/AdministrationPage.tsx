@@ -368,7 +368,7 @@ export default function AdministrationPage() {
   // Show loading state if profile is not loaded yet
   if (!profile) {
     return (
-      <div className="flex-1 p-6 overflow-auto">
+      <div className="flex-1 p-4 md:p-6 overflow-auto">
         <div className="max-w-6xl mx-auto">
           <Card>
             <CardContent className="flex items-center justify-center py-12">
@@ -383,7 +383,7 @@ export default function AdministrationPage() {
   // Only show for admins
   if (profile.role !== 'admin') {
     return (
-      <div className="flex-1 p-6 overflow-auto">
+      <div className="flex-1 p-4 md:p-6 overflow-auto">
         <Alert>
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
@@ -395,8 +395,8 @@ export default function AdministrationPage() {
   }
 
   return (
-    <div className="flex-1 p-6 overflow-auto">
-      <div className="max-w-6xl mx-auto space-y-6">
+    <div className="flex-1 p-4 md:p-6 overflow-auto">
+      <div className="max-w-6xl mx-auto space-y-4 md:space-y-6">
         {error && (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
@@ -527,16 +527,16 @@ export default function AdministrationPage() {
         )}
 
         {/* Header with Add User button */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h1 className="text-2xl font-bold text-foreground">Пользователи клиники</h1>
-              <p className="text-muted-foreground mt-1">
-                Управление пользователями и их ролями в вашей клинике
+              <h1 className="text-xl sm:text-2xl font-bold text-foreground">Пользователи клиники</h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                Управление пользователями и их ролями
               </p>
             </div>
-            <Button onClick={() => setIsInviteDialogOpen(true)}>
+            <Button onClick={() => setIsInviteDialogOpen(true)} className="w-full sm:w-auto">
               <UserPlus className="w-4 h-4 mr-2" />
-              Добавить пользователя
+              <span className="sm:inline">Добавить пользователя</span>
             </Button>
         </div>
 
@@ -709,7 +709,7 @@ export default function AdministrationPage() {
 
       {/* Invite User Dialog */}
       <Dialog open={isInviteDialogOpen} onOpenChange={setIsInviteDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-[95vw] sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle>Пригласить пользователя в клинику</DialogTitle>
             <DialogDescription>
@@ -797,7 +797,7 @@ export default function AdministrationPage() {
 
       {/* Edit User Dialog */}
       <Dialog open={!!editingUser} onOpenChange={(open) => !open && setEditingUser(null)}>
-        <DialogContent>
+        <DialogContent className="max-w-[95vw] sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle>Редактировать пользователя</DialogTitle>
             <DialogDescription>
