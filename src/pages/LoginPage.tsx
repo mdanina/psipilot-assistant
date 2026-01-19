@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, AlertCircle, Eye, EyeOff, Mail, Lock, Shield, Zap, FileText } from 'lucide-react';
 import { ShrimpIcon } from '@/components/ShrimpIcon';
+import { toast } from 'sonner';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -33,11 +34,16 @@ export default function LoginPage() {
 
       if (error) {
         // Handle specific error messages
-        if (error.message.includes('Invalid login credentials') || error.message.includes('invalid credentials')) {
+        const errorMessage = error.message.toLowerCase();
+
+        if (errorMessage.includes('invalid login credentials') || errorMessage.includes('invalid credentials')) {
           setError('Неверный email или пароль');
-        } else if (error.message.includes('Email not confirmed')) {
-          setError('Email не подтверждён. Проверьте вашу почту');
-        } else if (error.message.includes('Too many requests')) {
+        } else if (errorMessage.includes('email not confirmed') || errorMessage.includes('confirmation')) {
+          // Redirect to verify email page
+          toast.error('Необходимо подтвердить email');
+          navigate('/verify-email', { state: { email } });
+          return;
+        } else if (errorMessage.includes('too many requests')) {
           setError('Слишком много попыток. Подождите несколько минут');
         } else {
           setError(error.message);

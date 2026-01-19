@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,6 +11,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Loader2, AlertCircle, CheckCircle2, Eye, EyeOff, ArrowLeft, User, Mail, Lock, Shield } from 'lucide-react';
 import { ShrimpIcon } from '@/components/ShrimpIcon';
 import { PasswordStrengthIndicator, isPasswordStrong } from '@/components/auth/PasswordStrengthIndicator';
+import { toast } from 'sonner';
 
 export default function RegisterPage() {
   const [fullName, setFullName] = useState('');
@@ -20,7 +22,6 @@ export default function RegisterPage() {
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isSuccess, setIsSuccess] = useState(false);
 
   const { signUp } = useAuth();
   const navigate = useNavigate();
@@ -63,82 +64,49 @@ export default function RegisterPage() {
     setIsSubmitting(true);
 
     try {
-      const { error } = await signUp(email, password, fullName.trim());
+      // Use Supabase directly to check if session is returned (email confirmation required or not)
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: fullName.trim(),
+          },
+        },
+      });
 
-      if (error) {
+      if (signUpError) {
         // Handle specific error messages
-        if (error.message.includes('already registered') || error.message.includes('already exists')) {
+        if (signUpError.message.includes('already registered') || signUpError.message.includes('already exists')) {
           setError('Пользователь с таким email уже зарегистрирован');
-        } else if (error.message.includes('weak password') || error.message.includes('password')) {
+        } else if (signUpError.message.includes('weak password') || signUpError.message.includes('password')) {
           setError('Пароль слишком простой. Используйте более надёжный пароль');
-        } else if (error.message.includes('invalid email')) {
+        } else if (signUpError.message.includes('invalid email')) {
           setError('Некорректный формат email');
         } else {
-          setError(error.message);
+          setError(signUpError.message);
         }
         return;
       }
 
-      setIsSuccess(true);
+      if (data?.user) {
+        // If session is null, email confirmation is required
+        if (!data.session) {
+          toast.success('Проверьте вашу почту для подтверждения');
+          navigate('/verify-email', { state: { email } });
+          return;
+        }
+
+        // Session exists - email confirmation is disabled, user is logged in
+        toast.success('Регистрация успешна!');
+        navigate('/', { replace: true });
+      }
     } catch (err) {
       setError('Произошла непредвиденная ошибка. Пожалуйста, попробуйте снова.');
     } finally {
       setIsSubmitting(false);
     }
   };
-
-  // Success screen after registration
-  if (isSuccess) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background via-background to-primary/5 p-4">
-        <Card className="w-full max-w-md border-0 shadow-xl">
-          <CardHeader className="space-y-1 text-center pb-2">
-            <div className="flex justify-center mb-4">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
-                <CheckCircle2 className="h-8 w-8 text-green-600" />
-              </div>
-            </div>
-            <CardTitle className="text-2xl font-bold">Регистрация завершена!</CardTitle>
-            <CardDescription className="text-base">
-              Мы отправили письмо для подтверждения на адрес
-            </CardDescription>
-            <p className="font-medium text-foreground pt-1">{email}</p>
-          </CardHeader>
-
-          <CardContent className="space-y-4 pt-4">
-            <div className="rounded-lg bg-muted/50 p-4 space-y-2">
-              <p className="text-sm text-muted-foreground">
-                Пожалуйста, проверьте вашу почту и перейдите по ссылке в письме для активации аккаунта.
-              </p>
-              <p className="text-sm text-muted-foreground">
-                Если письмо не пришло, проверьте папку "Спам".
-              </p>
-            </div>
-          </CardContent>
-
-          <CardFooter className="flex flex-col space-y-3 pt-2">
-            <Button
-              className="w-full"
-              onClick={() => navigate('/login')}
-            >
-              Перейти к входу
-            </Button>
-            <Button
-              variant="ghost"
-              className="w-full"
-              onClick={() => {
-                setIsSuccess(false);
-                setPassword('');
-                setConfirmPassword('');
-              }}
-            >
-              Зарегистрировать другой аккаунт
-            </Button>
-          </CardFooter>
-        </Card>
-      </div>
-    );
-  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background via-background to-primary/5 p-4">
