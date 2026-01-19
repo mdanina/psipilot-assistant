@@ -123,16 +123,39 @@ export function useTranscriptionRecovery(
     const attempts = (pollingAttemptsRef.current.get(recordingId) || 0) + 1;
     pollingAttemptsRef.current.set(recordingId, attempts);
 
-    // Max attempts: ~2 hours at max interval
-    const MAX_ATTEMPTS = 150;
+    // Max attempts: ~12 hours at max interval (for long audio files like 50+ min)
+    // Calculation: 6 attempts × 5s + 20 attempts × 30s + 690 attempts × 60s = 12 hours
+    const MAX_ATTEMPTS = 720;
     if (attempts > MAX_ATTEMPTS) {
-      console.warn(`[useTranscriptionRecovery] Max attempts reached for ${recordingId}`);
+      console.warn(`[useTranscriptionRecovery] Max attempts reached for ${recordingId}, marking as stuck`);
       stopPolling(recordingId);
+
+      // Mark as failed instead of silently removing
+      try {
+        await supabase
+          .from('recordings')
+          .update({
+            transcription_status: 'failed',
+            transcription_error: 'Транскрипция не завершилась за 12 часов. Попробуйте повторить.',
+          })
+          .eq('id', recordingId);
+      } catch (e) {
+        console.error('[useTranscriptionRecovery] Error marking as failed:', e);
+      }
+
       setProcessingTranscriptions(prev => {
         const next = new Map(prev);
         next.delete(recordingId);
         return next;
       });
+
+      toast({
+        title: "Транскрипция не завершилась",
+        description: "Превышено время ожидания. Попробуйте повторить транскрипцию.",
+        variant: "destructive",
+      });
+
+      onError?.(recordingId, 'Transcription timed out after 12 hours');
       return;
     }
 
@@ -150,21 +173,25 @@ export function useTranscriptionRecovery(
       // 1. First sync at attempt 1 if recording is older than 2 minutes (likely a recovery)
       // 2. Then sync at attempt 7 (after 30 seconds) - for short recordings
       // 3. Then sync every ~2 minutes (every 4 attempts at 30sec interval, which is attempts 10, 14, 18...)
+      // 4. For long-running transcriptions (>1 hour), sync every 5 minutes
       const isOldRecording = recordingAge > 120000; // 2 minutes
+      const isLongRunning = recordingAge > 60 * 60 * 1000; // > 1 hour
       const shouldSyncOnFirstAttempt = attempts === 1 && isOldRecording;
       const shouldSyncEarly = attempts === 7; // After 30 seconds (6 * 5sec = 30sec)
       const shouldSyncRegular = attempts > 7 && ((attempts - 7) % 4 === 0); // Every ~2 min after initial
-      const shouldSync = shouldSyncOnFirstAttempt || shouldSyncEarly || shouldSyncRegular;
+      // For long-running transcriptions, sync every 5 minutes (every 5 attempts at 60sec interval)
+      const shouldSyncLongRunning = isLongRunning && (attempts % 5 === 0);
+      const shouldSync = shouldSyncOnFirstAttempt || shouldSyncEarly || shouldSyncRegular || shouldSyncLongRunning;
       
       const status = await getRecordingStatus(recordingId, transcriptionApiUrl, shouldSync);
 
       // Check for stuck transcriptions
       const syncError = (status as any).syncError as Error | undefined;
-      const isVeryOld = recordingAge > 24 * 60 * 60 * 1000; // > 24 hours
+      const isVeryOld = recordingAge > 6 * 60 * 60 * 1000; // > 6 hours (reduced from 24h for better UX)
       const isModeratelyOld = recordingAge > 10 * 60 * 1000; // > 10 minutes
 
       // Mark as stuck/failed if:
-      // 1. Recording is > 24 hours old (regardless of sync status)
+      // 1. Recording is > 6 hours old (regardless of sync status) - even long audio shouldn't take this long
       // 2. Recording is > 10 minutes old AND sync failed with any error
       const shouldMarkAsFailed = isVeryOld || (isModeratelyOld && shouldSync && syncError);
 
@@ -175,7 +202,7 @@ export function useTranscriptionRecovery(
                                       errorMessage.includes('Transcription may not have started');
 
         const failureReason = isVeryOld
-          ? 'Транскрипция зависла (более 24 часов). Попробуйте повторить.'
+          ? 'Транскрипция зависла (более 6 часов). Попробуйте повторить.'
           : isNoTranscriptIdError
             ? 'Транскрипция не была запущена. Попробуйте повторить транскрипцию.'
             : 'Не удалось синхронизировать статус транскрипции. Попробуйте повторить.';
