@@ -1,78 +1,51 @@
-import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { supabase } from '@/lib/supabase';
+import { useState } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, AlertCircle, CheckCircle2, Eye, EyeOff, Lock, ShieldCheck, ArrowLeft, XCircle } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Loader2, AlertCircle, CheckCircle2, Eye, EyeOff, ArrowLeft, User, Mail, Lock, Shield } from 'lucide-react';
+import { ShrimpIcon } from '@/components/ShrimpIcon';
 import { PasswordStrengthIndicator, isPasswordStrong } from '@/components/auth/PasswordStrengthIndicator';
 
-export default function ResetPasswordPage() {
+export default function RegisterPage() {
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [acceptTerms, setAcceptTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
-  const [isValidToken, setIsValidToken] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
 
+  const { signUp } = useAuth();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-
-  // Verify the recovery token on mount
-  useEffect(() => {
-    const verifyToken = async () => {
-      // Check for token in query string (from Supabase email link)
-      const token = searchParams.get('token');
-      const type = searchParams.get('type');
-
-      // Also check hash for standard Supabase format
-      const hash = window.location.hash;
-
-      if (token && type === 'recovery') {
-        // Token from query string - verify it
-        try {
-          const { error } = await supabase.auth.verifyOtp({
-            token_hash: token,
-            type: 'recovery',
-          });
-
-          if (error) {
-            console.error('Token verification error:', error);
-            setError('Недействительная или истёкшая ссылка для сброса пароля');
-            setIsValidToken(false);
-          } else {
-            setIsValidToken(true);
-          }
-        } catch (err) {
-          console.error('Token verification exception:', err);
-          setError('Ошибка при проверке ссылки');
-          setIsValidToken(false);
-        }
-      } else if (hash && hash.includes('type=recovery')) {
-        // Token from hash fragment (standard Supabase format)
-        // Supabase client handles this automatically
-        setIsValidToken(true);
-      } else {
-        setError('Недействительная или истёкшая ссылка для сброса пароля');
-        setIsValidToken(false);
-      }
-
-      setIsLoading(false);
-    };
-
-    verifyToken();
-  }, [searchParams]);
 
   const validateForm = (): string | null => {
+    if (!fullName.trim()) {
+      return 'Пожалуйста, введите ваше имя';
+    }
+    if (fullName.trim().length < 2) {
+      return 'Имя должно содержать минимум 2 символа';
+    }
+    if (!email.trim()) {
+      return 'Пожалуйста, введите email';
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return 'Пожалуйста, введите корректный email';
+    }
     if (!isPasswordStrong(password)) {
       return 'Пароль недостаточно надёжный. Выполните все требования';
     }
     if (password !== confirmPassword) {
       return 'Пароли не совпадают';
+    }
+    if (!acceptTerms) {
+      return 'Необходимо принять условия использования';
     }
     return null;
   };
@@ -90,13 +63,16 @@ export default function ResetPasswordPage() {
     setIsSubmitting(true);
 
     try {
-      const { error } = await supabase.auth.updateUser({
-        password: password,
-      });
+      const { error } = await signUp(email, password, fullName.trim());
 
       if (error) {
-        if (error.message.includes('same as old')) {
-          setError('Новый пароль должен отличаться от старого');
+        // Handle specific error messages
+        if (error.message.includes('already registered') || error.message.includes('already exists')) {
+          setError('Пользователь с таким email уже зарегистрирован');
+        } else if (error.message.includes('weak password') || error.message.includes('password')) {
+          setError('Пароль слишком простой. Используйте более надёжный пароль');
+        } else if (error.message.includes('invalid email')) {
+          setError('Некорректный формат email');
         } else {
           setError(error.message);
         }
@@ -104,13 +80,6 @@ export default function ResetPasswordPage() {
       }
 
       setIsSuccess(true);
-
-      // Sign out after password change and redirect to login
-      await supabase.auth.signOut();
-
-      setTimeout(() => {
-        navigate('/login', { replace: true });
-      }, 3000);
     } catch (err) {
       setError('Произошла непредвиденная ошибка. Пожалуйста, попробуйте снова.');
     } finally {
@@ -118,70 +87,7 @@ export default function ResetPasswordPage() {
     }
   };
 
-  // Loading state
-  if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background via-background to-primary/5 p-4">
-        <Card className="w-full max-w-md border-0 shadow-xl">
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <Loader2 className="h-10 w-10 animate-spin text-primary mb-4" />
-            <p className="text-muted-foreground">Проверка ссылки...</p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  // Invalid token state
-  if (!isValidToken) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background via-background to-primary/5 p-4">
-        <div className="w-full max-w-md">
-          <Card className="border-0 shadow-xl">
-            <CardHeader className="space-y-1 text-center pb-2">
-              <div className="flex justify-center mb-4">
-                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30">
-                  <XCircle className="h-8 w-8 text-red-600" />
-                </div>
-              </div>
-              <CardTitle className="text-2xl font-bold">Ссылка недействительна</CardTitle>
-              <CardDescription className="text-base">
-                {error || 'Ссылка для сброса пароля истекла или уже была использована'}
-              </CardDescription>
-            </CardHeader>
-
-            <CardContent className="space-y-4 pt-4">
-              <div className="rounded-lg bg-muted/50 p-4 text-sm text-muted-foreground">
-                <p>Возможные причины:</p>
-                <ul className="list-disc pl-5 mt-2 space-y-1">
-                  <li>Ссылка была использована ранее</li>
-                  <li>Прошло более 24 часов с момента запроса</li>
-                  <li>Ссылка была скопирована неполностью</li>
-                </ul>
-              </div>
-            </CardContent>
-
-            <CardFooter className="flex flex-col space-y-3 pt-2">
-              <Link to="/forgot-password" className="w-full">
-                <Button className="w-full">
-                  Запросить новую ссылку
-                </Button>
-              </Link>
-
-              <Link to="/login" className="w-full">
-                <Button variant="ghost" className="w-full">
-                  <ArrowLeft className="mr-2 h-4 w-4" />
-                  Вернуться к входу
-                </Button>
-              </Link>
-            </CardFooter>
-          </Card>
-        </div>
-      </div>
-    );
-  }
-
-  // Success state
+  // Success screen after registration
   if (isSuccess) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background via-background to-primary/5 p-4">
@@ -192,29 +98,41 @@ export default function ResetPasswordPage() {
                 <CheckCircle2 className="h-8 w-8 text-green-600" />
               </div>
             </div>
-            <CardTitle className="text-2xl font-bold">Пароль изменён</CardTitle>
+            <CardTitle className="text-2xl font-bold">Регистрация завершена!</CardTitle>
             <CardDescription className="text-base">
-              Ваш пароль успешно обновлён
+              Мы отправили письмо для подтверждения на адрес
             </CardDescription>
+            <p className="font-medium text-foreground pt-1">{email}</p>
           </CardHeader>
 
-          <CardContent className="pt-4">
-            <div className="rounded-lg bg-muted/50 p-4 text-center">
+          <CardContent className="space-y-4 pt-4">
+            <div className="rounded-lg bg-muted/50 p-4 space-y-2">
               <p className="text-sm text-muted-foreground">
-                Сейчас вы будете перенаправлены на страницу входа
+                Пожалуйста, проверьте вашу почту и перейдите по ссылке в письме для активации аккаунта.
               </p>
-              <div className="flex justify-center mt-3">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              </div>
+              <p className="text-sm text-muted-foreground">
+                Если письмо не пришло, проверьте папку "Спам".
+              </p>
             </div>
           </CardContent>
 
-          <CardFooter>
+          <CardFooter className="flex flex-col space-y-3 pt-2">
             <Button
               className="w-full"
-              onClick={() => navigate('/login', { replace: true })}
+              onClick={() => navigate('/login')}
             >
               Перейти к входу
+            </Button>
+            <Button
+              variant="ghost"
+              className="w-full"
+              onClick={() => {
+                setIsSuccess(false);
+                setPassword('');
+                setConfirmPassword('');
+              }}
+            >
+              Зарегистрировать другой аккаунт
             </Button>
           </CardFooter>
         </Card>
@@ -222,7 +140,6 @@ export default function ResetPasswordPage() {
     );
   }
 
-  // Main form
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background via-background to-primary/5 p-4">
       <div className="w-full max-w-md">
@@ -241,12 +158,12 @@ export default function ResetPasswordPage() {
           <CardHeader className="space-y-1 text-center pb-2">
             <div className="flex justify-center mb-4">
               <div className="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-primary/20 to-primary/10 ring-4 ring-primary/5">
-                <ShieldCheck className="h-7 w-7 text-primary" />
+                <ShrimpIcon className="h-7 w-7" />
               </div>
             </div>
-            <CardTitle className="text-2xl font-bold">Новый пароль</CardTitle>
+            <CardTitle className="text-2xl font-bold">Создать аккаунт</CardTitle>
             <CardDescription>
-              Придумайте новый надёжный пароль для вашего аккаунта
+              Начните работу с Supershrimp за несколько минут
             </CardDescription>
           </CardHeader>
 
@@ -259,8 +176,47 @@ export default function ResetPasswordPage() {
                 </Alert>
               )}
 
+              {/* Full name field */}
               <div className="space-y-2">
-                <Label htmlFor="password">Новый пароль</Label>
+                <Label htmlFor="fullName">Полное имя</Label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    id="fullName"
+                    type="text"
+                    placeholder="Иван Иванов"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    required
+                    autoComplete="name"
+                    disabled={isSubmitting}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+
+              {/* Email field */}
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="doctor@clinic.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    autoComplete="email"
+                    disabled={isSubmitting}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+
+              {/* Password field */}
+              <div className="space-y-2">
+                <Label htmlFor="password">Пароль</Label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
@@ -290,10 +246,11 @@ export default function ResetPasswordPage() {
                 <PasswordStrengthIndicator password={password} />
               </div>
 
+              {/* Confirm password field */}
               <div className="space-y-2">
                 <Label htmlFor="confirmPassword">Подтвердите пароль</Label>
                 <div className="relative">
-                  <ShieldCheck className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Shield className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
                     id="confirmPassword"
                     type={showPassword ? 'text' : 'password'}
@@ -319,9 +276,33 @@ export default function ResetPasswordPage() {
                   </p>
                 )}
               </div>
+
+              {/* Terms acceptance */}
+              <div className="flex items-start space-x-3 pt-2">
+                <Checkbox
+                  id="terms"
+                  checked={acceptTerms}
+                  onCheckedChange={(checked) => setAcceptTerms(checked as boolean)}
+                  disabled={isSubmitting}
+                  className="mt-0.5"
+                />
+                <label
+                  htmlFor="terms"
+                  className="text-sm text-muted-foreground leading-relaxed cursor-pointer"
+                >
+                  Я принимаю{' '}
+                  <a href="#" className="text-primary hover:underline">
+                    условия использования
+                  </a>{' '}
+                  и{' '}
+                  <a href="#" className="text-primary hover:underline">
+                    политику конфиденциальности
+                  </a>
+                </label>
+              </div>
             </CardContent>
 
-            <CardFooter className="pt-2">
+            <CardFooter className="flex flex-col space-y-4 pt-2">
               <Button
                 type="submit"
                 className="w-full h-11 text-base font-medium"
@@ -330,19 +311,26 @@ export default function ResetPasswordPage() {
                 {isSubmitting ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Сохранение...
+                    Создание аккаунта...
                   </>
                 ) : (
-                  'Сохранить новый пароль'
+                  'Создать аккаунт'
                 )}
               </Button>
+
+              <p className="text-center text-sm text-muted-foreground">
+                Уже есть аккаунт?{' '}
+                <Link to="/login" className="text-primary font-medium hover:underline">
+                  Войти
+                </Link>
+              </p>
             </CardFooter>
           </form>
         </Card>
 
         {/* Security note */}
         <p className="mt-6 text-center text-xs text-muted-foreground">
-          После смены пароля вам потребуется войти заново
+          Все данные защищены шифрованием и соответствуют требованиям 152-ФЗ
         </p>
       </div>
     </div>
