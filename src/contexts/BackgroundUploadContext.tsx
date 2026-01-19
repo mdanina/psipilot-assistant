@@ -71,7 +71,7 @@ interface BackgroundUploadContextType {
 const BackgroundUploadContext = createContext<BackgroundUploadContextType | null>(null);
 
 export function BackgroundUploadProvider({ children }: { children: React.ReactNode }) {
-  const { user, profile } = useAuth();
+  const { user, profile, updateActivity } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -375,6 +375,27 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
   }, [hasActiveUploads]);
+
+  // Keep session alive during file uploads to prevent timeout
+  // This mirrors the keep-alive logic used during recording (every 30 seconds)
+  useEffect(() => {
+    if (!hasActiveUploads) return;
+
+    // Update activity immediately when upload starts
+    updateActivity();
+    console.log('[BackgroundUpload] Keep-alive started: session activity updated');
+
+    // Keep updating activity every 30 seconds during upload
+    const intervalId = setInterval(() => {
+      updateActivity();
+      console.log('[BackgroundUpload] Keep-alive: session activity updated');
+    }, 30000);
+
+    return () => {
+      clearInterval(intervalId);
+      console.log('[BackgroundUpload] Keep-alive stopped');
+    };
+  }, [hasActiveUploads, updateActivity]);
 
   return (
     <BackgroundUploadContext.Provider value={{
