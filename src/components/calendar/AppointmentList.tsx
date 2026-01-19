@@ -113,11 +113,6 @@ export function AppointmentList({
   if (appointments.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-8 px-4 text-center h-full">
-        <img
-          src="/assets/compass_17821700.png"
-          alt="Нет консультаций"
-          className="w-32 h-32 mb-6 opacity-80"
-        />
         <p className="text-lg text-muted-foreground mb-6">
           У вас сегодня нет консультаций
         </p>
