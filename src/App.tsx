@@ -47,6 +47,8 @@ const App = () => (
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/unauthorized" element={<UnauthorizedPage />} />
+            <Route path="/terms" element={<LazyRoute component={() => import("./pages/TermsPage")} loadingMessage="Загрузка..." />} />
+            <Route path="/privacy" element={<LazyRoute component={() => import("./pages/PrivacyPage")} loadingMessage="Загрузка..." />} />
 
             {/* Onboarding route - for users without clinic */}
             <Route
