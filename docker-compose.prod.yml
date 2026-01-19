@@ -60,6 +60,21 @@ services:
       retries: 3
       start_period: 10s
 
+  # Telegram Bot (Complaints)
+  telegram-bot:
+    build:
+      context: ./backend/telegram-bot
+      dockerfile: Dockerfile
+    container_name: psipilot-telegram-bot
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - TELEGRAM_ADMIN_CHAT_ID=${TELEGRAM_ADMIN_CHAT_ID}
+    restart: unless-stopped
+    networks:
+      - psipilot-network
+
 volumes:
   caddy_data:
   caddy_config:
