@@ -74,7 +74,7 @@ export default function LoginPage() {
           </div>
 
           <h1 className="text-xl sm:text-2xl md:text-3xl xl:text-4xl font-bold text-foreground mb-4">
-            Умный помощник для клинической документации
+            ИИ копайлот для психологов и психиатров
           </h1>
           <p className="text-sm sm:text-base md:text-lg text-muted-foreground mb-6 sm:mb-10">
             Автоматизируйте рутинную работу с документами и сосредоточьтесь на помощи пациентам
