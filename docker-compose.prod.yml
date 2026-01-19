@@ -1,24 +1,7 @@
 version: '3.8'
 
 services:
-  # Caddy - Reverse proxy with automatic SSL
-  caddy:
-    image: caddy:2-alpine
-    container_name: psipilot-caddy
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - frontend
-    restart: unless-stopped
-    networks:
-      - psipilot-network
-
-  # Frontend (React + Nginx) - internal only
+  # Frontend (React + Nginx) - доступен на порту 3000
   frontend:
     build:
       context: .
@@ -30,8 +13,8 @@ services:
         VITE_N8N_SUPERVISOR_WEBHOOK_URL: ${VITE_N8N_SUPERVISOR_WEBHOOK_URL}
         VITE_TELEGRAM_SUPPORT_BOT: ${VITE_TELEGRAM_SUPPORT_BOT}
     container_name: psipilot-frontend
-    expose:
-      - "80"
+    ports:
+      - "3000:80"
     depends_on:
       - backend
     restart: unless-stopped
@@ -82,10 +65,6 @@ services:
     restart: unless-stopped
     networks:
       - psipilot-network
-
-volumes:
-  caddy_data:
-  caddy_config:
 
 networks:
   psipilot-network:
