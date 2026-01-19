@@ -62,7 +62,7 @@ export const MobileSidebar = () => {
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && close()}>
-      <SheetContent side="left" className="w-[280px] p-0 bg-sidebar">
+      <SheetContent side="left" className="w-[min(280px,85vw)] p-0 bg-sidebar">
         <VisuallyHidden.Root>
           <SheetTitle>Меню навигации</SheetTitle>
         </VisuallyHidden.Root>

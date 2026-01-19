@@ -114,7 +114,7 @@ export function TimezoneSelector() {
     <div className="flex items-center gap-2">
       <Globe className="w-4 h-4 text-muted-foreground" />
       <Select value={timezone} onValueChange={handleTimezoneChange}>
-        <SelectTrigger className="w-[220px]">
+        <SelectTrigger className="w-full sm:w-[220px]">
           <SelectValue placeholder="Выберите временную зону" />
         </SelectTrigger>
         <SelectContent>

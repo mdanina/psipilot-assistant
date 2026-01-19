@@ -47,7 +47,7 @@ export function BackgroundUploadIndicator() {
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-80" align="end">
+      <PopoverContent className="w-[min(320px,calc(100vw-2rem))]" align="end">
         <div className="space-y-3">
           <h4 className="font-medium text-sm">Фоновые загрузки</h4>
           {uploads.map(upload => (

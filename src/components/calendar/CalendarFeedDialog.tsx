@@ -93,7 +93,7 @@ export function CalendarFeedDialog({ triggerClassName }: CalendarFeedDialogProps
           Подписка на календарь
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-w-[95vw] sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Подписка на календарь</DialogTitle>
           <DialogDescription>

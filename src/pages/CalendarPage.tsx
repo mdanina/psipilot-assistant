@@ -348,15 +348,15 @@ const CalendarPage = () => {
             className="w-fit"
             classNames={{
               months: "flex justify-center",
-              month: "space-y-8",
+              month: "space-y-4 sm:space-y-6 md:space-y-8",
               caption: "flex justify-center pt-2 relative items-center",
-              caption_label: "text-xl font-semibold",
+              caption_label: "text-base sm:text-lg md:text-xl font-semibold",
               nav_button_previous: "absolute left-1",
               nav_button_next: "absolute right-1",
               table: "mx-auto",
-              head_cell: "text-base font-medium w-[80px] h-12",
-              cell: "h-[80px] w-[80px]",
-              day: "h-[80px] w-[80px] text-lg relative [&.has-online-appointment]:after:content-[''] [&.has-online-appointment]:after:absolute [&.has-online-appointment]:after:bottom-2 [&.has-online-appointment]:after:left-1/2 [&.has-online-appointment]:after:-translate-x-1/2 [&.has-online-appointment]:after:h-1.5 [&.has-online-appointment]:after:w-1.5 [&.has-online-appointment]:after:rounded-full [&.has-online-appointment]:after:bg-muted-foreground [&.has-inperson-appointment]:after:content-[''] [&.has-inperson-appointment]:after:absolute [&.has-inperson-appointment]:after:bottom-2 [&.has-inperson-appointment]:after:left-1/2 [&.has-inperson-appointment]:after:-translate-x-1/2 [&.has-inperson-appointment]:after:h-1.5 [&.has-inperson-appointment]:after:w-1.5 [&.has-inperson-appointment]:after:rounded-full [&.has-inperson-appointment]:after:bg-primary",
+              head_cell: "text-xs sm:text-sm md:text-base font-medium w-[40px] sm:w-[56px] md:w-[80px] h-8 sm:h-10 md:h-12",
+              cell: "h-[40px] w-[40px] sm:h-[56px] sm:w-[56px] md:h-[80px] md:w-[80px]",
+              day: "h-[40px] w-[40px] sm:h-[56px] sm:w-[56px] md:h-[80px] md:w-[80px] text-sm sm:text-base md:text-lg relative [&.has-online-appointment]:after:content-[''] [&.has-online-appointment]:after:absolute [&.has-online-appointment]:after:bottom-1 [&.has-online-appointment]:after:left-1/2 [&.has-online-appointment]:after:-translate-x-1/2 [&.has-online-appointment]:after:h-1 [&.has-online-appointment]:after:w-1 [&.has-online-appointment]:after:rounded-full [&.has-online-appointment]:after:bg-muted-foreground [&.has-inperson-appointment]:after:content-[''] [&.has-inperson-appointment]:after:absolute [&.has-inperson-appointment]:after:bottom-1 [&.has-inperson-appointment]:after:left-1/2 [&.has-inperson-appointment]:after:-translate-x-1/2 [&.has-inperson-appointment]:after:h-1 [&.has-inperson-appointment]:after:w-1 [&.has-inperson-appointment]:after:rounded-full [&.has-inperson-appointment]:after:bg-primary",
               day_selected: "border-2 border-primary rounded-full bg-transparent text-foreground hover:border-primary hover:bg-transparent focus:border-primary focus:bg-transparent",
             }}
             modifiers={{
