@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { User, Loader2, CheckCircle2, AlertCircle, X, Edit } from 'lucide-react';
+import { User, Loader2, CheckCircle2, AlertCircle, X, Edit, MessageCircle, ExternalLink } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { getSpecializationList, getSpecializationName } from '@/lib/specializations';
 
@@ -242,6 +242,47 @@ export default function ProfilePage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Support Bot Card */}
+          {import.meta.env.VITE_TELEGRAM_SUPPORT_BOT && (
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <MessageCircle className="w-5 h-5 text-muted-foreground" />
+                  <CardTitle className="text-lg sm:text-xl">Обратная связь</CardTitle>
+                </div>
+                <CardDescription>
+                  Свяжитесь с нами через Telegram бота
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Если у вас есть вопросы, предложения или вы столкнулись с проблемой —
+                  напишите нам через бота поддержки. Мы постараемся ответить как можно скорее.
+                </p>
+                <div className="flex flex-col gap-2">
+                  <p className="text-sm text-muted-foreground">Вы можете:</p>
+                  <ul className="text-sm text-muted-foreground list-disc list-inside space-y-1">
+                    <li>Сообщить о технической ошибке</li>
+                    <li>Предложить улучшение</li>
+                    <li>Задать вопрос</li>
+                    <li>Оставить отзыв</li>
+                  </ul>
+                </div>
+                <Button asChild className="w-full sm:w-auto">
+                  <a
+                    href={`https://t.me/${import.meta.env.VITE_TELEGRAM_SUPPORT_BOT}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <MessageCircle className="w-4 h-4 mr-2" />
+                    Написать в поддержку
+                    <ExternalLink className="w-3 h-3 ml-2" />
+                  </a>
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
     </>

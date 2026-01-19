@@ -28,6 +28,7 @@ services:
         VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
         VITE_API_URL: ${VITE_API_URL:-/api}
         VITE_N8N_SUPERVISOR_WEBHOOK_URL: ${VITE_N8N_SUPERVISOR_WEBHOOK_URL}
+        VITE_TELEGRAM_SUPPORT_BOT: ${VITE_TELEGRAM_SUPPORT_BOT}
     container_name: psipilot-frontend
     expose:
       - "80"
@@ -59,6 +60,28 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+
+  # Telegram Bot (Complaints)
+  telegram-bot:
+    build:
+      context: ./backend/telegram-bot
+      dockerfile: Dockerfile
+    container_name: psipilot-telegram-bot
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - TELEGRAM_ADMIN_CHAT_ID=${TELEGRAM_ADMIN_CHAT_ID}
+      # SMTP for email notifications
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+      - SMTP_FROM=${SMTP_FROM}
+      - NOTIFY_EMAIL=${NOTIFY_EMAIL}
+    restart: unless-stopped
+    networks:
+      - psipilot-network
 
 volumes:
   caddy_data:
