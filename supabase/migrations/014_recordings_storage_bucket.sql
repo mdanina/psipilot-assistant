@@ -12,7 +12,7 @@ VALUES (
     'recordings',
     'recordings',
     false,
-    52428800, -- 50MB max file size
+    524288000, -- 500MB max file size
     ARRAY['audio/webm', 'audio/mp4', 'audio/ogg', 'audio/mpeg', 'audio/wav']
 )
 ON CONFLICT (id) DO UPDATE SET
