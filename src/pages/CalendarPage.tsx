@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { CreateAppointmentDialog } from "@/components/calendar/CreateAppointmentDialog";
 import { AppointmentList } from "@/components/calendar/AppointmentList";
 import { TimezoneSelector } from "@/components/calendar/TimezoneSelector";
+import { CalendarFeedDialog } from "@/components/calendar/CalendarFeedDialog";
 import { Calendar } from "@/components/ui/calendar";
 import {
   AlertDialog,
@@ -279,13 +280,6 @@ const CalendarPage = () => {
     }
   };
 
-  const handleSyncClick = () => {
-    toast({
-      title: "Синхронизация",
-      description: "Синхронизация с внешними календарями будет доступна в будущих обновлениях",
-    });
-  };
-
   const handleCreateAtTime = (time: string) => {
     setDefaultAppointmentDate(selectedDate);
     setDefaultAppointmentTime(time);
@@ -335,10 +329,7 @@ const CalendarPage = () => {
               <Plus className="w-4 h-4 mr-2" />
               <span className="sm:inline">Новая встреча</span>
             </Button>
-            <Button variant="outline" onClick={handleSyncClick} className="hidden sm:flex">
-              <RefreshCw className="w-4 h-4 mr-2" />
-              Синхронизация
-            </Button>
+            <CalendarFeedDialog triggerClassName="hidden sm:flex" />
           </div>
           <TimezoneSelector />
         </div>

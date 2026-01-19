@@ -8,6 +8,7 @@ import { webhookRoute } from './routes/webhook.js';
 import { aiRoute } from './routes/ai.js';
 import { cryptoRoute } from './routes/crypto.js';
 import researchRoute from './routes/research.js';
+import { calendarRoute } from './routes/calendar.js';
 import { verifyAuthToken } from './middleware/auth.js';
 import { authenticateResearcher } from './middleware/research-auth.js';
 
@@ -130,7 +131,7 @@ app.use('/api', (req, res, next) => {
   const path = req.path;
   const method = req.method;
   
-  const hasOwnLimiter = 
+  const hasOwnLimiter =
     (path.startsWith('/ai/generate') && method === 'POST') ||
     path.startsWith('/ai/regenerate-section') ||
     path.startsWith('/ai/case-summary') ||
@@ -142,7 +143,8 @@ app.use('/api', (req, res, next) => {
     path.startsWith('/ai/block-templates') ||
     path.startsWith('/ai/note-templates') ||
     (path.startsWith('/ai/generate/') && method === 'GET') ||
-    (path.startsWith('/transcribe/') && path.endsWith('/status') && method === 'GET');
+    (path.startsWith('/transcribe/') && path.endsWith('/status') && method === 'GET') ||
+    path.startsWith('/calendar/feed/');
   
   if (hasOwnLimiter) {
     return next();
@@ -181,6 +183,11 @@ app.get('/', (req, res) => {
         health: 'GET /api/research/health',
         stats: 'GET /api/research/stats',
         anonymizedTranscripts: 'GET /api/research/anonymized-transcripts'
+      },
+      calendar: {
+        generateToken: 'POST /api/calendar/generate-token',
+        feed: 'GET /api/calendar/feed/:token',
+        revokeToken: 'DELETE /api/calendar/revoke-token'
       }
     },
     timestamp: new Date().toISOString()
@@ -222,6 +229,12 @@ app.use('/api/crypto', verifyAuthToken, cryptoLimiter, cryptoRoute);
 // Research routes с аутентификацией исследователей
 // Rate limiting уже включен в authenticateResearcher middleware
 app.use('/api/research', authenticateResearcher, researchRoute);
+
+// Calendar routes
+// Public endpoint for iCal feed (token-based auth, no JWT required)
+app.get('/api/calendar/feed/:token', (req, res, next) => calendarRoute(req, res, next));
+// Protected endpoints for token management
+app.use('/api/calendar', verifyAuthToken, calendarRoute);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
