@@ -68,7 +68,7 @@ export function SessionTimeoutWarning() {
 
   return (
     <Dialog open={showWarning} onOpenChange={setShowWarning}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-w-[95vw] sm:max-w-md">
         <DialogHeader>
           <div className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-destructive" />

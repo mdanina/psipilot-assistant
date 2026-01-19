@@ -154,7 +154,7 @@ export function PatientDetailModal({
             </div>
           </>
         ) : (
-          <div className="p-12 text-center text-muted-foreground">
+          <div className="p-8 md:p-12 text-center text-muted-foreground">
             Пациент не найден
           </div>
         )}

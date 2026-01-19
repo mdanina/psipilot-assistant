@@ -113,11 +113,6 @@ export function AppointmentList({
   if (appointments.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-8 px-4 text-center h-full">
-        <img
-          src="/assets/compass_17821700.png"
-          alt="Нет консультаций"
-          className="w-32 h-32 mb-6 opacity-80"
-        />
         <p className="text-lg text-muted-foreground mb-6">
           У вас сегодня нет консультаций
         </p>
@@ -148,13 +143,13 @@ export function AppointmentList({
           <div
             key={appointment.id}
             className={cn(
-              "flex items-center gap-4 p-4 rounded-lg border bg-card cursor-pointer hover:bg-accent/50 transition-colors",
+              "flex items-center gap-2 sm:gap-4 p-3 sm:p-4 rounded-lg border bg-card cursor-pointer hover:bg-accent/50 transition-colors",
               isInPerson && "border-primary/30 bg-primary/5"
             )}
             onClick={() => handleAppointmentClick(appointment.id)}
           >
             {/* Time */}
-            <div className="text-xl font-semibold text-foreground min-w-[60px]">
+            <div className="text-base sm:text-xl font-semibold text-foreground min-w-[50px] sm:min-w-[60px]">
               {time}
             </div>
 

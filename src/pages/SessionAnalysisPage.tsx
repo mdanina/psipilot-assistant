@@ -101,22 +101,22 @@ export default function SessionAnalysisPage() {
     <div className="flex h-screen">
       <Header />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="border-b px-6 py-4">
+        <div className="border-b px-4 md:px-6 py-3 md:py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 sm:gap-4">
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => navigate('/sessions')}
               >
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Назад
+                <ArrowLeft className="mr-1 sm:mr-2 h-4 w-4" />
+                <span className="hidden sm:inline">Назад</span>
               </Button>
               <div>
-                <h1 className="text-2xl font-semibold">
+                <h1 className="text-lg sm:text-2xl font-semibold">
                   AI Анализ сессии
                 </h1>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-xs sm:text-sm text-muted-foreground truncate max-w-[200px] sm:max-w-none">
                   {session.title || `Сессия от ${new Date(session.started_at).toLocaleDateString('ru-RU')}`}
                 </p>
               </div>

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Plus, FileText, Circle, User, Link2, Loader2, Mic, Pause, Play, Square, Sparkles, ChevronDown, RefreshCw, Trash2, X, File, Upload, Search, AlertTriangle } from "lucide-react";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { useNavigationBlocker } from "@/hooks/useNavigationBlocker";
@@ -89,6 +90,7 @@ const SessionsPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
+  const isMobile = useIsMobile();
   
   const [activeSession, setActiveSession] = useState<string | null>(null);
   const [openTabs, setOpenTabs] = useState<Set<string>>(new Set());
@@ -1983,13 +1985,13 @@ const SessionsPage = () => {
               </div>
             </div>
           ) : (
-          <ResizablePanelGroup direction="horizontal" className="h-full">
+          <ResizablePanelGroup direction={isMobile ? "vertical" : "horizontal"} className="h-full">
             {/* Левая колонка - Исходники (транскрипт, заметки) */}
             <ResizablePanel defaultSize={35} minSize={25} maxSize={50}>
               <div className="h-full border-r border-border flex flex-col">
-            <div className="p-6 border-b border-border">
-              <div className="flex items-center justify-between mb-3">
-              <h2 className="text-lg font-semibold text-foreground">Ввод информации о пациенте</h2>
+            <div className="p-4 md:p-6 border-b border-border">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+              <h2 className="text-base sm:text-lg font-semibold text-foreground">Ввод информации о пациенте</h2>
                 {currentSession && !currentSession.patient_id && (
                   <Dialog open={linkDialogOpen} onOpenChange={(open) => {
                     setLinkDialogOpen(open);

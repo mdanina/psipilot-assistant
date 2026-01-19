@@ -66,7 +66,7 @@ export function CreateSessionDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="max-w-[95vw] sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Plus className="w-5 h-5" />

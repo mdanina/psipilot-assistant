@@ -197,12 +197,12 @@ export const RecordingCard = ({
   // State 1: Recording in progress
   if (isActiveRecording || isStopping) {
     return (
-      <div className="bg-card rounded-2xl shadow-elevated p-8 max-w-lg w-full relative">
+      <div className="bg-card rounded-2xl shadow-elevated p-5 sm:p-8 max-w-lg w-full relative">
         {/* Cancel button */}
         {isActiveRecording && !isStopping && (
           <button
             onClick={handleCancelRecording}
-            className="absolute top-4 right-4 text-destructive hover:text-destructive/80"
+            className="absolute top-3 right-3 sm:top-4 sm:right-4 text-destructive hover:text-destructive/80 p-1"
             disabled={isStopping}
           >
             <X className="w-5 h-5" />
@@ -260,14 +260,14 @@ export const RecordingCard = ({
                 {isPaused ? (
                   <button
                     onClick={resumeRecording}
-                    className="p-2 hover:bg-muted rounded-lg"
+                    className="p-2.5 hover:bg-muted rounded-lg min-w-[44px] min-h-[44px] flex items-center justify-center"
                   >
                     <Play className="w-5 h-5 text-foreground" />
                   </button>
                 ) : (
                   <button
                     onClick={pauseRecording}
-                    className="p-2 hover:bg-muted rounded-lg"
+                    className="p-2.5 hover:bg-muted rounded-lg min-w-[44px] min-h-[44px] flex items-center justify-center"
                   >
                     <Pause className="w-5 h-5 text-foreground" />
                   </button>
@@ -277,7 +277,7 @@ export const RecordingCard = ({
                 <button
                   onClick={handleStopRecording}
                   disabled={isStopping}
-                  className="p-2 bg-recording rounded-lg hover:bg-recording/90 disabled:opacity-50"
+                  className="p-2.5 bg-recording rounded-lg hover:bg-recording/90 disabled:opacity-50 min-w-[44px] min-h-[44px] flex items-center justify-center"
                 >
                   <Square className="w-5 h-5 text-white fill-white" />
                 </button>
@@ -293,16 +293,16 @@ export const RecordingCard = ({
 
   // State 2: Initial state or with completed recording
   return (
-    <div className="bg-card rounded-2xl shadow-elevated p-8 max-w-lg w-full relative">
+    <div className="bg-card rounded-2xl shadow-elevated p-5 sm:p-8 max-w-lg w-full relative">
       {/* Sparkle decoration */}
-      <div className="absolute top-4 right-4 text-primary/30">
+      <div className="absolute top-3 right-3 sm:top-4 sm:right-4 text-primary/30">
         <Sparkles className="w-5 h-5" />
       </div>
-      <div className="absolute bottom-4 left-4 text-primary/30">
+      <div className="absolute bottom-3 left-3 sm:bottom-4 sm:left-4 text-primary/30">
         <Sparkles className="w-5 h-5" />
       </div>
 
-      <div className="text-center space-y-6">
+      <div className="text-center space-y-4 sm:space-y-6">
         {/* Microphone icon */}
         <div className="mx-auto w-16 h-16 bg-primary rounded-xl flex items-center justify-center shadow-lg">
           <Mic className="w-8 h-8 text-primary-foreground" />

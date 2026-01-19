@@ -229,16 +229,16 @@ const PatientsPage = () => {
                         </span>
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-1 sm:gap-2">
+                        <div className="flex items-center gap-1">
                           <button
-                            className="p-2 hover:bg-muted rounded-lg text-muted-foreground hover:text-foreground"
+                            className="p-2.5 sm:p-2 hover:bg-muted rounded-lg text-muted-foreground hover:text-foreground min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center"
                             onClick={(e) => handleEditClick(e, patient.id)}
                             title="Редактировать"
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
                           <button
-                            className="p-2 hover:bg-muted rounded-lg text-muted-foreground hover:text-destructive"
+                            className="p-2.5 sm:p-2 hover:bg-muted rounded-lg text-muted-foreground hover:text-destructive min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center"
                             onClick={(e) => handleDeleteClick(e, patient.id)}
                             title="Удалить"
                           >

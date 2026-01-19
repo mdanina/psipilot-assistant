@@ -303,7 +303,7 @@ export function CreateAppointmentDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-[95vw] sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Новая встреча</DialogTitle>
           <p className="text-sm text-muted-foreground">Запланируйте встречу с пациентом</p>
