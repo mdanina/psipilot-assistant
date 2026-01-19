@@ -329,7 +329,7 @@ const CalendarPage = () => {
               <Plus className="w-4 h-4 mr-2" />
               <span className="sm:inline">Новая встреча</span>
             </Button>
-            <CalendarFeedDialog triggerClassName="hidden sm:flex" />
+            <CalendarFeedDialog />
           </div>
           <TimezoneSelector />
         </div>
