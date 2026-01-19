@@ -1,5 +1,6 @@
 import { Bot, session, InlineKeyboard } from 'grammy';
 import { createClient } from '@supabase/supabase-js';
+import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -9,6 +10,31 @@ const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const ADMIN_CHAT_ID = process.env.TELEGRAM_ADMIN_CHAT_ID; // ID группы/канала для уведомлений
+
+// SMTP конфигурация
+const SMTP_HOST = process.env.SMTP_HOST;
+const SMTP_PORT = process.env.SMTP_PORT || 587;
+const SMTP_USER = process.env.SMTP_USER;
+const SMTP_PASS = process.env.SMTP_PASS;
+const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER;
+const NOTIFY_EMAIL = process.env.NOTIFY_EMAIL; // Email для уведомлений
+
+// Инициализация email транспорта
+let emailTransporter = null;
+if (SMTP_HOST && SMTP_USER && SMTP_PASS && NOTIFY_EMAIL) {
+  emailTransporter = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: parseInt(SMTP_PORT),
+    secure: parseInt(SMTP_PORT) === 465,
+    auth: {
+      user: SMTP_USER,
+      pass: SMTP_PASS,
+    },
+  });
+  console.log('📧 Email уведомления включены');
+} else {
+  console.log('📧 Email уведомления отключены (не настроен SMTP)');
+}
 
 if (!BOT_TOKEN) {
   console.error('❌ TELEGRAM_BOT_TOKEN не установлен');
@@ -220,7 +246,10 @@ bot.callbackQuery('confirm_send', async (ctx) => {
     return;
   }
 
-  // Уведомление администраторов
+  // Отправка email уведомления
+  await sendEmailNotification(session, user);
+
+  // Уведомление администраторов в Telegram
   if (ADMIN_CHAT_ID) {
     try {
       const categoryLabel = CATEGORIES[session.category]?.label || session.category;
@@ -319,6 +348,89 @@ bot.callbackQuery('done_attachments', async (ctx) => {
   await ctx.answerCallbackQuery();
   await showConfirmation(ctx);
 });
+
+// Функция отправки email уведомления
+async function sendEmailNotification(session, user) {
+  if (!emailTransporter) return;
+
+  const categoryLabels = {
+    bug: 'Техническая ошибка',
+    feature: 'Предложение',
+    complaint: 'Жалоба',
+    question: 'Вопрос',
+    other: 'Другое',
+  };
+
+  const categoryLabel = categoryLabels[session.category] || session.category;
+  const userName = user.username ? `@${user.username}` : `${user.first_name || ''} ${user.last_name || ''}`.trim();
+  const date = new Date().toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' });
+
+  const htmlContent = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #333; border-bottom: 2px solid #4F46E5; padding-bottom: 10px;">
+        Новое обращение в PsiPilot
+      </h2>
+
+      <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+        <tr>
+          <td style="padding: 8px; border-bottom: 1px solid #eee; color: #666; width: 140px;">Дата:</td>
+          <td style="padding: 8px; border-bottom: 1px solid #eee;">${date}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">От:</td>
+          <td style="padding: 8px; border-bottom: 1px solid #eee;">${userName}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">Категория:</td>
+          <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>${categoryLabel}</strong></td>
+        </tr>
+        <tr>
+          <td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">Контакт:</td>
+          <td style="padding: 8px; border-bottom: 1px solid #eee;">${session.contact || 'не указан'}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">Вложений:</td>
+          <td style="padding: 8px; border-bottom: 1px solid #eee;">${session.attachments.length}</td>
+        </tr>
+      </table>
+
+      <div style="background: #f9fafb; padding: 15px; border-radius: 8px; margin: 20px 0;">
+        <h3 style="margin: 0 0 10px 0; color: #333;">Сообщение:</h3>
+        <p style="margin: 0; white-space: pre-wrap; color: #444;">${session.message}</p>
+      </div>
+
+      <p style="color: #888; font-size: 12px; margin-top: 30px;">
+        Это автоматическое уведомление от Telegram бота PsiPilot.
+      </p>
+    </div>
+  `;
+
+  const textContent = `
+Новое обращение в PsiPilot
+
+Дата: ${date}
+От: ${userName}
+Категория: ${categoryLabel}
+Контакт: ${session.contact || 'не указан'}
+Вложений: ${session.attachments.length}
+
+Сообщение:
+${session.message}
+  `.trim();
+
+  try {
+    await emailTransporter.sendMail({
+      from: SMTP_FROM,
+      to: NOTIFY_EMAIL,
+      subject: `[PsiPilot] ${categoryLabel}: новое обращение`,
+      text: textContent,
+      html: htmlContent,
+    });
+    console.log('📧 Email уведомление отправлено');
+  } catch (error) {
+    console.error('❌ Ошибка отправки email:', error);
+  }
+}
 
 // Функция показа подтверждения
 async function showConfirmation(ctx) {
