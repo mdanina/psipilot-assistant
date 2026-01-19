@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Plus, FileText, Circle, User, Link2, Loader2, Mic, Pause, Play, Square, Sparkles, ChevronDown, RefreshCw, Trash2, X, File, Upload, Search, AlertTriangle } from "lucide-react";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { useNavigationBlocker } from "@/hooks/useNavigationBlocker";
@@ -89,6 +90,7 @@ const SessionsPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
+  const isMobile = useIsMobile();
   
   const [activeSession, setActiveSession] = useState<string | null>(null);
   const [openTabs, setOpenTabs] = useState<Set<string>>(new Set());
@@ -1983,7 +1985,7 @@ const SessionsPage = () => {
               </div>
             </div>
           ) : (
-          <ResizablePanelGroup direction="horizontal" className="h-full">
+          <ResizablePanelGroup direction={isMobile ? "vertical" : "horizontal"} className="h-full">
             {/* Левая колонка - Исходники (транскрипт, заметки) */}
             <ResizablePanel defaultSize={35} minSize={25} maxSize={50}>
               <div className="h-full border-r border-border flex flex-col">

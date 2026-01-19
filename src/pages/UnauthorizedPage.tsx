@@ -15,8 +15,8 @@ export default function UnauthorizedPage() {
         </div>
 
         <div className="space-y-2">
-          <h1 className="text-3xl font-bold">Доступ запрещен</h1>
-          <p className="text-muted-foreground max-w-md">
+          <h1 className="text-2xl sm:text-3xl font-bold">Доступ запрещен</h1>
+          <p className="text-sm sm:text-base text-muted-foreground max-w-md">
             У вас нет разрешения на доступ к этой странице. Пожалуйста, свяжитесь с
             администратором, если считаете, что это ошибка.
           </p>
