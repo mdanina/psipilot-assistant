@@ -259,13 +259,13 @@ export default function RegisterPage() {
                   className="text-sm text-muted-foreground leading-relaxed cursor-pointer"
                 >
                   Я принимаю{' '}
-                  <a href="#" className="text-primary hover:underline">
+                  <Link to="/terms" className="text-primary hover:underline">
                     условия использования
-                  </a>{' '}
+                  </Link>{' '}
                   и{' '}
-                  <a href="#" className="text-primary hover:underline">
+                  <Link to="/privacy" className="text-primary hover:underline">
                     политику конфиденциальности
-                  </a>
+                  </Link>
                 </label>
               </div>
             </CardContent>
