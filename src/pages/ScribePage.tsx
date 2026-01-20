@@ -80,7 +80,7 @@ const ScribePage = () => {
     uploadError?: string;
   }>>([]);
 
-  const transcriptionApiUrl = import.meta.env.VITE_TRANSCRIPTION_API_URL || 'http://localhost:3001';
+  const transcriptionApiUrl = import.meta.env.VITE_TRANSCRIPTION_API_URL || '';
 
   // Используем хук для recovery и отслеживания транскрипций
   // Без sessionId - отслеживает все транскрипции пользователя

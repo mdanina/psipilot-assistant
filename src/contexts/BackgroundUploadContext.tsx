@@ -25,7 +25,7 @@ import {
   deleteLocalRecording,
 } from '@/lib/local-recording-storage';
 
-const transcriptionApiUrl = import.meta.env.VITE_TRANSCRIPTION_API_URL || 'http://localhost:3001';
+const transcriptionApiUrl = import.meta.env.VITE_TRANSCRIPTION_API_URL || '';
 
 export interface PendingUpload {
   id: string;
