@@ -185,7 +185,7 @@ const SessionsPage = () => {
   const linkSessionMutation = useLinkSessionToPatient();
   const invalidateSessions = useInvalidateSessions();
   const queryClient = useQueryClient();
-  const { queueUpload, hasActiveUploads, pendingUploads, hasFailedUploads, failedUploadsCount, retryUpload, dismissFailedUpload } = useBackgroundUpload();
+  const { queueUpload, hasActiveUploads, pendingUploads, hasFailedUploads, failedUploadsCount, retryUpload, dismissFailedUpload, setOnTranscriptionStarted } = useBackgroundUpload();
   const [selectedPatientId, setSelectedPatientId] = useState<string>("");
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [relinkWarning, setRelinkWarning] = useState<{
@@ -318,6 +318,22 @@ const SessionsPage = () => {
       }
     },
   });
+
+  // Connect BackgroundUploadContext to useTranscriptionRecovery
+  // When a transcription starts via BackgroundUpload, add it to tracking
+  const addTranscriptionRef = useRef(addTranscription);
+  addTranscriptionRef.current = addTranscription;
+
+  useEffect(() => {
+    setOnTranscriptionStarted((recordingId, sessionId) => {
+      console.log('[SessionsPage] Background transcription started, adding to tracking:', recordingId, sessionId);
+      addTranscriptionRef.current(recordingId, sessionId);
+    });
+
+    return () => {
+      setOnTranscriptionStarted(null);
+    };
+  }, [setOnTranscriptionStarted]);
 
   // Show recorder errors
   useEffect(() => {

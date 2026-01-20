@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useNavigationBlocker } from "@/hooks/useNavigationBlocker";
@@ -15,6 +15,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/contexts/AuthContext";
+import { useBackgroundUpload } from "@/contexts/BackgroundUploadContext";
 import { createSession } from "@/lib/supabase-sessions";
 import {
   createRecording,
@@ -96,6 +97,23 @@ const ScribePage = () => {
       navigate(`/sessions?sessionId=${sessionId}`);
     },
   });
+
+  // Connect BackgroundUploadContext to useTranscriptionRecovery
+  // When a transcription starts via BackgroundUpload, add it to tracking
+  const { setOnTranscriptionStarted } = useBackgroundUpload();
+  const addTranscriptionRef = useRef(addTranscription);
+  addTranscriptionRef.current = addTranscription;
+
+  useEffect(() => {
+    setOnTranscriptionStarted((recordingId, sessionId) => {
+      console.log('[ScribePage] Background transcription started, adding to tracking:', recordingId, sessionId);
+      addTranscriptionRef.current(recordingId, sessionId);
+    });
+
+    return () => {
+      setOnTranscriptionStarted(null);
+    };
+  }, [setOnTranscriptionStarted]);
 
   // Состояние для отслеживания записи (для блокировки навигации)
   const [isRecording, setIsRecording] = useState(false);
