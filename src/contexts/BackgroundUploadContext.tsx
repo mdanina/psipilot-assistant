@@ -66,6 +66,8 @@ interface BackgroundUploadContextType {
   cancelUpload: (uploadId: string) => void;
   /** Dismiss a failed upload (remove from list) */
   dismissFailedUpload: (uploadId: string) => void;
+  /** Subscribe to transcription started events */
+  setOnTranscriptionStarted: (callback: ((recordingId: string, sessionId: string) => void) | null) => void;
 }
 
 const BackgroundUploadContext = createContext<BackgroundUploadContextType | null>(null);
@@ -77,6 +79,11 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
 
   const [pendingUploads, setPendingUploads] = useState<Map<string, PendingUpload>>(new Map());
   const processingRef = useRef<Set<string>>(new Set());
+  const onTranscriptionStartedRef = useRef<((recordingId: string, sessionId: string) => void) | null>(null);
+
+  const setOnTranscriptionStarted = useCallback((callback: ((recordingId: string, sessionId: string) => void) | null) => {
+    onTranscriptionStartedRef.current = callback;
+  }, []);
 
   const updateUpload = useCallback((id: string, updates: Partial<PendingUpload>) => {
     setPendingUploads(prev => {
@@ -190,6 +197,12 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
       try {
         await startTranscription(recording.id, transcriptionApiUrl);
         updateUpload(id, { progress: 100, status: 'completed' });
+
+        // Notify listeners that transcription started (for useTranscriptionRecovery)
+        if (onTranscriptionStartedRef.current && targetSessionId) {
+          console.log('[BackgroundUpload] Notifying transcription started:', recording.id, targetSessionId);
+          onTranscriptionStartedRef.current(recording.id, targetSessionId);
+        }
 
         toast({
           title: "Загрузка завершена",
@@ -407,6 +420,7 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
       retryUpload,
       cancelUpload,
       dismissFailedUpload,
+      setOnTranscriptionStarted,
     }}>
       {children}
     </BackgroundUploadContext.Provider>
