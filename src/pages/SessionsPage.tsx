@@ -1947,7 +1947,7 @@ const SessionsPage = () => {
         
         {/* Main content - 3 колонки: исходники, библиотека шаблонов, результат */}
         <div className="flex-1 overflow-hidden">
-          {openTabs.size === 0 && sessions.length === 0 ? (
+          {openTabs.size === 0 && filteredSessions.length === 0 ? (
             // Empty state - нет сессий вообще
             <div className="h-full flex items-center justify-center p-8">
               <div className="text-center max-w-md">
@@ -1969,7 +1969,7 @@ const SessionsPage = () => {
                 </Button>
               </div>
             </div>
-          ) : openTabs.size === 0 && sessions.length > 0 ? (
+          ) : openTabs.size === 0 && filteredSessions.length > 0 ? (
             // Есть сессии, но нет открытых вкладок - показываем подсказку
             <div className="h-full flex items-center justify-center p-8">
               <div className="text-center max-w-md">
