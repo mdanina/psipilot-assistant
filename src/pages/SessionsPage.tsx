@@ -1336,15 +1336,22 @@ const SessionsPage = () => {
 
   const handleDeleteSession = async () => {
     if (!closingSessionId) return;
-    
+
     try {
       await deleteSessionMutation.mutateAsync(closingSessionId);
-      
+
       toast({
         title: "Успешно",
         description: "Сессия удалена",
       });
-      
+
+      // Remove from open tabs
+      setOpenTabs(prev => {
+        const next = new Set(prev);
+        next.delete(closingSessionId);
+        return next;
+      });
+
       // If deleted session was active, select another one
       if (activeSession === closingSessionId) {
         const remainingSessions = tabSessions.filter(s => s.id !== closingSessionId);
@@ -1354,7 +1361,7 @@ const SessionsPage = () => {
           setActiveSession(null);
         }
       }
-      
+
       // Cache will be automatically invalidated by useDeleteSessionMutation
       setCloseSessionDialogOpen(false);
       setClosingSessionId(null);
