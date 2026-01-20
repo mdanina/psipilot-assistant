@@ -196,10 +196,11 @@ export function useDeletePatient() {
 
       return { success: true };
     },
-    // Invalidate patients cache after successful deletion
-    onSuccess: () => {
-      // Invalidate all patients queries (main list, individual patient, and searches)
-      queryClient.invalidateQueries({ queryKey: ['patients'] });
+    // Refetch patients cache after successful deletion
+    // Note: We use refetchQueries instead of invalidateQueries because with staleTime: Infinity,
+    // invalidateQueries only marks data as stale but doesn't trigger a refetch
+    onSuccess: async () => {
+      await queryClient.refetchQueries({ queryKey: ['patients'] });
     },
   });
 }
@@ -234,10 +235,11 @@ export function useCreatePatient() {
 
       return data;
     },
-    // Invalidate patients cache after successful creation
-    onSuccess: () => {
-      // Invalidate all patients queries (main list and searches)
-      queryClient.invalidateQueries({ queryKey: ['patients'] });
+    // Refetch patients cache after successful creation
+    // Note: We use refetchQueries instead of invalidateQueries because with staleTime: Infinity,
+    // invalidateQueries only marks data as stale but doesn't trigger a refetch
+    onSuccess: async () => {
+      await queryClient.refetchQueries({ queryKey: ['patients'] });
     },
   });
 }
