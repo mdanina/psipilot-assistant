@@ -228,7 +228,7 @@ const SessionsPage = () => {
   const currentRecordingSessionIdRef = useRef<string | null>(null);
   const audioFileInputRef = useRef<HTMLInputElement>(null);
   const lastCheckpointRef = useRef<string | null>(null);
-  const transcriptionApiUrl = import.meta.env.VITE_TRANSCRIPTION_API_URL || 'http://localhost:3001';
+  const transcriptionApiUrl = import.meta.env.VITE_TRANSCRIPTION_API_URL || '';
 
   // Audio recorder hook
   const {

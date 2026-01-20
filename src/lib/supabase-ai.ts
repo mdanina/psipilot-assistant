@@ -17,7 +17,7 @@ import type {
 
 // URL backend сервиса для AI endpoints
 // По умолчанию используем тот же сервер, что и для транскрипции
-const AI_API_URL = import.meta.env.VITE_AI_API_URL || import.meta.env.VITE_TRANSCRIPTION_API_URL || 'http://localhost:3001';
+const AI_API_URL = import.meta.env.VITE_AI_API_URL || import.meta.env.VITE_TRANSCRIPTION_API_URL || '';
 
 /**
  * Получить заголовки для аутентификации

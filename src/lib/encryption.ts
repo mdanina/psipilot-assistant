@@ -10,7 +10,7 @@
 import { supabase } from './supabase';
 
 // URL backend сервиса
-const CRYPTO_API_URL = import.meta.env.VITE_AI_API_URL || import.meta.env.VITE_TRANSCRIPTION_API_URL || 'http://localhost:3001';
+const CRYPTO_API_URL = import.meta.env.VITE_AI_API_URL || import.meta.env.VITE_TRANSCRIPTION_API_URL || '';
 
 // Кэш статуса шифрования
 let encryptionStatusCache: boolean | null = null;

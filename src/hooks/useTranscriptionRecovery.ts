@@ -56,7 +56,7 @@ function getPollingInterval(attempts: number): number {
   return 60000;                        // after 10 min
 }
 
-const transcriptionApiUrl = import.meta.env.VITE_TRANSCRIPTION_API_URL || 'http://localhost:3001';
+const transcriptionApiUrl = import.meta.env.VITE_TRANSCRIPTION_API_URL || '';
 
 /**
  * Hook for recovering and tracking transcription status across page navigations.
