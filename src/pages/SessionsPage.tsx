@@ -575,8 +575,9 @@ const SessionsPage = () => {
     const loadedSessionIds = new Set(tabSessions.map(s => s.id));
     const deletedTabs = Array.from(openTabs).filter(tabId => !loadedSessionIds.has(tabId));
 
-    // Only remove tabs for sessions that were definitely deleted (queried but not found)
-    if (deletedTabs.length > 0 && tabSessions.length > 0) {
+    // Remove tabs for sessions that were deleted
+    // This handles both cases: some sessions deleted, or all sessions deleted
+    if (deletedTabs.length > 0) {
       console.log('[Tabs] Removing tabs for deleted sessions:', deletedTabs);
       setOpenTabs(prev => {
         const newTabs = new Set(prev);
