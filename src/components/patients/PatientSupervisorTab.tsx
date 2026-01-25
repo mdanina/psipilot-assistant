@@ -182,9 +182,10 @@ export function PatientSupervisorTab({
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
+      e.stopPropagation(); // Prevent event from bubbling to parent Tabs component
       handleSend();
     }
   };
@@ -321,7 +322,7 @@ export function PatientSupervisorTab({
               <Input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyPress={handleKeyPress}
+                onKeyDown={handleKeyDown}
                 placeholder="Введите сообщение..."
                 disabled={isLoading || !isAvailable}
               />
@@ -333,6 +334,18 @@ export function PatientSupervisorTab({
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
                   <Send className="w-4 h-4" />
+                )}
+              </Button>
+              <Button
+                onClick={handleSaveConversation}
+                disabled={messages.length === 0 || isLoading || isSavingConversation}
+                variant="outline"
+                title="Сохранить беседу"
+              >
+                {isSavingConversation ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <FileText className="w-4 h-4" />
                 )}
               </Button>
             </div>
