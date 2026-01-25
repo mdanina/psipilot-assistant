@@ -2,10 +2,9 @@ import { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
 import { LoginScreen } from './components/LoginScreen';
 import { OverlayPanel } from './components/OverlayPanel';
-import type { User, Session } from '@supabase/supabase-js';
+import type { Session } from '@supabase/supabase-js';
 
 function App() {
-  const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -13,7 +12,6 @@ function App() {
     // Проверяем текущую сессию
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      setUser(session?.user ?? null);
       setIsLoading(false);
     });
 
@@ -21,7 +19,6 @@ function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         setSession(session);
-        setUser(session?.user ?? null);
       }
     );
 
@@ -36,11 +33,11 @@ function App() {
     );
   }
 
-  if (!user || !session) {
+  if (!session) {
     return <LoginScreen />;
   }
 
-  return <OverlayPanel user={user} />;
+  return <OverlayPanel />;
 }
 
 export default App;

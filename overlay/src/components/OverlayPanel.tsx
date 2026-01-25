@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import {
-  Mic, MicOff, Square, Circle,
+  Mic, Square, Circle,
   ChevronDown, LogOut, Settings,
   Plus, Clock
 } from 'lucide-react';
-import type { User } from '@supabase/supabase-js';
 
 interface Patient {
   id: string;
@@ -19,11 +18,7 @@ interface Note {
   createdAt: Date;
 }
 
-interface OverlayPanelProps {
-  user: User;
-}
-
-export function OverlayPanel({ user }: OverlayPanelProps) {
+export function OverlayPanel() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [patients, setPatients] = useState<Patient[]>([]);
