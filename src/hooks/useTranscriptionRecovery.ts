@@ -93,6 +93,8 @@ export function useTranscriptionRecovery(
   const pollingActiveRef = useRef<Set<string>>(new Set()); // Tracks active polling to prevent duplicates
   const recordingInfoRef = useRef<Map<string, { startedAt?: string }>>(new Map());
   const isMountedRef = useRef(true);
+  // Track recordings for which onComplete was already called (to prevent duplicate redirects)
+  const completedCallbackCalledRef = useRef<Set<string>>(new Set());
 
   // Cleanup function for a single recording's polling
   const stopPolling = useCallback((recordingId: string) => {
@@ -288,6 +290,8 @@ export function useTranscriptionRecovery(
           description: "Аудио успешно транскрибировано",
         });
 
+        // Mark as callback called to prevent duplicate calls from refreshFromDatabase
+        completedCallbackCalledRef.current.add(recordingId);
         onComplete?.(recordingId, sessionIdForRecording);
 
       } else if (status.status === 'failed') {
@@ -484,10 +488,15 @@ export function useTranscriptionRecovery(
           }
         }
 
-        // Call onComplete for each recently completed recording
+        // Call onComplete for each recently completed recording (only if not already called)
         for (const recording of completedData) {
-          console.log(`[useTranscriptionRecovery] Calling onComplete for recently completed: ${recording.id}, session: ${recording.session_id}`);
-          onComplete?.(recording.id, recording.session_id);
+          if (!completedCallbackCalledRef.current.has(recording.id)) {
+            console.log(`[useTranscriptionRecovery] Calling onComplete for recently completed: ${recording.id}, session: ${recording.session_id}`);
+            completedCallbackCalledRef.current.add(recording.id);
+            onComplete?.(recording.id, recording.session_id);
+          } else {
+            console.log(`[useTranscriptionRecovery] Skipping onComplete for ${recording.id} - already called`);
+          }
         }
       }
 
