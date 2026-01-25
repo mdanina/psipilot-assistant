@@ -316,12 +316,11 @@ router.post('/transcribe', async (req, res) => {
       throw new Error(`Failed to save transcription status: ${updateError.message}`);
     }
 
-    // Return transcription ID for polling or webhook
+    // Return success (transcript_id stored in DB, not exposed to client)
     res.json({
       success: true,
       recordingId,
-      transcriptId: transcript.id,
-      status: transcript.status,
+      status: 'processing',
     });
   } catch (error) {
     console.error('Transcription error:', error);
@@ -399,15 +398,14 @@ router.post('/transcribe/:recordingId/sync', async (req, res) => {
     const syncedRecording = await syncTranscriptionStatus(recording);
 
     if (!syncedRecording) {
-      return res.status(500).json({ 
-        error: 'Failed to sync transcription status from AssemblyAI' 
+      return res.status(500).json({
+        error: 'Failed to sync transcription status'
       });
     }
 
     res.json({
       success: true,
-      status: syncedRecording.assemblyaiStatus,
-      transcriptionStatus: syncedRecording.transcription_status,
+      status: syncedRecording.transcription_status,
       hasText: !!syncedRecording.transcription_text,
     });
   } catch (error) {
