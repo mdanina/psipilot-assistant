@@ -42,13 +42,30 @@ export interface TranscriptionStatus {
 export async function createRecording(params: CreateRecordingParams): Promise<Recording> {
   const { sessionId, userId, fileName } = params;
 
+  // Debug: verify auth state matches passed userId
+  const { data: { session } } = await supabase.auth.getSession();
+  const authUid = session?.user?.id;
+  console.log('[createRecording] Auth UID:', authUid);
+  console.log('[createRecording] Passed userId:', userId);
+  console.log('[createRecording] Match:', authUid === userId);
+
+  if (!authUid) {
+    throw new Error('No authenticated session. Please re-login.');
+  }
+
+  if (authUid !== userId) {
+    console.error('[createRecording] User ID mismatch! Auth:', authUid, 'Passed:', userId);
+    // Use auth UID instead to prevent RLS error
+    console.warn('[createRecording] Using auth.uid() instead of passed userId');
+  }
+
   // Generate a temporary file path (will be updated after upload)
   const tempFileName = fileName || `recording-${Date.now()}.webm`;
   const tempFilePath = `recordings/temp/${Date.now()}-${tempFileName}`;
 
   const recordingData: RecordingInsert = {
     session_id: sessionId,
-    user_id: userId,
+    user_id: authUid, // Always use auth UID to match RLS policy
     file_path: tempFilePath, // Temporary path, will be updated after upload
     file_name: tempFileName,
     transcription_status: 'pending',
