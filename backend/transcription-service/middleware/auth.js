@@ -80,13 +80,21 @@ export async function verifyAuthToken(req, res, next) {
 
       if (profileError) {
         console.error('Error fetching profile:', profileError);
-        // Не блокируем запрос, если профиль не найден
-      } else {
-        clinic_id = profile?.clinic_id || null;
+        // SECURITY: Блокируем запрос если профиль не найден —
+        // это может быть признаком проблемы с данными или атаки
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied: User profile not found'
+        });
       }
+
+      clinic_id = profile?.clinic_id || null;
     } catch (err) {
       console.error('Error getting admin client for profile:', err);
-      // Продолжаем без clinic_id
+      return res.status(500).json({
+        success: false,
+        error: 'Internal server error: Profile lookup failed'
+      });
     }
 
     // Добавляем user и clinic_id в req.user

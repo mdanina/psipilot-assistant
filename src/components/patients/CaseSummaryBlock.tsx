@@ -168,12 +168,12 @@ export function CaseSummaryBlock({ patientId, patient }: CaseSummaryBlockProps) 
 
   const handleCopy = async () => {
     if (!caseSummary) return;
-    
+
     try {
-      // Создаем временный элемент для извлечения текста из HTML
-      const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = caseSummary;
-      const textContent = tempDiv.textContent || tempDiv.innerText || '';
+      // SECURITY: Используем DOMParser вместо innerHTML для безопасного парсинга HTML
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(caseSummary, 'text/html');
+      const textContent = doc.body.textContent || '';
       
       await navigator.clipboard.writeText(textContent);
       toast({
