@@ -336,6 +336,18 @@ export function PatientSupervisorTab({
                   <Send className="w-4 h-4" />
                 )}
               </Button>
+              <Button
+                onClick={handleSaveConversation}
+                disabled={messages.length === 0 || isLoading || isSavingConversation}
+                variant="outline"
+                title="Сохранить беседу"
+              >
+                {isSavingConversation ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <FileText className="w-4 h-4" />
+                )}
+              </Button>
             </div>
           </div>
         </CardContent>
