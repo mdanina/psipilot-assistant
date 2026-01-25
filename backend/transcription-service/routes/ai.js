@@ -8,6 +8,55 @@ import { extractTranscriptsFromRecordings } from '../services/transcriptHelper.j
 
 const router = express.Router();
 
+// Configuration for OpenAI rate limiting
+const OPENAI_CONCURRENCY_LIMIT = 3; // Max parallel requests to OpenAI
+const OPENAI_REQUEST_DELAY_MS = 200; // Delay between requests (5 requests/sec max)
+
+/**
+ * Execute async tasks with limited concurrency to avoid OpenAI rate limits
+ * @param {Array} items - Items to process
+ * @param {Function} asyncFn - Async function to call for each item
+ * @param {number} concurrencyLimit - Max parallel executions
+ * @param {number} delayMs - Delay between starting new tasks
+ */
+async function executeWithConcurrencyLimit(items, asyncFn, concurrencyLimit = OPENAI_CONCURRENCY_LIMIT, delayMs = OPENAI_REQUEST_DELAY_MS) {
+  const results = [];
+  const executing = new Set();
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+
+    // Create promise for this item
+    const promise = (async () => {
+      try {
+        const result = await asyncFn(item, i);
+        return { status: 'fulfilled', value: result };
+      } catch (error) {
+        return { status: 'rejected', reason: error };
+      }
+    })();
+
+    results.push(promise);
+    executing.add(promise);
+
+    // Remove from executing set when done
+    promise.then(() => executing.delete(promise));
+
+    // If we've reached concurrency limit, wait for one to complete
+    if (executing.size >= concurrencyLimit) {
+      await Promise.race(executing);
+    }
+
+    // Add delay between starting new requests to spread load
+    if (i < items.length - 1 && delayMs > 0) {
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+
+  // Wait for all to complete
+  return Promise.all(results);
+}
+
 // Helper function to get Supabase admin client
 function getSupabaseAdmin() {
   const supabaseUrl = process.env.SUPABASE_URL;
@@ -499,9 +548,13 @@ async function generateSectionsInBackground(
   const supabase = getSupabaseAdmin();
 
   try {
-    // Параллельная генерация всех секций
-    const results = await Promise.allSettled(
-      sections.map(async (section, index) => {
+    // Generate sections with limited concurrency to avoid OpenAI rate limits
+    // Instead of all sections at once, process max 3 in parallel with delays
+    console.log(`[AI] Starting generation of ${sections.length} sections with concurrency limit ${OPENAI_CONCURRENCY_LIMIT}`);
+
+    const results = await executeWithConcurrencyLimit(
+      sections,
+      async (section, index) => {
         const block = blockTemplates[index];
 
         try {
@@ -545,7 +598,9 @@ async function generateSectionsInBackground(
 
           return { section_id: section.id, status: 'failed', error: error.message };
         }
-      })
+      },
+      OPENAI_CONCURRENCY_LIMIT,
+      OPENAI_REQUEST_DELAY_MS
     );
 
     // Проверяем результаты
