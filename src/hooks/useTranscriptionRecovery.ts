@@ -8,6 +8,32 @@ import type { Database } from '@/types/database.types';
 
 type Recording = Database['public']['Tables']['recordings']['Row'];
 
+// Global set to track recordings for which onComplete was already called
+// This persists across component remounts to prevent duplicate redirects
+const globalCompletedCallbackCalled = new Set<string>();
+
+// Clean up old entries periodically (entries older than 15 minutes)
+const CALLBACK_TRACKING_TTL_MS = 15 * 60 * 1000;
+const globalCompletedCallbackTimestamps = new Map<string, number>();
+
+function markCallbackCalled(recordingId: string) {
+  globalCompletedCallbackCalled.add(recordingId);
+  globalCompletedCallbackTimestamps.set(recordingId, Date.now());
+
+  // Clean up old entries
+  const now = Date.now();
+  for (const [id, timestamp] of globalCompletedCallbackTimestamps.entries()) {
+    if (now - timestamp > CALLBACK_TRACKING_TTL_MS) {
+      globalCompletedCallbackCalled.delete(id);
+      globalCompletedCallbackTimestamps.delete(id);
+    }
+  }
+}
+
+function wasCallbackCalled(recordingId: string): boolean {
+  return globalCompletedCallbackCalled.has(recordingId);
+}
+
 export interface ProcessingTranscription {
   recordingId: string;
   sessionId: string;
@@ -93,8 +119,6 @@ export function useTranscriptionRecovery(
   const pollingActiveRef = useRef<Set<string>>(new Set()); // Tracks active polling to prevent duplicates
   const recordingInfoRef = useRef<Map<string, { startedAt?: string }>>(new Map());
   const isMountedRef = useRef(true);
-  // Track recordings for which onComplete was already called (to prevent duplicate redirects)
-  const completedCallbackCalledRef = useRef<Set<string>>(new Set());
 
   // Cleanup function for a single recording's polling
   const stopPolling = useCallback((recordingId: string) => {
@@ -291,7 +315,7 @@ export function useTranscriptionRecovery(
         });
 
         // Mark as callback called to prevent duplicate calls from refreshFromDatabase
-        completedCallbackCalledRef.current.add(recordingId);
+        markCallbackCalled(recordingId);
         onComplete?.(recordingId, sessionIdForRecording);
 
       } else if (status.status === 'failed') {
@@ -490,9 +514,9 @@ export function useTranscriptionRecovery(
 
         // Call onComplete for each recently completed recording (only if not already called)
         for (const recording of completedData) {
-          if (!completedCallbackCalledRef.current.has(recording.id)) {
+          if (!wasCallbackCalled(recording.id)) {
             console.log(`[useTranscriptionRecovery] Calling onComplete for recently completed: ${recording.id}, session: ${recording.session_id}`);
-            completedCallbackCalledRef.current.add(recording.id);
+            markCallbackCalled(recording.id);
             onComplete?.(recording.id, recording.session_id);
           } else {
             console.log(`[useTranscriptionRecovery] Skipping onComplete for ${recording.id} - already called`);
