@@ -182,9 +182,10 @@ export function PatientSupervisorTab({
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
+      e.stopPropagation(); // Prevent event from bubbling to parent Tabs component
       handleSend();
     }
   };
@@ -321,7 +322,7 @@ export function PatientSupervisorTab({
               <Input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyPress={handleKeyPress}
+                onKeyDown={handleKeyDown}
                 placeholder="Введите сообщение..."
                 disabled={isLoading || !isAvailable}
               />
