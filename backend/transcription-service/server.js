@@ -238,10 +238,15 @@ app.use('/api/calendar', verifyAuthToken, calendarRoute);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
+  // Логируем полную ошибку только на сервере
   console.error('Error:', err);
+
+  // SECURITY: В production не раскрываем детали ошибок клиентам
+  const isProduction = process.env.NODE_ENV === 'production';
   res.status(500).json({
     error: 'Internal server error',
-    message: err.message,
+    // В dev показываем детали для отладки, в prod — generic message
+    ...(isProduction ? {} : { message: err.message }),
   });
 });
 
