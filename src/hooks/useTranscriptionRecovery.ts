@@ -411,32 +411,87 @@ export function useTranscriptionRecovery(
   }, [stopPolling]);
 
   // Fetch processing recordings from database
+  // Also fetch recently completed recordings to handle the case where transcription
+  // completed while user was on a different page (callback was null)
   const refreshFromDatabase = useCallback(async () => {
     if (!user?.id || !isAuthenticated) {
       return;
     }
 
     try {
-      console.log('[useTranscriptionRecovery] Fetching processing recordings from DB...');
+      console.log('[useTranscriptionRecovery] Fetching processing and recently completed recordings from DB...');
 
-      let query = supabase
+      // Time threshold for "recently completed" - 10 minutes
+      const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+
+      // First query: processing recordings
+      let processingQuery = supabase
         .from('recordings')
-        .select('id, session_id, file_name, created_at')
+        .select('id, session_id, file_name, created_at, transcription_status')
         .eq('user_id', user.id)
         .eq('transcription_status', 'processing')
         .is('deleted_at', null);
 
+      // Second query: recently completed recordings (to handle missed callbacks)
+      let completedQuery = supabase
+        .from('recordings')
+        .select('id, session_id, file_name, created_at, transcription_status')
+        .eq('user_id', user.id)
+        .eq('transcription_status', 'completed')
+        .gte('created_at', tenMinutesAgo)
+        .is('deleted_at', null);
+
       // Filter by session if provided
       if (sessionId) {
-        query = query.eq('session_id', sessionId);
+        processingQuery = processingQuery.eq('session_id', sessionId);
+        completedQuery = completedQuery.eq('session_id', sessionId);
       }
 
-      const { data, error } = await query;
+      const [processingResult, completedResult] = await Promise.all([
+        processingQuery,
+        completedQuery,
+      ]);
 
-      if (error) {
-        console.error('[useTranscriptionRecovery] Error fetching recordings:', error);
-        return;
+      if (processingResult.error) {
+        console.error('[useTranscriptionRecovery] Error fetching processing recordings:', processingResult.error);
       }
+      if (completedResult.error) {
+        console.error('[useTranscriptionRecovery] Error fetching completed recordings:', completedResult.error);
+      }
+
+      const processingData = processingResult.data || [];
+      const completedData = completedResult.data || [];
+
+      // Handle recently completed recordings - call onComplete for cache invalidation
+      if (completedData.length > 0) {
+        console.log(`[useTranscriptionRecovery] Found ${completedData.length} recently completed recording(s), triggering onComplete callbacks`);
+
+        // Invalidate sessions cache to ensure new sessions appear
+        if (profile?.clinic_id) {
+          console.log(`[useTranscriptionRecovery] Invalidating sessions cache for recently completed transcriptions`);
+          queryClient.invalidateQueries({ queryKey: ['sessions', profile.clinic_id] });
+          queryClient.invalidateQueries({ queryKey: ['sessions'] });
+          queryClient.invalidateQueries({ queryKey: ['sessions', 'byIds'] });
+
+          // Force refetch
+          try {
+            await queryClient.refetchQueries({
+              queryKey: ['sessions', profile.clinic_id],
+              type: 'active'
+            });
+          } catch (refetchError) {
+            console.error('[useTranscriptionRecovery] Error refetching sessions:', refetchError);
+          }
+        }
+
+        // Call onComplete for each recently completed recording
+        for (const recording of completedData) {
+          console.log(`[useTranscriptionRecovery] Calling onComplete for recently completed: ${recording.id}, session: ${recording.session_id}`);
+          onComplete?.(recording.id, recording.session_id);
+        }
+      }
+
+      const data = processingData;
 
       if (!data || data.length === 0) {
         console.log('[useTranscriptionRecovery] No processing recordings found');
@@ -491,7 +546,7 @@ export function useTranscriptionRecovery(
     } catch (error) {
       console.error('[useTranscriptionRecovery] Error in refreshFromDatabase:', error);
     }
-  }, [user?.id, isAuthenticated, sessionId, startPolling]);
+  }, [user?.id, isAuthenticated, sessionId, startPolling, onComplete, queryClient, profile?.clinic_id]);
 
   // On mount: fetch processing recordings and start polling
   useEffect(() => {
