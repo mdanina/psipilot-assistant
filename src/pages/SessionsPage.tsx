@@ -1377,10 +1377,15 @@ const SessionsPage = () => {
   };
 
   useEffect(() => {
+    // Сохраняем текущие значения ref для cleanup
+    // (иначе к моменту cleanup значение ref.current может измениться)
+    const intervalsMap = pollingIntervalsRef.current;
+    const attemptsMap = pollingAttemptsRef.current;
+
     return () => {
-      pollingIntervalsRef.current.forEach((interval) => clearTimeout(interval));
-      pollingIntervalsRef.current.clear();
-      pollingAttemptsRef.current.clear();
+      intervalsMap.forEach((interval) => clearTimeout(interval));
+      intervalsMap.clear();
+      attemptsMap.clear();
     };
   }, []);
 
