@@ -1377,10 +1377,15 @@ const SessionsPage = () => {
   };
 
   useEffect(() => {
+    // Сохраняем текущие значения ref для cleanup
+    // (иначе к моменту cleanup значение ref.current может измениться)
+    const intervalsMap = pollingIntervalsRef.current;
+    const attemptsMap = pollingAttemptsRef.current;
+
     return () => {
-      pollingIntervalsRef.current.forEach((interval) => clearTimeout(interval));
-      pollingIntervalsRef.current.clear();
-      pollingAttemptsRef.current.clear();
+      intervalsMap.forEach((interval) => clearTimeout(interval));
+      intervalsMap.clear();
+      attemptsMap.clear();
     };
   }, []);
 
@@ -1451,7 +1456,7 @@ const SessionsPage = () => {
       
       // Get notes check for re-linking
       let allowRelinkFinalized = false;
-      let allowRelinkSigned = false;
+      const allowRelinkSigned = false; // Signed notes can never be relinked
       
       if (isRelinking && relinkWarning) {
         // For re-linking, we need user confirmation for finalized/signed notes
@@ -2200,7 +2205,9 @@ const SessionsPage = () => {
                             {(recording.file_name?.replace(/^Запись\s/, 'Сессия ') || 'Сессия')}
                           </span>
                           <div className="flex items-center gap-2">
-                            {(recording.transcription_status === 'processing' || recording.transcription_status === 'pending') && recording.transcript_id && (
+                            {/* Show sync button when processing/pending, OR when completed but no text (to try fetching from AssemblyAI) */}
+                            {((recording.transcription_status === 'processing' || recording.transcription_status === 'pending') ||
+                              (recording.transcription_status === 'completed' && !recording.transcription_text)) && recording.transcript_id && (
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -2227,7 +2234,9 @@ const SessionsPage = () => {
                                 Синхронизировать
                               </Button>
                             )}
-                            {recording.transcription_status === 'failed' && (
+                            {/* Show retry button for failed transcriptions OR completed without text (indicates webhook/sync failure) */}
+                            {(recording.transcription_status === 'failed' ||
+                              (recording.transcription_status === 'completed' && !recording.transcription_text)) && (
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -2273,15 +2282,19 @@ const SessionsPage = () => {
                             </Button>
                             <Badge
                               variant={
-                                recording.transcription_status === 'completed'
+                                recording.transcription_status === 'completed' && recording.transcription_text
                                   ? 'default'
+                                  : recording.transcription_status === 'completed' && !recording.transcription_text
+                                  ? 'outline' // Completed but no text - needs attention
                                   : recording.transcription_status === 'processing'
                                   ? 'secondary'
                                   : 'destructive'
                               }
                             >
-                              {recording.transcription_status === 'completed'
+                              {recording.transcription_status === 'completed' && recording.transcription_text
                                 ? 'Завершено'
+                                : recording.transcription_status === 'completed' && !recording.transcription_text
+                                ? 'Нет текста'
                                 : recording.transcription_status === 'processing'
                                 ? 'Обработка...'
                                 : recording.transcription_status === 'failed'
@@ -2293,6 +2306,11 @@ const SessionsPage = () => {
                         {recording.transcription_status === 'completed' && recording.transcription_text && (
                           <p className="text-sm text-muted-foreground mt-2">
                             {recording.transcription_text.substring(0, 200)}...
+                          </p>
+                        )}
+                        {recording.transcription_status === 'completed' && !recording.transcription_text && (
+                          <p className="text-sm text-amber-600 mt-2">
+                            Транскрипция завершилась, но текст не был получен. Нажмите "Повторить" для перезапуска.
                           </p>
                         )}
                         {recording.transcription_error && (
