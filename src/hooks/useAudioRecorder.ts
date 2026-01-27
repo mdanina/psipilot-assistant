@@ -53,7 +53,7 @@ function calculateStopTimeout(recordingTimeSeconds: number): number {
 
   // Определяем "медленный" браузер/устройство
   const isSafariIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) &&
-                      !(window as any).MSStream;
+                      !('MSStream' in window);
   const isOldDevice = navigator.hardwareConcurrency
     ? navigator.hardwareConcurrency <= 2
     : false;
@@ -556,12 +556,12 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
       }
     };
 
-    // @ts-ignore - freeze event exists but not in TypeScript types
+    // @ts-expect-error - freeze event exists but not in TypeScript types
     document.addEventListener('freeze', handleFreeze);
     window.addEventListener('pagehide', handlePageHide);
 
     return () => {
-      // @ts-ignore
+      // @ts-expect-error - freeze event exists but not in TypeScript types
       document.removeEventListener('freeze', handleFreeze);
       window.removeEventListener('pagehide', handlePageHide);
     };

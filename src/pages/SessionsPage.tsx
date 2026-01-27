@@ -1451,7 +1451,7 @@ const SessionsPage = () => {
       
       // Get notes check for re-linking
       let allowRelinkFinalized = false;
-      let allowRelinkSigned = false;
+      const allowRelinkSigned = false; // Signed notes can never be relinked
       
       if (isRelinking && relinkWarning) {
         // For re-linking, we need user confirmation for finalized/signed notes

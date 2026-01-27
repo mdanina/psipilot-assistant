@@ -101,7 +101,7 @@ export function useTabAudioCapture(): UseTabAudioCaptureReturn {
           noiseSuppression: false,
           autoGainControl: false,
         } as MediaTrackConstraints,
-        // @ts-ignore - Chrome-specific options
+        // @ts-expect-error - Chrome-specific options not in TypeScript types
         preferCurrentTab: false,
         selfBrowserSurface: 'exclude', // Исключаем текущую вкладку из выбора
         systemAudio: 'include',
