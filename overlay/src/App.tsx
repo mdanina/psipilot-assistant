@@ -10,14 +10,19 @@ function App() {
 
   useEffect(() => {
     // Проверяем текущую сессию
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        console.error('Error getting session:', error);
+      }
+      console.log('Current session:', session ? 'authenticated' : 'not authenticated');
       setSession(session);
       setIsLoading(false);
     });
 
     // Слушаем изменения авторизации
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
+      (event, session) => {
+        console.log('Auth state changed:', event, session ? 'authenticated' : 'not authenticated');
         setSession(session);
       }
     );

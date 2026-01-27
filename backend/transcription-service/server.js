@@ -20,9 +20,15 @@ const PORT = process.env.PORT || 3001;
 // ============================================
 // CORS Configuration - Security
 // ============================================
-const allowedOrigins = process.env.CORS_ORIGINS
+const baseOrigins = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim())
   : ['http://localhost:5173', 'http://localhost:3000']; // Default dev origins
+
+// В development всегда разрешаем overlay (localhost:1420)
+const devOverlayOrigin = 'http://localhost:1420';
+const allowedOrigins = process.env.NODE_ENV !== 'production' && !baseOrigins.includes(devOverlayOrigin)
+  ? [...baseOrigins, devOverlayOrigin]
+  : baseOrigins;
 
 const corsOptions = {
   origin: (origin, callback) => {

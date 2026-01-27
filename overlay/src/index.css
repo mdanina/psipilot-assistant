@@ -66,6 +66,10 @@ body {
   color: hsl(var(--muted-foreground));
 }
 
+.text-foreground {
+  color: hsl(var(--foreground));
+}
+
 .text-destructive {
   color: hsl(var(--destructive));
 }
