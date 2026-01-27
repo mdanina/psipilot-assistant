@@ -62,34 +62,44 @@ async function syncTranscriptionStatus(recording) {
       updated_at: new Date().toISOString(),
     };
 
-    if (transcript.status === 'completed' && transcript.text) {
-      // Format transcript with speaker labels if available
-      let formattedText = transcript.text;
-      if (transcript.utterances && transcript.utterances.length > 0) {
-        // Get user role from recording
-        const userRole = await getUserRoleFromRecording(recording, supabase);
-        formattedText = formatTranscriptWithSpeakers(transcript.utterances, userRole);
-      }
+    if (transcript.status === 'completed') {
+      // Check if we have actual text content
+      if (transcript.text && transcript.text.trim()) {
+        // Format transcript with speaker labels if available
+        let formattedText = transcript.text;
+        if (transcript.utterances && transcript.utterances.length > 0) {
+          // Get user role from recording
+          const userRole = await getUserRoleFromRecording(recording, supabase);
+          formattedText = formatTranscriptWithSpeakers(transcript.utterances, userRole);
+        }
 
-      updateData.transcription_status = 'completed';
-      updateData.transcribed_at = new Date().toISOString();
+        updateData.transcription_status = 'completed';
+        updateData.transcribed_at = new Date().toISOString();
 
-      // SECURITY: Encrypt transcript before saving
-      if (isEncryptionConfigured()) {
-        try {
-          updateData.transcription_text = encrypt(formattedText);
-          updateData.transcription_encrypted = true;
-        } catch (encryptError) {
-          console.error('[syncTranscriptionStatus] Encryption failed:', encryptError.message);
+        // SECURITY: Encrypt transcript before saving
+        if (isEncryptionConfigured()) {
+          try {
+            updateData.transcription_text = encrypt(formattedText);
+            updateData.transcription_encrypted = true;
+          } catch (encryptError) {
+            console.error('[syncTranscriptionStatus] Encryption failed:', encryptError.message);
+            updateData.transcription_text = formattedText;
+            updateData.transcription_encrypted = false;
+          }
+        } else {
+          if (process.env.NODE_ENV === 'production') {
+            console.warn('[SECURITY WARNING] ENCRYPTION_KEY not configured in production!');
+          }
           updateData.transcription_text = formattedText;
           updateData.transcription_encrypted = false;
         }
       } else {
-        if (process.env.NODE_ENV === 'production') {
-          console.warn('[SECURITY WARNING] ENCRYPTION_KEY not configured in production!');
-        }
-        updateData.transcription_text = formattedText;
-        updateData.transcription_encrypted = false;
+        // AssemblyAI returned completed but no text - likely silent/empty audio
+        updateData.transcription_status = 'completed';
+        updateData.transcribed_at = new Date().toISOString();
+        updateData.transcription_text = null;
+        updateData.transcription_error = 'Не удалось распознать речь в записи. Возможно, аудио было пустым или содержало только тишину.';
+        console.warn('[syncTranscriptionStatus] Completed but no text for recording:', recording.id);
       }
     } else if (transcript.status === 'error') {
       updateData.transcription_status = 'failed';
@@ -276,30 +286,38 @@ router.post('/transcribe', async (req, res) => {
       updateData.transcription_status = 'completed';
       updateData.transcribed_at = new Date().toISOString();
 
-      // Format transcript with speaker labels if available
-      let formattedText = transcript.text;
-      if (transcript.utterances && transcript.utterances.length > 0) {
-        // Get user role from recording
-        const userRole = await getUserRoleFromRecording(recording, supabase);
-        formattedText = formatTranscriptWithSpeakers(transcript.utterances, userRole);
-      }
+      // Check if we have actual text content
+      if (transcript.text && transcript.text.trim()) {
+        // Format transcript with speaker labels if available
+        let formattedText = transcript.text;
+        if (transcript.utterances && transcript.utterances.length > 0) {
+          // Get user role from recording
+          const userRole = await getUserRoleFromRecording(recording, supabase);
+          formattedText = formatTranscriptWithSpeakers(transcript.utterances, userRole);
+        }
 
-      // SECURITY: Encrypt transcript before saving
-      if (isEncryptionConfigured()) {
-        try {
-          updateData.transcription_text = encrypt(formattedText);
-          updateData.transcription_encrypted = true;
-        } catch (encryptError) {
-          console.error('[POST /transcribe] Encryption failed:', encryptError.message);
+        // SECURITY: Encrypt transcript before saving
+        if (isEncryptionConfigured()) {
+          try {
+            updateData.transcription_text = encrypt(formattedText);
+            updateData.transcription_encrypted = true;
+          } catch (encryptError) {
+            console.error('[POST /transcribe] Encryption failed:', encryptError.message);
+            updateData.transcription_text = formattedText;
+            updateData.transcription_encrypted = false;
+          }
+        } else {
+          if (process.env.NODE_ENV === 'production') {
+            console.warn('[SECURITY WARNING] ENCRYPTION_KEY not configured in production!');
+          }
           updateData.transcription_text = formattedText;
           updateData.transcription_encrypted = false;
         }
       } else {
-        if (process.env.NODE_ENV === 'production') {
-          console.warn('[SECURITY WARNING] ENCRYPTION_KEY not configured in production!');
-        }
-        updateData.transcription_text = formattedText;
-        updateData.transcription_encrypted = false;
+        // AssemblyAI returned completed but no text - likely silent/empty audio
+        updateData.transcription_text = null;
+        updateData.transcription_error = 'Не удалось распознать речь в записи. Возможно, аудио было пустым или содержало только тишину.';
+        console.warn('[POST /transcribe] Completed but no text for recording:', recordingId);
       }
     } else if (transcript.status === 'error') {
       updateData.transcription_status = 'failed';
