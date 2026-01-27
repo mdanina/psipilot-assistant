@@ -2205,59 +2205,58 @@ const SessionsPage = () => {
                             {(recording.file_name?.replace(/^Запись\s/, 'Сессия ') || 'Сессия')}
                           </span>
                           <div className="flex items-center gap-2">
-                            {/* Show sync button when processing/pending, OR when completed but no text (to try fetching from AssemblyAI) */}
-                            {((recording.transcription_status === 'processing' || recording.transcription_status === 'pending') ||
-                              (recording.transcription_status === 'completed' && !recording.transcription_text)) && recording.transcript_id && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={async () => {
-                                  try {
-                                    await syncTranscriptionStatus(recording.id, transcriptionApiUrl);
-                                    await loadRecordings(activeSession || '');
-                                    toast({
-                                      title: "Синхронизация",
-                                      description: "Статус транскрипции обновлен",
-                                    });
-                                  } catch (error) {
-                                    console.error('Error syncing transcription:', error);
-                                    toast({
-                                      title: "Ошибка",
-                                      description: "Не удалось синхронизировать транскрипцию",
-                                      variant: "destructive",
-                                    });
-                                  }
-                                }}
-                                className="h-6 px-2 text-xs"
-                              >
-                                <RefreshCw className="w-3 h-3 mr-1" />
-                                Синхронизировать
-                              </Button>
-                            )}
-                            {/* Show retry button for failed transcriptions OR completed without text (indicates webhook/sync failure) */}
-                            {(recording.transcription_status === 'failed' ||
+                            {/* Smart "Fix" button: tries sync first, then retry if needed */}
+                            {(recording.transcription_status === 'processing' ||
+                              recording.transcription_status === 'pending' ||
+                              recording.transcription_status === 'failed' ||
                               (recording.transcription_status === 'completed' && !recording.transcription_text)) && (
                               <Button
                                 variant="ghost"
                                 size="sm"
                                 onClick={async () => {
                                   try {
+                                    // Step 1: Try to sync first (if we have transcript_id)
+                                    if (recording.transcript_id) {
+                                      toast({
+                                        title: "Проверка статуса...",
+                                        description: "Запрашиваем результат транскрипции",
+                                      });
+
+                                      await syncTranscriptionStatus(recording.id, transcriptionApiUrl);
+                                      await loadRecordings(activeSession || '');
+
+                                      // Check if sync helped (need to get fresh data)
+                                      const recordings = await getSessionRecordings(activeSession || '');
+                                      const updated = recordings.find(r => r.id === recording.id);
+
+                                      if (updated?.transcription_text) {
+                                        toast({
+                                          title: "Готово",
+                                          description: "Текст транскрипции получен",
+                                        });
+                                        return; // Success! No need to retry
+                                      }
+                                    }
+
+                                    // Step 2: Sync didn't help or no transcript_id - restart transcription
                                     toast({
-                                      title: "Повторный запуск",
-                                      description: "Запускаем транскрипцию...",
+                                      title: "Перезапуск транскрипции",
+                                      description: "Отправляем аудио на обработку...",
                                     });
+
                                     await startTranscription(recording.id, transcriptionApiUrl);
                                     addTranscription(recording.id, recording.session_id);
                                     await loadRecordings(activeSession || '');
+
                                     toast({
                                       title: "Транскрипция запущена",
                                       description: "Ожидайте завершения обработки",
                                     });
                                   } catch (error) {
-                                    console.error('Error retrying transcription:', error);
+                                    console.error('Error fixing transcription:', error);
                                     toast({
                                       title: "Ошибка",
-                                      description: "Не удалось запустить транскрипцию",
+                                      description: "Не удалось получить транскрипцию. Проверьте подключение к серверу.",
                                       variant: "destructive",
                                     });
                                   }
@@ -2265,7 +2264,9 @@ const SessionsPage = () => {
                                 className="h-6 px-2 text-xs"
                               >
                                 <RefreshCw className="w-3 h-3 mr-1" />
-                                Повторить
+                                {recording.transcription_status === 'processing' || recording.transcription_status === 'pending'
+                                  ? 'Проверить'
+                                  : 'Получить текст'}
                               </Button>
                             )}
                             <Button
