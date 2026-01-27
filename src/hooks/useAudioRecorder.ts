@@ -290,23 +290,63 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
         }
       };
 
-      // Handle errors
+      // Handle errors - try to save partial recording instead of losing data
       mediaRecorder.onerror = (event) => {
-        // Защита от позднего вызова onstop после ошибки
-        stopResolvedRef.current = true;
-        isStoppingRef.current = false; // Разрешаем следующий stopRecording
-        setError('Ошибка записи аудио');
-        setStatus('error');
         console.error('MediaRecorder error:', event);
 
-        // Resolve pending stopRecording promise с null если есть
+        // Try to save what we have recorded so far
+        let partialBlob: Blob | null = null;
+        if (chunksRef.current.length > 0) {
+          partialBlob = new Blob(chunksRef.current, {
+            type: selectedMimeType || 'audio/webm',
+          });
+          setAudioBlob(partialBlob);
+          setWasPartialSave(true);
+          console.log('[Recording] Saved partial recording on error:', partialBlob.size, 'bytes');
+        }
+
+        // Защита от позднего вызова onstop после ошибки
+        stopResolvedRef.current = true;
+        isStoppingRef.current = false;
+        setError('Запись прервана. Часть данных могла быть сохранена.');
+        setStatus('stopped'); // Use 'stopped' instead of 'error' if we have data
+
+        // Resolve pending stopRecording promise with partial data
         if (stopResolveRef.current) {
-          stopResolveRef.current(null);
+          stopResolveRef.current(partialBlob);
           stopResolveRef.current = null;
         }
 
         cleanup();
       };
+
+      // Handle audio track ending (e.g., when another app takes the microphone)
+      const audioTrack = stream.getAudioTracks()[0];
+      if (audioTrack) {
+        audioTrack.onended = () => {
+          console.warn('[Recording] Audio track ended unexpectedly (microphone lost)');
+
+          // Only handle if we're still recording
+          if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+            // Try to stop gracefully and save data
+            try {
+              mediaRecorderRef.current.stop();
+            } catch (e) {
+              // If stop fails, manually save what we have
+              if (chunksRef.current.length > 0) {
+                const partialBlob = new Blob(chunksRef.current, {
+                  type: selectedMimeType || 'audio/webm',
+                });
+                setAudioBlob(partialBlob);
+                setWasPartialSave(true);
+                setStatus('stopped');
+                console.log('[Recording] Saved partial recording on track end:', partialBlob.size, 'bytes');
+              }
+            }
+            setError('Микрофон был отключён. Запись сохранена.');
+          }
+        };
+      }
 
       // Start recording
       mediaRecorder.start(1000); // Collect data every second
@@ -484,6 +524,47 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
 
   const getCurrentMimeType = useCallback((): string => {
     return currentMimeTypeRef.current;
+  }, []);
+
+  // Handle Page Lifecycle API - save recording before browser freezes the tab
+  // This is critical for scenarios where user switches to another tab/app
+  useEffect(() => {
+    const handleFreeze = () => {
+      console.warn('[Recording] Page is being frozen by browser');
+      // Try to request data from MediaRecorder before freeze
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        try {
+          // This will trigger ondataavailable with current data
+          mediaRecorderRef.current.requestData();
+          console.log('[Recording] Requested data before freeze, chunks:', chunksRef.current.length);
+        } catch (e) {
+          console.error('[Recording] Failed to request data on freeze:', e);
+        }
+      }
+    };
+
+    const handlePageHide = (event: PageTransitionEvent) => {
+      // persisted=true means page might be restored from bfcache
+      // persisted=false means page is definitely being unloaded
+      if (!event.persisted && mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        console.warn('[Recording] Page is being unloaded');
+        try {
+          mediaRecorderRef.current.requestData();
+        } catch (e) {
+          // Ignore
+        }
+      }
+    };
+
+    // @ts-ignore - freeze event exists but not in TypeScript types
+    document.addEventListener('freeze', handleFreeze);
+    window.addEventListener('pagehide', handlePageHide);
+
+    return () => {
+      // @ts-ignore
+      document.removeEventListener('freeze', handleFreeze);
+      window.removeEventListener('pagehide', handlePageHide);
+    };
   }, []);
 
   // Cleanup on unmount - останавливаем запись и освобождаем ресурсы
