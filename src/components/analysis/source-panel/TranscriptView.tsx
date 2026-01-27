@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { Loader2, FileText } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { getSessionRecordings } from '@/lib/supabase-recordings';
-import { decryptPHI } from '@/lib/encryption';
 import type { Database } from '@/types/database.types';
 
 type Recording = Database['public']['Tables']['recordings']['Row'];
@@ -40,15 +39,9 @@ export function TranscriptView({ sessionId }: TranscriptViewProps) {
       }
 
       // Объединяем все транскрипты
-      const transcripts = await Promise.all(
-        completedRecordings.map(async (recording: Recording) => {
-          try {
-            return await decryptPHI(recording.transcription_text || '');
-          } catch (err) {
-            console.warn('Failed to decrypt transcript:', err);
-            return recording.transcription_text || '';
-          }
-        })
+      // Расшифровка уже выполнена в getSessionRecordings, поэтому просто берём текст
+      const transcripts = completedRecordings.map(
+        (recording: Recording) => recording.transcription_text || ''
       );
 
       setTranscript(transcripts.join('\n\n---\n\n'));
