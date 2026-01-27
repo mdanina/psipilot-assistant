@@ -1,9 +1,18 @@
 import { useState, useEffect, useRef } from "react";
-import { Mic, FileText, X, Pause, Play, Square, Sparkles, Loader2, Music } from "lucide-react";
+import { Mic, FileText, X, Pause, Play, Square, Sparkles, Loader2, Music, ChevronDown, Monitor } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
+import { useTabAudioCapture } from "@/hooks/useTabAudioCapture";
 import { useToast } from "@/hooks/use-toast";
 import { useBackgroundUpload } from "@/contexts/BackgroundUploadContext";
+
+type RecordingSource = 'microphone' | 'tab';
 
 interface RecordingCardProps {
   /** Called when user clicks "Транскрибировать" - typically navigates to sessions */
@@ -22,60 +31,80 @@ export const RecordingCard = ({
   sessionId,
   patientId,
 }: RecordingCardProps) => {
+  // Microphone recording hook
   const {
-    status,
-    recordingTime,
-    error: recorderError,
-    wasPartialSave,
-    startRecording,
+    status: micStatus,
+    recordingTime: micRecordingTime,
+    error: micError,
+    wasPartialSave: micWasPartialSave,
+    startRecording: startMicRecording,
     pauseRecording,
     resumeRecording,
-    stopRecording,
-    cancelRecording,
-    reset,
+    stopRecording: stopMicRecording,
+    cancelRecording: cancelMicRecording,
+    reset: resetMic,
   } = useAudioRecorder();
+
+  // Tab audio capture hook
+  const {
+    status: tabStatus,
+    recordingTime: tabRecordingTime,
+    error: tabError,
+    isSupported: tabCaptureSupported,
+    startCapture: startTabCapture,
+    stopCapture: stopTabCapture,
+    cancelCapture: cancelTabCapture,
+    reset: resetTab,
+  } = useTabAudioCapture();
 
   const { toast } = useToast();
   const { queueUpload } = useBackgroundUpload();
-  const [isSubmitting, setIsSubmitting] = useState(false); // Защита от двойного submit
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [recordingSource, setRecordingSource] = useState<RecordingSource | null>(null);
 
-  // Вычисляемые значения из status
-  const isActiveRecording = status === 'recording' || status === 'paused';
-  const isPaused = status === 'paused';
-  const isStopping = status === 'stopping';
+  // Unified state based on active recording source
+  const isActiveMicRecording = micStatus === 'recording' || micStatus === 'paused';
+  const isActiveTabRecording = tabStatus === 'recording';
+  const isActiveRecording = isActiveMicRecording || isActiveTabRecording;
+  const isPaused = micStatus === 'paused';
+  const isStopping = micStatus === 'stopping' || tabStatus === 'stopping';
+  const isSelecting = tabStatus === 'selecting';
+
+  // Use appropriate recording time based on source
+  const recordingTime = recordingSource === 'tab' ? tabRecordingTime : micRecordingTime;
+  const currentError = recordingSource === 'tab' ? tabError : micError;
+
   const [completedRecording, setCompletedRecording] = useState<{
     blob: Blob;
     duration: number;
     fileName: string;
   } | null>(null);
 
-  // Отслеживаем показанные ошибки, чтобы не показывать дубликаты
   const shownErrorRef = useRef<string | null>(null);
 
-  // Notify parent about recording state changes (for navigation blocking)
+  // Notify parent about recording state changes
   useEffect(() => {
     onRecordingStateChange?.(isActiveRecording);
   }, [isActiveRecording, onRecordingStateChange]);
 
-  // ИСПРАВЛЕНО: Toast перенесён в useEffect вместо render
-  // Ранее toast вызывался при каждом рендере, вызывая множественные уведомления
+  // Show errors via toast
   useEffect(() => {
-    if (recorderError && recorderError !== shownErrorRef.current) {
+    if (currentError && currentError !== shownErrorRef.current) {
       toast({
         title: "Ошибка записи",
-        description: recorderError,
+        description: currentError,
         variant: "destructive",
       });
-      shownErrorRef.current = recorderError;
+      shownErrorRef.current = currentError;
     }
-  }, [recorderError, toast]);
+  }, [currentError, toast]);
 
-  // Сбрасываем отслеживание ошибки при успешном старте записи
+  // Reset error tracking on successful recording start
   useEffect(() => {
-    if (status === 'recording') {
+    if (micStatus === 'recording' || tabStatus === 'recording') {
       shownErrorRef.current = null;
     }
-  }, [status]);
+  }, [micStatus, tabStatus]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -83,25 +112,57 @@ export const RecordingCard = ({
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const handleStartRecording = async () => {
+  const handleStartMicRecording = async () => {
     try {
-      // Clear any previous completed recording
       setCompletedRecording(null);
-      await startRecording();
+      setRecordingSource('microphone');
+      await startMicRecording();
     } catch (error) {
-      console.error('Error starting recording:', error);
+      console.error('Error starting mic recording:', error);
+      setRecordingSource(null);
       toast({
         title: "Ошибка",
-        description: "Не удалось начать сессию",
+        description: "Не удалось начать запись с микрофона",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleStartTabCapture = async () => {
+    if (!tabCaptureSupported) {
+      toast({
+        title: "Не поддерживается",
+        description: "Ваш браузер не поддерживает захват звука вкладки. Используйте Chrome или Edge.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setCompletedRecording(null);
+      setRecordingSource('tab');
+      await startTabCapture();
+    } catch (error) {
+      console.error('Error starting tab capture:', error);
+      setRecordingSource(null);
+      toast({
+        title: "Ошибка",
+        description: "Не удалось начать захват звука вкладки",
         variant: "destructive",
       });
     }
   };
 
   const handleStopRecording = async () => {
-    // status переходит в 'stopping' внутри stopRecording()
     try {
-      const blob = await stopRecording();
+      let blob: Blob | null = null;
+
+      if (recordingSource === 'tab') {
+        blob = await stopTabCapture();
+      } else {
+        blob = await stopMicRecording();
+      }
+
       if (blob) {
         const fileName = `recording-${Date.now()}.webm`;
         setCompletedRecording({
@@ -109,9 +170,7 @@ export const RecordingCard = ({
           duration: recordingTime,
           fileName,
         });
-        // Предупреждение о частичном сохранении показывается через useEffect
       } else {
-        // КРИТИЧНО: blob не получен - запись потеряна
         console.error('[RecordingCard] stopRecording returned null blob');
         toast({
           title: "Ошибка записи",
@@ -123,36 +182,41 @@ export const RecordingCard = ({
       console.error('Error stopping recording:', error);
       toast({
         title: "Ошибка",
-        description: "Не удалось остановить сессию",
+        description: "Не удалось остановить запись",
         variant: "destructive",
       });
     }
   };
 
-  // Показываем предупреждение если было частичное сохранение
+  // Show warning for partial save (microphone only)
   useEffect(() => {
-    if (wasPartialSave && completedRecording) {
+    if (micWasPartialSave && completedRecording && recordingSource === 'microphone') {
       toast({
         title: "Предупреждение",
         description: "Запись сохранена. Возможна потеря последних секунд из-за медленной обработки браузером.",
         variant: "default",
       });
     }
-  }, [wasPartialSave, completedRecording, toast]);
+  }, [micWasPartialSave, completedRecording, recordingSource, toast]);
 
   const handleCancelRecording = () => {
-    cancelRecording();
+    if (recordingSource === 'tab') {
+      cancelTabCapture();
+    } else {
+      cancelMicRecording();
+    }
+    setRecordingSource(null);
     setCompletedRecording(null);
   };
 
   const handleRemoveRecording = () => {
-    reset();
+    resetMic();
+    resetTab();
+    setRecordingSource(null);
     setCompletedRecording(null);
   };
 
   const handleGenerateNote = async () => {
-    // Эта функция вызывается ТОЛЬКО когда есть completedRecording
-    // (кнопка "Транскрибировать" видна только при наличии записи)
     if (!completedRecording) {
       console.error('[RecordingCard] handleGenerateNote called without completedRecording');
       toast({
@@ -163,12 +227,10 @@ export const RecordingCard = ({
       return;
     }
 
-    // Защита от двойного submit
     if (isSubmitting) return;
     setIsSubmitting(true);
 
     try {
-      // Queue upload in background - user can navigate away immediately
       await queueUpload({
         blob: completedRecording.blob,
         duration: completedRecording.duration,
@@ -176,11 +238,11 @@ export const RecordingCard = ({
         patientId,
       });
 
-      // Clear state immediately so user can start new recording or navigate
       setCompletedRecording(null);
-      reset();
+      setRecordingSource(null);
+      resetMic();
+      resetTab();
 
-      // Navigate to sessions page
       onGenerateNote();
     } catch (error) {
       console.error('Error queuing upload:', error);
@@ -194,8 +256,34 @@ export const RecordingCard = ({
     }
   };
 
-  // State 1: Recording in progress
+  // State: Selecting tab for capture
+  if (isSelecting) {
+    return (
+      <div className="bg-card rounded-2xl shadow-elevated p-5 sm:p-8 max-w-lg w-full relative">
+        <button
+          onClick={handleCancelRecording}
+          className="absolute top-3 right-3 sm:top-4 sm:right-4 text-destructive hover:text-destructive/80 p-1"
+        >
+          <X className="w-5 h-5" />
+        </button>
+
+        <div className="text-center space-y-4">
+          <h3 className="text-xl font-semibold text-primary">Выберите вкладку</h3>
+          <p className="text-muted-foreground text-sm">
+            В появившемся окне выберите вкладку с созвоном и обязательно включите "Поделиться звуком"
+          </p>
+          <div className="flex items-center justify-center py-4">
+            <Loader2 className="w-6 h-6 animate-spin text-primary" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // State: Recording in progress (microphone or tab)
   if (isActiveRecording || isStopping) {
+    const isTabRecording = recordingSource === 'tab';
+
     return (
       <div className="bg-card rounded-2xl shadow-elevated p-5 sm:p-8 max-w-lg w-full relative">
         {/* Cancel button */}
@@ -225,20 +313,32 @@ export const RecordingCard = ({
             </>
           ) : (
             <>
-              <h3 className="text-xl font-semibold text-primary">Идет сессия</h3>
-              <p className="text-success text-sm">Захват вашего голоса с высокой точностью</p>
+              <h3 className="text-xl font-semibold text-primary">
+                {isTabRecording ? 'Запись звука вкладки' : 'Идет сессия'}
+              </h3>
+              <p className="text-success text-sm">
+                {isTabRecording
+                  ? 'Записывается звук из выбранной вкладки'
+                  : 'Захват вашего голоса с высокой точностью'}
+              </p>
 
-              <div className="py-4">
-                <p className="text-sm text-muted-foreground">
-                  Помните о <span className="text-primary underline cursor-pointer">согласии пациента</span>
-                </p>
-              </div>
+              {!isTabRecording && (
+                <div className="py-4">
+                  <p className="text-sm text-muted-foreground">
+                    Помните о <span className="text-primary underline cursor-pointer">согласии пациента</span>
+                  </p>
+                </div>
+              )}
 
               {/* Recording controls */}
               <div className="flex items-center justify-center gap-4 pt-4">
                 <div className="flex items-center gap-3">
                   <span className="w-2 h-2 rounded-full bg-recording animate-pulse-recording" />
-                  <Mic className="w-4 h-4 text-recording" />
+                  {isTabRecording ? (
+                    <Monitor className="w-4 h-4 text-recording" />
+                  ) : (
+                    <Mic className="w-4 h-4 text-recording" />
+                  )}
                   <span className="text-sm font-mono text-foreground">{formatTime(recordingTime)}</span>
                 </div>
 
@@ -256,21 +356,23 @@ export const RecordingCard = ({
                   ))}
                 </div>
 
-                {/* Pause/Resume button */}
-                {isPaused ? (
-                  <button
-                    onClick={resumeRecording}
-                    className="p-2.5 hover:bg-muted rounded-lg min-w-[44px] min-h-[44px] flex items-center justify-center"
-                  >
-                    <Play className="w-5 h-5 text-foreground" />
-                  </button>
-                ) : (
-                  <button
-                    onClick={pauseRecording}
-                    className="p-2.5 hover:bg-muted rounded-lg min-w-[44px] min-h-[44px] flex items-center justify-center"
-                  >
-                    <Pause className="w-5 h-5 text-foreground" />
-                  </button>
+                {/* Pause/Resume button (only for microphone) */}
+                {!isTabRecording && (
+                  isPaused ? (
+                    <button
+                      onClick={resumeRecording}
+                      className="p-2.5 hover:bg-muted rounded-lg min-w-[44px] min-h-[44px] flex items-center justify-center"
+                    >
+                      <Play className="w-5 h-5 text-foreground" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={pauseRecording}
+                      className="p-2.5 hover:bg-muted rounded-lg min-w-[44px] min-h-[44px] flex items-center justify-center"
+                    >
+                      <Pause className="w-5 h-5 text-foreground" />
+                    </button>
+                  )
                 )}
 
                 {/* Stop button */}
@@ -289,9 +391,7 @@ export const RecordingCard = ({
     );
   }
 
-  // Note: Processing state removed - now handled by BackgroundUploadIndicator in the header
-
-  // State 2: Initial state or with completed recording
+  // State: Initial state or with completed recording
   return (
     <div className="bg-card rounded-2xl shadow-elevated p-5 sm:p-8 max-w-lg w-full relative">
       {/* Sparkle decoration */}
@@ -340,14 +440,43 @@ export const RecordingCard = ({
 
         {/* Action buttons */}
         <div className="flex gap-3 justify-center">
-          <Button
-            onClick={handleStartRecording}
-            className="gap-2"
-            variant={completedRecording ? "outline" : "default"}
-          >
-            <Mic className="w-4 h-4" />
-            {completedRecording ? "Записать ещё" : "Включить запись"}
-          </Button>
+          {/* Split button: main action + dropdown */}
+          <div className="flex">
+            <Button
+              onClick={handleStartMicRecording}
+              className="gap-2 rounded-r-none"
+              variant={completedRecording ? "outline" : "default"}
+            >
+              <Mic className="w-4 h-4" />
+              {completedRecording ? "Записать ещё" : "Включить запись"}
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant={completedRecording ? "outline" : "default"}
+                  className="px-2 rounded-l-none border-l-0"
+                >
+                  <ChevronDown className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleStartMicRecording}>
+                  <Mic className="w-4 h-4 mr-2" />
+                  Микрофон
+                  <span className="ml-2 text-xs text-muted-foreground">(ваш голос)</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={handleStartTabCapture}
+                  disabled={!tabCaptureSupported}
+                >
+                  <Monitor className="w-4 h-4 mr-2" />
+                  Звук вкладки
+                  <span className="ml-2 text-xs text-muted-foreground">(созвон)</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
           {completedRecording ? (
             <Button
               variant="default"
