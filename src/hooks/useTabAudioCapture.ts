@@ -152,16 +152,21 @@ export function useTabAudioCapture(): UseTabAudioCaptureReturn {
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           chunksRef.current.push(event.data);
+          console.log('[TabCapture] Chunk received:', event.data.size, 'bytes, total chunks:', chunksRef.current.length);
         }
       };
 
       mediaRecorder.onstop = () => {
         let blob: Blob | null = null;
+        console.log('[TabCapture] Recording stopped, chunks:', chunksRef.current.length);
         if (chunksRef.current.length > 0) {
           blob = new Blob(chunksRef.current, {
             type: selectedMimeType || 'audio/webm',
           });
+          console.log('[TabCapture] Final blob size:', blob.size, 'bytes (', Math.round(blob.size / 1024), 'KB)');
           setAudioBlob(blob);
+        } else {
+          console.warn('[TabCapture] No chunks recorded - audio may not have been captured');
         }
         setStatus('stopped');
         cleanup();
