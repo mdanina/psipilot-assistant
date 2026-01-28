@@ -4,10 +4,13 @@ import { decryptPHIBatch } from '../lib/encryption';
 import { getOrCreateActiveSession, createSessionNote, getUserClinicId } from '../lib/supabase-sessions';
 import { createRecording, uploadAudioFile, startTranscription } from '../lib/supabase-recordings';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
+import { useTabAudioCapture } from '../hooks/useTabAudioCapture';
+import { useSystemAudioCapture } from '../hooks/useSystemAudioCapture';
+import { useAudioInputDevices } from '../hooks/useAudioInputDevices';
 import {
   Mic, Square, Circle,
   ChevronDown, LogOut, Settings,
-  Plus, Clock
+  Plus, Clock, Monitor, Volume2, RefreshCw
 } from 'lucide-react';
 
 interface Patient {
@@ -35,17 +38,60 @@ export function OverlayPanel() {
   const [clinicId, setClinicId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [recordingSource, setRecordingSource] = useState<'microphone' | 'tab' | 'system' | null>(null);
+  const [selectedMicDeviceId, setSelectedMicDeviceId] = useState<string>('');
 
-  // Audio recorder
+  const MIN_BLOB_BYTES_TAB_SYSTEM = 20_000;
+
+  const { devices: micDevices, loading: micDevicesLoading, refresh: refreshMicDevices } = useAudioInputDevices();
+
+  // Audio recorder (microphone)
   const {
-    status: recorderStatus,
-    recordingTime: recorderTime,
-    audioBlob,
-    error: recorderError,
-    startRecording: startAudioRecording,
-    stopRecording: stopAudioRecording,
-    reset: resetRecorder,
+    status: micStatus,
+    recordingTime: micTime,
+    audioBlob: micBlob,
+    error: micError,
+    startRecording: startMicRecording,
+    stopRecording: stopMicRecording,
+    reset: resetMic,
   } = useAudioRecorder();
+
+  // Tab audio capture
+  const {
+    status: tabStatus,
+    recordingTime: tabTime,
+    audioBlob: tabBlob,
+    error: tabError,
+    isSupported: tabSupported,
+    startCapture: startTabCapture,
+    stopCapture: stopTabCapture,
+    reset: resetTab,
+  } = useTabAudioCapture();
+
+  // System audio capture
+  const {
+    status: systemStatus,
+    recordingTime: systemTime,
+    audioBlob: systemBlob,
+    error: systemError,
+    isSupported: systemSupported,
+    startCapture: startSystemCapture,
+    stopCapture: stopSystemCapture,
+    reset: resetSystem,
+  } = useSystemAudioCapture();
+
+  // Unified recording state
+  const isActiveMicRecording = micStatus === 'recording' || micStatus === 'starting';
+  const isActiveTabRecording = tabStatus === 'recording';
+  const isActiveSystemRecording = systemStatus === 'recording';
+  const isActiveRecording = isActiveMicRecording || isActiveTabRecording || isActiveSystemRecording;
+  const isSelecting = tabStatus === 'selecting' || systemStatus === 'selecting';
+  const isStopping = micStatus === 'stopping' || tabStatus === 'stopping' || systemStatus === 'stopping';
+  
+  const currentRecordingTime = recordingSource === 'tab' ? tabTime : recordingSource === 'system' ? systemTime : micTime;
+  const currentError = recordingSource === 'tab' ? tabError : recordingSource === 'system' ? systemError : micError;
+  const currentBlob = recordingSource === 'tab' ? tabBlob : recordingSource === 'system' ? systemBlob : micBlob;
 
   // Загрузка информации о пользователе
   useEffect(() => {
@@ -186,11 +232,11 @@ export function OverlayPanel() {
     loadPatients();
   }, []);
 
-  // Синхронизация состояния записи с рекордером
+  // Синхронизация состояния записи
   useEffect(() => {
-    setIsRecording(recorderStatus === 'recording' || recorderStatus === 'starting');
-    setRecordingTime(recorderTime);
-  }, [recorderStatus, recorderTime]);
+    setIsRecording(isActiveRecording);
+    setRecordingTime(currentRecordingTime);
+  }, [isActiveRecording, currentRecordingTime]);
 
   const formatTime = (seconds: number) => {
     const h = Math.floor(seconds / 3600);
@@ -199,16 +245,43 @@ export function OverlayPanel() {
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  const handleStartRecording = async () => {
-    if (!selectedPatient || !currentSessionId) {
-      console.error('Cannot start recording: no patient or session');
-      return;
-    }
+  const clearSaveError = () => setSaveError(null);
 
+  const handleStartMicRecording = async () => {
+    if (!selectedPatient || !currentSessionId) return;
+    clearSaveError();
     try {
-      await startAudioRecording();
+      setRecordingSource('microphone');
+      await startMicRecording(selectedMicDeviceId || undefined);
     } catch (error) {
-      console.error('Failed to start recording:', error);
+      console.error('Failed to start mic recording:', error);
+      setRecordingSource(null);
+    }
+  };
+
+  const handleStartTabRecording = async () => {
+    if (!selectedPatient || !currentSessionId) return;
+    if (!tabSupported) return;
+    clearSaveError();
+    try {
+      setRecordingSource('tab');
+      await startTabCapture();
+    } catch (error) {
+      console.error('Failed to start tab recording:', error);
+      setRecordingSource(null);
+    }
+  };
+
+  const handleStartSystemRecording = async () => {
+    if (!selectedPatient || !currentSessionId) return;
+    if (!systemSupported) return;
+    clearSaveError();
+    try {
+      setRecordingSource('system');
+      await startSystemCapture();
+    } catch (error) {
+      console.error('Failed to start system recording:', error);
+      setRecordingSource(null);
     }
   };
 
@@ -219,44 +292,85 @@ export function OverlayPanel() {
     }
 
     setIsUploading(true);
+    setSaveError(null);
 
     try {
-      // Останавливаем запись и получаем blob
-      const audioBlob = await stopAudioRecording();
-      
-      if (!audioBlob) {
-        throw new Error('No audio data recorded');
+      let audioBlob: Blob | null = null;
+
+      if (recordingSource === 'tab') {
+        audioBlob = await stopTabCapture();
+      } else if (recordingSource === 'system') {
+        audioBlob = await stopSystemCapture();
+      } else {
+        audioBlob = await stopMicRecording();
       }
+
+      if (!audioBlob || audioBlob.size === 0) {
+        throw new Error('Нет данных записи');
+      }
+
+      if ((recordingSource === 'tab' || recordingSource === 'system') && audioBlob.size < MIN_BLOB_BYTES_TAB_SYSTEM) {
+        const src = recordingSource === 'tab' ? 'вкладки' : 'системного звука';
+        setSaveError(
+          `Запись ${src} слишком короткая или звук не захвачен (${(audioBlob.size / 1024).toFixed(1)} КБ). ` +
+          `Запишите дольше, включите «Поделиться звуком» в диалоге браузера. Для созвонов в браузере используйте «Вкладка».`
+        );
+        if (recordingSource === 'tab') resetTab();
+        else if (recordingSource === 'system') resetSystem();
+        setRecordingSource(null);
+        return;
+      }
+
+      console.log('[OverlayPanel] Audio blob ready:', { size: audioBlob.size, type: audioBlob.type, source: recordingSource });
 
       // Создаем запись в БД
       const fileName = `recording-${Date.now()}.webm`;
       const mimeType = audioBlob.type || 'audio/webm';
 
-      console.log('Creating recording in database...');
+      console.log('[OverlayPanel] Creating recording in database...');
       const recording = await createRecording({
         sessionId: currentSessionId,
         userId,
         fileName,
       });
+      console.log('[OverlayPanel] Recording created:', recording.id);
 
-      console.log('Uploading audio file...');
-      await uploadAudioFile({
+      console.log('[OverlayPanel] Uploading audio file...', {
+        recordingId: recording.id,
+        blobSize: audioBlob.size,
+        fileName,
+        mimeType,
+      });
+      const filePath = await uploadAudioFile({
         recordingId: recording.id,
         audioBlob,
         fileName,
         mimeType,
       });
+      console.log('[OverlayPanel] Audio file uploaded:', filePath);
 
-      console.log('Starting transcription...');
+      console.log('[OverlayPanel] Starting transcription...');
       await startTranscription(recording.id);
+      console.log('[OverlayPanel] Transcription started for recording:', recording.id);
 
-      console.log('Recording saved and transcription started:', recording.id);
+      console.log('[OverlayPanel] Recording saved and transcription started:', recording.id);
       
-      // Сбрасываем рекордер
-      resetRecorder();
+      // Сбрасываем рекордеры
+      if (recordingSource === 'tab') {
+        resetTab();
+      } else if (recordingSource === 'system') {
+        resetSystem();
+      } else {
+        resetMic();
+      }
+      setRecordingSource(null);
     } catch (error) {
       console.error('Failed to save recording:', error);
-      // Можно показать уведомление об ошибке
+      setSaveError(error instanceof Error ? error.message : 'Ошибка сохранения записи');
+      if (recordingSource === 'tab') resetTab();
+      else if (recordingSource === 'system') resetSystem();
+      else resetMic();
+      setRecordingSource(null);
     } finally {
       setIsUploading(false);
     }
@@ -365,28 +479,99 @@ export function OverlayPanel() {
       </div>
 
       {/* Recording Controls */}
-      <div className="p-3 border-b flex items-center justify-center gap-2">
-        {recorderStatus === 'idle' || recorderStatus === 'stopped' ? (
-          <button
-            onClick={handleStartRecording}
-            disabled={!selectedPatient || recorderStatus === 'starting'}
-            className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-full text-sm font-medium hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Mic className="w-4 h-4" />
-            {recorderStatus === 'starting' ? 'Запуск...' : 'Начать запись'}
-          </button>
-        ) : recorderStatus === 'recording' || recorderStatus === 'starting' ? (
-          <button
-            onClick={handleStopRecording}
-            disabled={recorderStatus === 'stopping' || isUploading}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-white rounded-full text-sm font-medium hover:bg-gray-800 disabled:opacity-50"
-          >
-            <Square className="w-4 h-4" />
-            {recorderStatus === 'stopping' || isUploading ? 'Сохранение...' : 'Остановить'}
-          </button>
-        ) : null}
-        {recorderError && (
-          <div className="text-xs text-red-500 mt-1">{recorderError}</div>
+      <div className="p-3 border-b space-y-2">
+        {!isActiveRecording && !isSelecting ? (
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-1">
+              <label className="text-xs text-muted-foreground shrink-0">Микрофон:</label>
+              <select
+                value={selectedMicDeviceId}
+                onChange={(e) => setSelectedMicDeviceId(e.target.value)}
+                disabled={micDevicesLoading}
+                className="flex-1 min-w-0 text-xs bg-background border rounded px-2 py-1 text-foreground"
+              >
+                <option value="">По умолчанию</option>
+                {micDevices.map((d) => (
+                  <option key={d.deviceId} value={d.deviceId}>
+                    {d.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={refreshMicDevices}
+                disabled={micDevicesLoading}
+                className="p-1 rounded hover:bg-muted text-muted-foreground"
+                title="Обновить список устройств"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${micDevicesLoading ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              Для системного звука: VB-Cable / BlackHole → выбрать как микрофон.
+            </p>
+            <button
+              onClick={handleStartMicRecording}
+              disabled={!selectedPatient || micStatus === 'starting'}
+              className="flex items-center justify-center gap-2 px-4 py-2 bg-red-500 text-white rounded-md text-sm font-medium hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Mic className="w-4 h-4" />
+              {micStatus === 'starting' ? 'Запуск...' : 'Микрофон'}
+            </button>
+            {tabSupported && (
+              <button
+                onClick={handleStartTabRecording}
+                disabled={!selectedPatient}
+                className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-md text-sm font-medium hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Monitor className="w-4 h-4" />
+                Вкладка (весь созвон)
+              </button>
+            )}
+            {systemSupported && (
+              <button
+                onClick={handleStartSystemRecording}
+                disabled={!selectedPatient}
+                className="flex items-center justify-center gap-2 px-4 py-2 bg-purple-500 text-white rounded-md text-sm font-medium hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Volume2 className="w-4 h-4" />
+                Системный звук (весь ПК)
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-2">
+            <button
+              onClick={handleStopRecording}
+              disabled={isStopping || isUploading}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-white rounded-md text-sm font-medium hover:bg-gray-800 disabled:opacity-50 w-full justify-center"
+            >
+              <Square className="w-4 h-4" />
+              {isStopping || isUploading ? 'Сохранение...' : 'Остановить'}
+            </button>
+            {recordingSource && (
+              <div className="text-xs text-muted-foreground">
+                {recordingSource === 'tab' 
+                  ? 'Запись вкладки' 
+                  : recordingSource === 'system'
+                  ? 'Запись системного звука'
+                  : 'Запись микрофона'}
+              </div>
+            )}
+          </div>
+        )}
+        {isSelecting && (
+          <div className="text-xs text-center text-muted-foreground">
+            {recordingSource === 'system' 
+              ? 'Выберите экран/окно и включите "Поделиться звуком системы"'
+              : 'Выберите вкладку в диалоге браузера'}
+          </div>
+        )}
+        {currentError && (
+          <div className="text-xs text-red-500 text-center">{currentError}</div>
+        )}
+        {saveError && (
+          <div className="text-xs text-red-500 text-center">{saveError}</div>
         )}
       </div>
 

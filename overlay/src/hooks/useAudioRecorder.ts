@@ -11,7 +11,7 @@ export interface UseAudioRecorderReturn {
   recordingTime: number;
   audioBlob: Blob | null;
   error: string | null;
-  startRecording: () => Promise<void>;
+  startRecording: (deviceId?: string) => Promise<void>;
   stopRecording: () => Promise<Blob | null>;
   reset: () => void;
 }
@@ -51,14 +51,18 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     }
   }, []);
 
-  const startRecording = useCallback(async () => {
+  const startRecording = useCallback(async (deviceId?: string) => {
     try {
       setStatus('starting');
       setError(null);
       chunksRef.current = [];
 
-      // Request microphone access
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const constraints: MediaStreamConstraints = {
+        audio: deviceId
+          ? { deviceId: { exact: deviceId } }
+          : true,
+      };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
 
       // Find supported mime type
