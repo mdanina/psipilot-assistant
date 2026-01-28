@@ -100,37 +100,47 @@ router.post('/webhook/assemblyai', webhookAuth, async (req, res) => {
       updated_at: new Date().toISOString(),
     };
 
-    if (status === 'completed' && text) {
-      // Format transcript with speaker labels if available
-      let formattedText = text;
-      if (utterances && utterances.length > 0) {
-        // Get user role from recording
-        const userRole = await getUserRoleFromRecording(recording, supabase);
-        formattedText = formatTranscriptWithSpeakers(utterances, userRole);
-      }
+    if (status === 'completed') {
+      // Check if we have actual text content
+      if (text && text.trim()) {
+        // Format transcript with speaker labels if available
+        let formattedText = text;
+        if (utterances && utterances.length > 0) {
+          // Get user role from recording
+          const userRole = await getUserRoleFromRecording(recording, supabase);
+          formattedText = formatTranscriptWithSpeakers(utterances, userRole);
+        }
 
-      updateData.transcription_status = 'completed';
-      updateData.transcribed_at = new Date().toISOString();
+        updateData.transcription_status = 'completed';
+        updateData.transcribed_at = new Date().toISOString();
 
-      // SECURITY: Encrypt transcript before saving to database
-      if (isEncryptionConfigured()) {
-        try {
-          updateData.transcription_text = encrypt(formattedText);
-          updateData.transcription_encrypted = true;
-          console.log('Updating recording with encrypted transcription:', recording.id);
-        } catch (encryptError) {
-          // FALLBACK: If encryption fails, save plaintext but log error
-          console.error('Encryption failed, saving plaintext:', encryptError.message);
+        // SECURITY: Encrypt transcript before saving to database
+        if (isEncryptionConfigured()) {
+          try {
+            updateData.transcription_text = encrypt(formattedText);
+            updateData.transcription_encrypted = true;
+            console.log('Updating recording with encrypted transcription:', recording.id);
+          } catch (encryptError) {
+            // FALLBACK: If encryption fails, save plaintext but log error
+            console.error('Encryption failed, saving plaintext:', encryptError.message);
+            updateData.transcription_text = formattedText;
+            updateData.transcription_encrypted = false;
+          }
+        } else {
+          // Encryption not configured - save plaintext with warning in production
+          if (process.env.NODE_ENV === 'production') {
+            console.warn('[SECURITY WARNING] ENCRYPTION_KEY not configured in production! Transcript saved as plaintext.');
+          }
           updateData.transcription_text = formattedText;
           updateData.transcription_encrypted = false;
         }
       } else {
-        // Encryption not configured - save plaintext with warning in production
-        if (process.env.NODE_ENV === 'production') {
-          console.warn('[SECURITY WARNING] ENCRYPTION_KEY not configured in production! Transcript saved as plaintext.');
-        }
-        updateData.transcription_text = formattedText;
-        updateData.transcription_encrypted = false;
+        // AssemblyAI returned completed but no text - likely silent/empty audio
+        updateData.transcription_status = 'completed';
+        updateData.transcribed_at = new Date().toISOString();
+        updateData.transcription_text = null;
+        updateData.transcription_error = 'Не удалось распознать речь в записи. Возможно, аудио было пустым или содержало только тишину.';
+        console.warn('Transcription completed but no text returned for recording:', recording.id);
       }
     } else if (status === 'error') {
       updateData.transcription_status = 'failed';
