@@ -5,34 +5,13 @@
  */
 
 import express from 'express';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseAdmin } from '../services/supabase-admin.js';
 import { fullyDeidentifyForResearch, validateSafeHarborCompliance } from '../services/research-anonymization.js';
 import { decrypt } from '../services/encryption.js';
 
 const router = express.Router();
 
-/**
- * Helper function to get Supabase admin client
- */
-function getSupabaseAdmin() {
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl) {
-    throw new Error('SUPABASE_URL is required. Please set it in .env file.');
-  }
-
-  if (!supabaseKey) {
-    throw new Error('SUPABASE_SERVICE_ROLE_KEY is required. Please set it in .env file.');
-  }
-
-  return createClient(supabaseUrl, supabaseKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  });
-}
+// getSupabaseAdmin imported from ../services/supabase-admin.js
 
 /**
  * Helper function to get client IP from request

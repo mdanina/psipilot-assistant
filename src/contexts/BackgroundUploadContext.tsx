@@ -114,8 +114,10 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
     const { id, blob, duration, sessionId, patientId, clinicId, userId } = upload;
     let localRecordingId = upload.localRecordingId;
     // Use original filename for external files, or generate one for recordings
-    const fileName = upload.fileName || `recording-${Date.now()}.webm`;
+    // Determine extension from actual MIME type (Safari uses audio/mp4, Firefox uses audio/ogg)
     const mimeType = blob.type || 'audio/webm';
+    const ext = mimeType.includes('mp4') ? 'm4a' : mimeType.includes('ogg') ? 'ogg' : 'webm';
+    const fileName = upload.fileName || `recording-${Date.now()}.${ext}`;
 
     try {
       // 1. Save locally first (if not already saved)

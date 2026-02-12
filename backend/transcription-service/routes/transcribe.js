@@ -1,6 +1,6 @@
 import express from 'express';
 import { AssemblyAI } from 'assemblyai';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseAdmin } from '../services/supabase-admin.js';
 import { encrypt, isEncryptionConfigured } from '../services/encryption.js';
 import { getUserRoleFromRecording, formatTranscriptWithSpeakers } from '../services/transcript-formatting.js';
 
@@ -20,26 +20,7 @@ function getAssemblyAI() {
   return assemblyaiClient;
 }
 
-// Helper function to get Supabase admin client (for DB operations)
-function getSupabaseAdmin() {
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl) {
-    throw new Error('SUPABASE_URL is required. Please set it in .env file.');
-  }
-
-  if (!supabaseKey) {
-    throw new Error('SUPABASE_SERVICE_ROLE_KEY is required. Please set it in .env file.');
-  }
-
-  return createClient(supabaseUrl, supabaseKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  });
-}
+// getSupabaseAdmin imported from ../services/supabase-admin.js
 
 /**
  * Sync transcription status from AssemblyAI API
@@ -197,16 +178,11 @@ async function verifyAuthToken(token) {
  */
 router.post('/transcribe', async (req, res) => {
   try {
-    // Verify authentication
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
-    }
-
-    const token = authHeader.substring(7);
-    const user = await verifyAuthToken(token);
+    // Authentication is handled by verifyAuthToken middleware in server.js
+    // req.user is set by the middleware with { id, email, clinic_id }
+    const user = req.user;
     if (!user) {
-      return res.status(401).json({ error: 'Unauthorized: Invalid token' });
+      return res.status(401).json({ error: 'Unauthorized: Missing authentication' });
     }
 
     const { recordingId } = req.body;
@@ -371,16 +347,10 @@ router.post('/transcribe', async (req, res) => {
  */
 router.post('/transcribe/:recordingId/sync', async (req, res) => {
   try {
-    // Verify authentication
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
-    }
-
-    const token = authHeader.substring(7);
-    const user = await verifyAuthToken(token);
+    // Authentication is handled by verifyAuthToken middleware in server.js
+    const user = req.user;
     if (!user) {
-      return res.status(401).json({ error: 'Unauthorized: Invalid token' });
+      return res.status(401).json({ error: 'Unauthorized: Missing authentication' });
     }
 
     const { recordingId } = req.params;

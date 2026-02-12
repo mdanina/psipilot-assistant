@@ -864,8 +864,9 @@ const SessionsPage = () => {
           }
         }
 
-        // Сохранить новый checkpoint
-        const fileName = `recording-${Date.now()}-checkpoint.webm`;
+        // Сохранить новый checkpoint — use actual MIME type for extension
+        const ext = mimeType.includes('mp4') ? 'm4a' : mimeType.includes('ogg') ? 'ogg' : 'webm';
+        const fileName = `recording-${Date.now()}-checkpoint.${ext}`;
         const checkpointId = await saveRecordingLocally(
           blob,
           fileName,
@@ -944,9 +945,10 @@ const SessionsPage = () => {
               }
             }
             
+            const hiddenExt = mimeType.includes('mp4') ? 'm4a' : mimeType.includes('ogg') ? 'ogg' : 'webm';
             const checkpointId = await saveRecordingLocally(
               blob,
-              `recording-${Date.now()}-hidden.webm`,
+              `recording-${Date.now()}-hidden.${hiddenExt}`,
               recordingTime,
               mimeType,
               sessionId
@@ -2469,16 +2471,13 @@ const SessionsPage = () => {
                         <span className="text-sm font-mono text-foreground">{formatTime(recordingTime)}</span>
                       </div>
                       
-                      {/* Waveform visualization */}
+                      {/* Waveform visualization — CSS animation controls height, no JS Math.random() */}
                       <div className="flex items-center gap-0.5 h-6 flex-1">
                         {[...Array(12)].map((_, i) => (
                           <div
                             key={i}
                             className="w-0.5 bg-primary/60 rounded-full waveform-bar"
-                            style={{ 
-                              animationDelay: `${i * 0.1}s`,
-                              height: `${Math.random() * 16 + 4}px`
-                            }}
+                            style={{ animationDelay: `${i * 0.1}s` }}
                           />
                         ))}
                       </div>
