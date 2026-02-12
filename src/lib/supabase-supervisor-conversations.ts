@@ -3,7 +3,7 @@
  */
 
 import { supabase } from './supabase';
-import type { Database } from '@/types/database.types';
+import type { Database, Json } from '@/types/database.types';
 
 type SupervisorConversation = Database['public']['Tables']['supervisor_conversations']['Row'];
 type SupervisorConversationInsert = Database['public']['Tables']['supervisor_conversations']['Insert'];
@@ -88,7 +88,7 @@ export async function saveSupervisorConversation(
       user_id: user.id,
       clinic_id: profile.clinic_id,
       title: conversationTitle,
-      messages: messages as any,
+      messages: messages as unknown as Json,
       message_count: messages.length,
       started_at: messages.length > 0 ? messages[0].timestamp : new Date().toISOString(),
       saved_at: new Date().toISOString(),
@@ -275,4 +275,3 @@ export async function deleteSupervisorConversation(
     };
   }
 }
-

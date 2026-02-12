@@ -262,9 +262,11 @@ export async function createPatient(
 
     // Extract base64 versions before they're removed (for RPC function)
     const base64Data: Record<string, string | null> = {};
+    const encryptedDataWithBase64 = encryptedData as Record<string, string | number | null | undefined>;
     for (const field of PII_FIELDS) {
       const base64Field = `${field}_encrypted_base64`;
-      base64Data[field] = (encryptedData as any)[base64Field] || null;
+      const base64Value = encryptedDataWithBase64[base64Field];
+      base64Data[field] = typeof base64Value === 'string' ? base64Value : null;
       if (isDev) console.log(`[createPatient] Extracted base64 for ${field}:`, base64Data[field] ? `present (length: ${base64Data[field]?.length || 0})` : 'null');
     }
 

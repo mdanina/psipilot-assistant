@@ -7,13 +7,13 @@ export interface SupervisorRequest {
   patientId?: string;
   patientName?: string;
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
-  context?: Record<string, any>;
+  context?: Record<string, unknown>;
 }
 
 export interface SupervisorResponse {
   message: string;
   timestamp?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 /**
