@@ -25,6 +25,13 @@ interface Note {
   createdAt: Date;
 }
 
+interface OverlayPatientRow {
+  id: string;
+  name: string | null;
+  name_encrypted: string | null;
+  pii_encryption_version: number | null;
+}
+
 export function OverlayPanel() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -145,16 +152,17 @@ export function OverlayPanel() {
           return;
         }
 
-        if (data && data.length > 0) {
+        const patientRows = (data ?? []) as OverlayPatientRow[];
+
+        if (patientRows.length > 0) {
           console.log('Loaded patients:', data.length);
           
           // Проверяем, нужно ли расшифровывать
-          const needsDecryption = data.some(p => (p as any).pii_encryption_version);
+          const needsDecryption = patientRows.some((patient) => patient.pii_encryption_version);
           
           if (needsDecryption) {
             // Расшифровываем имена пациентов
-            const encryptedNames = data.map(p => {
-              const patient = p as any;
+            const encryptedNames = patientRows.map((patient) => {
               if (patient.name_encrypted) {
                 // Конвертируем BYTEA (hex) в base64
                 let valueToDecrypt: string;
@@ -183,8 +191,7 @@ export function OverlayPanel() {
                 console.log('Decrypted patient names:', decryptedNames.length);
                 
                 // Объединяем расшифрованные имена с данными пациентов
-                const decryptedPatients = data.map((p, index) => {
-                  const patient = p as any;
+                const decryptedPatients = patientRows.map((patient, index) => {
                   if (patient.name_encrypted && decryptedNames[index]) {
                     return {
                       id: patient.id,
@@ -201,23 +208,23 @@ export function OverlayPanel() {
               } catch (decryptError) {
                 console.error('Failed to decrypt patient names:', decryptError);
                 // Fallback: используем зашифрованные данные как есть
-                setPatients(data.map(p => ({
-                  id: p.id,
-                  name: (p as any).name || 'Encrypted',
+                setPatients(patientRows.map((patient) => ({
+                  id: patient.id,
+                  name: patient.name || 'Encrypted',
                 })));
               }
             } else {
               // Нет зашифрованных данных, используем как есть
-              setPatients(data.map(p => ({
-                id: p.id,
-                name: (p as any).name || 'Unknown',
+              setPatients(patientRows.map((patient) => ({
+                id: patient.id,
+                name: patient.name || 'Unknown',
               })));
             }
           } else {
             // Данные не зашифрованы
-            setPatients(data.map(p => ({
-              id: p.id,
-              name: (p as any).name || 'Unknown',
+            setPatients(patientRows.map((patient) => ({
+              id: patient.id,
+              name: patient.name || 'Unknown',
             })));
           }
         } else {

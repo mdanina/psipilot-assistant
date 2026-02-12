@@ -13,7 +13,8 @@ const CRYPTO_API_URL = import.meta.env.VITE_TRANSCRIPTION_API_URL || '';
  */
 async function getAuthHeaders(): Promise<HeadersInit> {
   // Получаем текущую сессию
-  let { data: { session }, error: sessionError } = await supabase.auth.getSession();
+  const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
+  let session = currentSession;
   
   if (sessionError) {
     console.error('Error getting session:', sessionError);

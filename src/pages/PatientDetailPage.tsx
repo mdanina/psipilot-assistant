@@ -39,6 +39,10 @@ import { CaseSummaryBlock } from "@/components/patients/CaseSummaryBlock";
 import { PatientAssignmentsDialog } from "@/components/patients/PatientAssignmentsDialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { Users } from "lucide-react";
+import type { Database } from "@/types/database.types";
+
+type PatientInsert = Database['public']['Tables']['patients']['Insert'];
+type PatientUpdate = Database['public']['Tables']['patients']['Update'];
 
 const PatientDetailPage = () => {
   const { id } = useParams<{ id: string }>();
@@ -100,7 +104,7 @@ const PatientDetailPage = () => {
     }
   }, [id, navigate]);
 
-  const handleSave = async (formData: any) => {
+  const handleSave = async (formData: PatientInsert | PatientUpdate) => {
     if (!id || !patient) return;
 
     try {
