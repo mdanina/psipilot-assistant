@@ -9,7 +9,14 @@ import {
 } from 'react';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import type { User, Session } from '@supabase/supabase-js';
-import type { Profile, ProfileWithClinic } from '@/types';
+import type { Clinic, Profile, ProfileWithClinic } from '@/types';
+
+type ProfileQueryResult = { data: Profile | null; error: { message?: string } | null };
+type ProfileWithMfaFlag = ProfileWithClinic & { mfa_enabled?: boolean };
+
+function hasMfaEnabled(profile: ProfileWithMfaFlag | null): boolean {
+  return Boolean(profile?.mfa_enabled);
+}
 
 interface AuthState {
   user: User | null;
@@ -51,12 +58,12 @@ const ACTIVITY_DEBOUNCE = 5000; // Only update activity every 5 seconds max
 
 // Simple in-memory cache for profiles and clinics to prevent duplicate requests
 const profileCache = new Map<string, { data: ProfileWithClinic | null; timestamp: number }>();
-const clinicCache = new Map<string, { data: any; timestamp: number }>();
+const clinicCache = new Map<string, { data: Clinic; timestamp: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
 
 // Request deduplication: track in-flight requests to prevent parallel duplicate requests
 const profileRequests = new Map<string, Promise<ProfileWithClinic | null>>();
-const clinicRequests = new Map<string, Promise<any | null>>();
+const clinicRequests = new Map<string, Promise<Clinic | null>>();
 
 // Helper to get cached profile or fetch if not cached
 async function getCachedProfile(userId: string): Promise<ProfileWithClinic | null> {
@@ -73,7 +80,7 @@ function setCachedProfile(userId: string, profile: ProfileWithClinic | null) {
 }
 
 // Helper to get cached clinic or fetch if not cached
-async function getCachedClinic(clinicId: string): Promise<any | null> {
+async function getCachedClinic(clinicId: string): Promise<Clinic | null> {
   const cached = clinicCache.get(clinicId);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
     return cached.data;
@@ -82,12 +89,12 @@ async function getCachedClinic(clinicId: string): Promise<any | null> {
 }
 
 // Helper to cache clinic
-function setCachedClinic(clinicId: string, clinic: any) {
+function setCachedClinic(clinicId: string, clinic: Clinic) {
   clinicCache.set(clinicId, { data: clinic, timestamp: Date.now() });
 }
 
 // Helper to load clinic with caching and request deduplication
-async function loadClinicWithCache(clinicId: string): Promise<any | null> {
+async function loadClinicWithCache(clinicId: string): Promise<Clinic | null> {
   // Check cache first
   const cached = await getCachedClinic(clinicId);
   if (cached !== null) {
@@ -184,7 +191,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
           setTimeout(() => reject(new Error('Profile fetch timeout after 5 seconds')), 5000)
         );
 
-        const result = await Promise.race([profilePromise, timeoutPromise]) as any;
+        const result = await Promise.race<ProfileQueryResult | null>([profilePromise, timeoutPromise]);
+
+        if (!result) {
+          console.warn('⚠️  Profile query timed out for user:', userId);
+          return null;
+        }
         
         if (result.error) {
           console.error('❌ Error fetching profile:', result.error);
@@ -200,7 +212,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
         // Don't fetch clinic during initial load - load it asynchronously later
         // This prevents blocking on RLS policies
-        let clinic = null;
+        const clinic = null;
 
         const profile = {
           ...data,
@@ -366,7 +378,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
             session,
             isLoading: false,
             isAuthenticated: true,
-            mfaEnabled: (profile as any)?.mfa_enabled || false,
+            mfaEnabled: hasMfaEnabled(profile),
             mfaVerified: false,
             lastActivity: now,
             sessionExpiresAt: now + SESSION_TIMEOUT,
@@ -476,7 +488,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
               setState(prev => ({
                 ...prev,
                 profile,
-                mfaEnabled: (profile as any)?.mfa_enabled || false,
+                mfaEnabled: hasMfaEnabled(profile),
               }));
               console.log('✅ Profile loaded and updated');
               
@@ -611,7 +623,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
             setState(prev => ({
               ...prev,
               profile,
-              mfaEnabled: (profile as any)?.mfa_enabled || false,
+              mfaEnabled: hasMfaEnabled(profile),
             }));
             console.log('✅ Profile loaded in background');
             

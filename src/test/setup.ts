@@ -41,7 +41,10 @@ class IntersectionObserverMock {
   disconnect = vi.fn();
   takeRecords = vi.fn();
 }
-window.IntersectionObserver = IntersectionObserverMock as any;
+Object.defineProperty(window, 'IntersectionObserver', {
+  writable: true,
+  value: IntersectionObserverMock,
+});
 
 // Mock fetch
 global.fetch = vi.fn();
