@@ -13,7 +13,17 @@ import type {
   GenerateRequest,
   RegenerateSectionRequest,
   CaseSummary,
+  GeneratedSection,
 } from '@/types/ai.types';
+
+type DecryptableSection = GeneratedSection & {
+  ai_content_encrypted?: string | null;
+  content_encrypted?: string | null;
+};
+
+type DecryptableClinicalNote = GeneratedClinicalNote & {
+  sections?: DecryptableSection[];
+};
 
 // URL backend сервиса для AI endpoints
 // По умолчанию используем тот же сервер, что и для транскрипции
@@ -86,7 +96,7 @@ export async function updateNoteTemplateBlockOrder(
   }
 
   // Получаем шаблон с информацией о владельце
-  const { data: template, error: fetchError } = await (supabase as any)
+  const { data: template, error: fetchError } = await supabase
     .from('clinical_note_templates')
     .select('is_system, user_id, clinic_id')
     .eq('id', templateId)
@@ -123,7 +133,7 @@ export async function updateNoteTemplateBlockOrder(
     throw new Error('Вы можете редактировать только свои личные шаблоны');
   }
 
-  const { error } = await (supabase as any)
+  const { error } = await supabase
     .from('clinical_note_templates')
     .update({ block_template_ids: blockTemplateIds })
     .eq('id', templateId);
@@ -147,7 +157,7 @@ export async function addBlockToTemplate(
   }
 
   // Получаем шаблон с информацией о владельце
-  const { data: template, error: fetchError } = await (supabase as any)
+  const { data: template, error: fetchError } = await supabase
     .from('clinical_note_templates')
     .select('block_template_ids, is_system, user_id, clinic_id')
     .eq('id', templateId)
@@ -192,7 +202,7 @@ export async function addBlockToTemplate(
   // Добавляем блок в конец списка
   const newBlockIds = [...template.block_template_ids, blockTemplateId];
 
-  const { error } = await (supabase as any)
+  const { error } = await supabase
     .from('clinical_note_templates')
     .update({ block_template_ids: newBlockIds })
     .eq('id', templateId);
@@ -216,7 +226,7 @@ export async function removeBlockFromTemplate(
   }
 
   // Получаем шаблон с информацией о владельце
-  const { data: template, error: fetchError } = await (supabase as any)
+  const { data: template, error: fetchError } = await supabase
     .from('clinical_note_templates')
     .select('block_template_ids, is_system, user_id, clinic_id')
     .eq('id', templateId)
@@ -258,7 +268,7 @@ export async function removeBlockFromTemplate(
     (id: string) => id !== blockTemplateId
   );
 
-  const { error } = await (supabase as any)
+  const { error } = await supabase
     .from('clinical_note_templates')
     .update({ block_template_ids: newBlockIds })
     .eq('id', templateId);
@@ -306,7 +316,7 @@ export async function createNoteTemplate(
   if (isDefault) {
     if (isClinicTemplate && clinicId) {
       // Для шаблонов клиники - снимаем флаг с других шаблонов клиники
-      await (supabase as any)
+      await supabase
         .from('clinical_note_templates')
         .update({ is_default: false })
         .eq('clinic_id', clinicId)
@@ -314,7 +324,7 @@ export async function createNoteTemplate(
         .eq('is_default', true);
     } else if (!isClinicTemplate) {
       // Для личных шаблонов - снимаем флаг с других личных шаблонов пользователя
-      await (supabase as any)
+      await supabase
         .from('clinical_note_templates')
         .update({ is_default: false })
         .eq('user_id', user.id)
@@ -322,7 +332,7 @@ export async function createNoteTemplate(
     }
   }
 
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from('clinical_note_templates')
     .insert({
       clinic_id: clinicId,
@@ -670,10 +680,11 @@ export async function getClinicalNotesForSession(
 
   // Расшифровываем ai_content и content в секциях используя batch расшифровку
   if (data) {
-    for (const note of data) {
+    const decryptableNotes = data as DecryptableClinicalNote[];
+    for (const note of decryptableNotes) {
       if (note.sections) {
         // Собираем все зашифрованные значения для batch расшифровки
-        const encryptedValues: Array<{ section: any; field: 'ai_content' | 'content'; value: string }> = [];
+        const encryptedValues: Array<{ section: DecryptableSection; field: 'ai_content' | 'content'; value: string }> = [];
         
         for (const section of note.sections) {
           // Приоритет: сначала проверяем _encrypted поля (новый формат)
@@ -781,9 +792,10 @@ export async function getClinicalNotesForPatient(
   // Расшифровываем ai_content и content в секциях используя batch расшифровку
   if (data) {
     // Собираем все зашифрованные значения для batch расшифровки
-    const encryptedValues: Array<{ note: any; section: any; field: 'ai_content' | 'content'; value: string }> = [];
+    const encryptedValues: Array<{ section: DecryptableSection; field: 'ai_content' | 'content'; value: string }> = [];
     
-    for (const note of data) {
+    const decryptableNotes = data as DecryptableClinicalNote[];
+    for (const note of decryptableNotes) {
       if (note.sections) {
         for (const section of note.sections) {
           // Приоритет: сначала проверяем _encrypted поля (новый формат)
@@ -791,7 +803,7 @@ export async function getClinicalNotesForPatient(
           
           // Проверяем ai_content_encrypted (новый формат)
           if (section.ai_content_encrypted && typeof section.ai_content_encrypted === 'string') {
-            encryptedValues.push({ note, section, field: 'ai_content', value: section.ai_content_encrypted });
+            encryptedValues.push({ section, field: 'ai_content', value: section.ai_content_encrypted });
           }
           // Если нет _encrypted поля, но есть ai_content, проверяем эвристикой (старый формат)
           else if (section.ai_content && typeof section.ai_content === 'string') {
@@ -802,13 +814,13 @@ export async function getClinicalNotesForPatient(
             
             // Если это base64 без unicode и достаточной длины - вероятно зашифровано
             if (isBase64 && !hasUnicodeChars && section.ai_content.length >= minLength) {
-              encryptedValues.push({ note, section, field: 'ai_content', value: section.ai_content });
+              encryptedValues.push({ section, field: 'ai_content', value: section.ai_content });
             }
           }
           
           // Проверяем content_encrypted (новый формат)
           if (section.content_encrypted && typeof section.content_encrypted === 'string') {
-            encryptedValues.push({ note, section, field: 'content', value: section.content_encrypted });
+            encryptedValues.push({ section, field: 'content', value: section.content_encrypted });
           }
           // Если нет _encrypted поля, но есть content, проверяем эвристикой (старый формат)
           else if (section.content && typeof section.content === 'string') {
@@ -819,7 +831,7 @@ export async function getClinicalNotesForPatient(
             
             // Если это base64 без unicode и достаточной длины - вероятно зашифровано
             if (isBase64 && !hasUnicodeChars && section.content.length >= minLength) {
-              encryptedValues.push({ note, section, field: 'content', value: section.content });
+              encryptedValues.push({ section, field: 'content', value: section.content });
             }
           }
         }

@@ -36,6 +36,10 @@ export interface TranscriptionStatus {
   error?: string | null;
 }
 
+interface TranscriptionStatusWithSyncError extends TranscriptionStatus {
+  syncError?: Error;
+}
+
 /**
  * Create a new recording record in the database
  */
@@ -306,7 +310,7 @@ export async function getRecordingStatus(
     }
   }
 
-  const result: TranscriptionStatus = {
+  const result: TranscriptionStatusWithSyncError = {
     status: data.transcription_status,
     transcriptionText,
     error: data.transcription_error || undefined,
@@ -316,7 +320,7 @@ export async function getRecordingStatus(
   // This allows the caller to check if sync failed and handle accordingly
   if (syncError) {
     // Store sync error in a way that can be checked by the caller
-    (result as any).syncError = syncError;
+    result.syncError = syncError;
   }
 
   return result;
@@ -435,4 +439,3 @@ export async function deleteRecording(recordingId: string): Promise<void> {
   // Note: Audio file is NOT deleted from storage to preserve data
   // File can be cleaned up later by an admin job if needed
 }
-

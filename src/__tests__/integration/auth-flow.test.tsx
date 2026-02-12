@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
+import type { Session } from '@supabase/supabase-js';
 
 // Mock supabase
 vi.mock('@/lib/supabase', () => ({
@@ -119,8 +120,18 @@ const TestApp = ({ initialEntries = ['/'] }: { initialEntries?: string[] }) => {
   );
 };
 
+const createFromMock = (singleResult: { data: unknown; error: unknown }) => ({
+  select: vi.fn().mockReturnThis(),
+  insert: vi.fn().mockReturnThis(),
+  update: vi.fn().mockReturnThis(),
+  delete: vi.fn().mockReturnThis(),
+  eq: vi.fn().mockReturnThis(),
+  single: vi.fn().mockResolvedValue(singleResult),
+  order: vi.fn().mockReturnThis(),
+}) as unknown as ReturnType<typeof supabase.from>;
+
 describe('Authentication Flow Integration', () => {
-  let authStateCallback: ((event: string, session: any) => void) | null = null;
+  let authStateCallback: ((event: string, session: Session | null) => void) | null = null;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -134,15 +145,7 @@ describe('Authentication Flow Integration', () => {
       };
     });
 
-    vi.mocked(supabase.from).mockReturnValue({
-      select: vi.fn().mockReturnThis(),
-      insert: vi.fn().mockReturnThis(),
-      update: vi.fn().mockReturnThis(),
-      delete: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: null, error: null }),
-      order: vi.fn().mockReturnThis(),
-    } as any);
+    vi.mocked(supabase.from).mockReturnValue(createFromMock({ data: null, error: null }));
   });
 
   describe('Unauthenticated user', () => {
@@ -180,11 +183,7 @@ describe('Authentication Flow Integration', () => {
         error: null,
       });
 
-      vi.mocked(supabase.from).mockReturnValue({
-        select: vi.fn().mockReturnThis(),
-        eq: vi.fn().mockReturnThis(),
-        single: vi.fn().mockResolvedValue({ data: mockProfile, error: null }),
-      } as any);
+      vi.mocked(supabase.from).mockReturnValue(createFromMock({ data: mockProfile, error: null }));
 
       render(<TestApp initialEntries={['/']} />);
 
@@ -201,11 +200,7 @@ describe('Authentication Flow Integration', () => {
         error: null,
       });
 
-      vi.mocked(supabase.from).mockReturnValue({
-        select: vi.fn().mockReturnThis(),
-        eq: vi.fn().mockReturnThis(),
-        single: vi.fn().mockResolvedValue({ data: profileWithoutClinic, error: null }),
-      } as any);
+      vi.mocked(supabase.from).mockReturnValue(createFromMock({ data: profileWithoutClinic, error: null }));
 
       render(<TestApp initialEntries={['/']} />);
 
@@ -227,11 +222,7 @@ describe('Authentication Flow Integration', () => {
         error: null,
       });
 
-      vi.mocked(supabase.from).mockReturnValue({
-        select: vi.fn().mockReturnThis(),
-        eq: vi.fn().mockReturnThis(),
-        single: vi.fn().mockResolvedValue({ data: mockProfile, error: null }),
-      } as any);
+      vi.mocked(supabase.from).mockReturnValue(createFromMock({ data: mockProfile, error: null }));
 
       render(<TestApp initialEntries={['/']} />);
 
@@ -253,12 +244,12 @@ describe('Authentication Flow Integration', () => {
   describe('Loading states', () => {
     it('should show loading state while checking session', async () => {
       // Create a promise that doesn't resolve immediately
-      let resolveSession: (value: any) => void;
+      let resolveSession: ((value: Awaited<ReturnType<typeof supabase.auth.getSession>>) => void) | undefined;
       const sessionPromise = new Promise((resolve) => {
         resolveSession = resolve;
       });
 
-      vi.mocked(supabase.auth.getSession).mockReturnValue(sessionPromise as any);
+      vi.mocked(supabase.auth.getSession).mockReturnValue(sessionPromise as ReturnType<typeof supabase.auth.getSession>);
 
       render(<TestApp initialEntries={['/']} />);
 
@@ -267,7 +258,7 @@ describe('Authentication Flow Integration', () => {
       expect(screen.queryByText('Login Page')).not.toBeInTheDocument();
 
       // Resolve the session
-      resolveSession!({ data: { session: null }, error: null });
+      resolveSession?.({ data: { session: null }, error: null });
 
       await waitFor(() => {
         expect(screen.getByText('Login Page')).toBeInTheDocument();
@@ -279,7 +270,7 @@ describe('Authentication Flow Integration', () => {
     it('should handle session error gracefully', async () => {
       vi.mocked(supabase.auth.getSession).mockResolvedValue({
         data: { session: null },
-        error: { message: 'Session error', status: 500, name: 'AuthError' } as any,
+        error: new Error('Session error') as Awaited<ReturnType<typeof supabase.auth.getSession>>['error'],
       });
 
       render(<TestApp initialEntries={['/']} />);
@@ -296,14 +287,7 @@ describe('Authentication Flow Integration', () => {
         error: null,
       });
 
-      vi.mocked(supabase.from).mockReturnValue({
-        select: vi.fn().mockReturnThis(),
-        eq: vi.fn().mockReturnThis(),
-        single: vi.fn().mockResolvedValue({
-          data: null,
-          error: { message: 'Profile not found' },
-        }),
-      } as any);
+      vi.mocked(supabase.from).mockReturnValue(createFromMock({ data: null, error: { message: 'Profile not found' } }));
 
       render(<TestApp initialEntries={['/']} />);
 

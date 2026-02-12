@@ -135,11 +135,11 @@ export function createAuditedClient(): SupabaseClient<Database> {
                 }
               } else if (result.data) {
                 // Single object
-                const row = result.data as any;
+                const row = result.data as Record<string, unknown>;
                 await logReadAccess(
                   table,
-                  row.id || null,
-                  row.name || row.title || row.file_name || null,
+                  typeof row.id === 'string' ? row.id : null,
+                  (typeof row.name === 'string' ? row.name : typeof row.title === 'string' ? row.title : typeof row.file_name === 'string' ? row.file_name : null),
                   phiFields
                 );
               }

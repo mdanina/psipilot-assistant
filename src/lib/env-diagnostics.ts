@@ -37,12 +37,12 @@ export function getEnvDiagnostics(): EnvDiagnostics {
   
   // Получаем все VITE_ переменные из import.meta.env
   const allViteVars: Record<string, string | undefined> = {};
-  const envObj = import.meta.env as Record<string, any>;
+  const envObj = import.meta.env as Record<string, unknown>;
   
   // Собираем все переменные, начинающиеся с VITE_
   Object.keys(envObj).forEach(key => {
     if (key.startsWith('VITE_')) {
-      allViteVars[key] = envObj[key];
+      allViteVars[key] = typeof envObj[key] === 'string' ? envObj[key] : undefined;
     }
   });
   

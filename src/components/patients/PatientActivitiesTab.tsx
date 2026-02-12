@@ -72,6 +72,7 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
   const { toast } = useToast();
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
+  const showLegacySections = false;
 
   // Delete dialog state
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -669,7 +670,7 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
       })}
 
       {/* Legacy: Sessions with notes (keeping for reference, will be removed) */}
-      {false && sessionsWithNotes.map(({ session, notes }) => (
+      {showLegacySections && sessionsWithNotes.map(({ session, notes }) => (
         <div key={session.id} className="space-y-3">
           {/* Session card */}
           <div
@@ -815,7 +816,7 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
       ))}
 
       {/* Legacy: Orphan notes (keeping for reference, will be removed) */}
-      {false && orphanNotes.length > 0 && (
+      {showLegacySections && orphanNotes.length > 0 && (
         <div className="space-y-2">
           <h3 className="text-sm font-semibold text-muted-foreground">
             Клинические заметки без привязки к сессии

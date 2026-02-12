@@ -33,7 +33,7 @@ export async function assignPatientToDoctor(
 
   if (error) {
     console.error('Error assigning patient to doctor:', error);
-    return { data: null, error };
+    return { data: null, error: new Error(error.message) };
   }
 
   return { data, error: null };
@@ -53,7 +53,7 @@ export async function unassignPatientFromDoctor(
 
   if (error) {
     console.error('Error unassigning patient from doctor:', error);
-    return { data: null, error };
+    return { data: null, error: new Error(error.message) };
   }
 
   return { data, error: null };
@@ -77,7 +77,7 @@ export async function reassignPatient(
 
   if (error) {
     console.error('Error reassigning patient:', error);
-    return { data: null, error };
+    return { data: null, error: new Error(error.message) };
   }
 
   return { data, error: null };
@@ -88,7 +88,7 @@ export async function reassignPatient(
  */
 export async function getPatientAssignments(
   patientId: string
-): Promise<{ data: PatientAssignmentWithDoctor[] | null; error: any }> {
+): Promise<{ data: PatientAssignmentWithDoctor[] | null; error: Error | null }> {
   const { data, error } = await supabase
     .from('patient_assignments')
     .select(`
@@ -100,7 +100,7 @@ export async function getPatientAssignments(
 
   if (error) {
     console.error('Error getting patient assignments:', error);
-    return { data: null, error };
+    return { data: null, error: new Error(error.message) };
   }
 
   return { data: data as PatientAssignmentWithDoctor[], error: null };
@@ -120,7 +120,7 @@ export async function getAssignedPatients() {
 
   if (error) {
     console.error('Error getting assigned patients:', error);
-    return { data: null, error };
+    return { data: null, error: new Error(error.message) };
   }
 
   return { data, error: null };
@@ -140,7 +140,7 @@ export async function getAllClinicPatients() {
 
   if (error) {
     console.error('Error getting all clinic patients:', error);
-    return { data: null, error };
+    return { data: null, error: new Error(error.message) };
   }
 
   return { data, error: null };

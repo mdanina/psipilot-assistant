@@ -11,6 +11,17 @@ import { User, Loader2, CheckCircle2, AlertCircle, X, Edit, MessageCircle, Exter
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { getSpecializationList, getSpecializationName } from '@/lib/specializations';
 
+type ProfileWithSpecialization = {
+  specialization?: string | null;
+};
+
+const getProfileSpecialization = (profile: unknown): string => {
+  if (!profile || typeof profile !== 'object') return 'none';
+
+  const specialization = (profile as ProfileWithSpecialization).specialization;
+  return specialization || 'none';
+};
+
 export default function ProfilePage() {
   const { profile, user, refreshProfile } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
@@ -29,7 +40,7 @@ export default function ProfilePage() {
       setFullName(profile.full_name || '');
       setEmail(profile.email || user?.email || '');
       // Profile type includes specialization, but TypeScript might not recognize it
-      setSpecialization((profile as any).specialization || 'none');
+      setSpecialization(getProfileSpecialization(profile));
     } else if (user) {
       // If profile not loaded yet, at least set email
       setEmail(user.email || '');
@@ -205,7 +216,7 @@ export default function ProfilePage() {
                         setIsEditing(false);
                         setFullName(profile?.full_name || '');
                         setEmail(profile?.email || user?.email || '');
-                        setSpecialization((profile as any)?.specialization || 'none');
+                        setSpecialization(getProfileSpecialization(profile));
                         setError(null);
                         setSuccess(null);
                       }}
@@ -232,7 +243,7 @@ export default function ProfilePage() {
                   </div>
                   <div>
                     <Label className="text-muted-foreground">Специализация</Label>
-                    <p className="text-sm font-medium">{getSpecializationName((profile as any)?.specialization)}</p>
+                    <p className="text-sm font-medium">{getSpecializationName(getProfileSpecialization(profile))}</p>
                   </div>
                   <div>
                     <Label className="text-muted-foreground">ID пользователя</Label>
