@@ -126,10 +126,10 @@ export function PatientAssignmentsDialog({
       setAssignmentType("primary");
       await loadData();
       onAssignmentsChanged?.();
-    } catch (error: any) {
+    } catch (error) {
       toast({
         title: "Ошибка",
-        description: error.message || "Не удалось назначить врача",
+        description: error instanceof Error ? error.message : "Не удалось назначить врача",
         variant: "destructive",
       });
     } finally {
@@ -156,10 +156,10 @@ export function PatientAssignmentsDialog({
 
       await loadData();
       onAssignmentsChanged?.();
-    } catch (error: any) {
+    } catch (error) {
       toast({
         title: "Ошибка",
-        description: error.message || "Не удалось отвязать врача",
+        description: error instanceof Error ? error.message : "Не удалось отвязать врача",
         variant: "destructive",
       });
     }

@@ -202,7 +202,7 @@ export async function linkSessionToPatient(
           `[linkSessionToPatient] Creating ${consentType} consent via RPC function...`
         );
         const { data: consentId, error: consentError } = await supabase.rpc(
-          'create_consent_for_patient' as any,
+          'create_consent_for_patient',
           {
             p_patient_id: patientId,
             p_consent_type: consentType,
@@ -342,7 +342,7 @@ export async function deleteSession(sessionId: string): Promise<void> {
     .from('sessions')
     .update({
       deleted_at: new Date().toISOString(),
-    } as any)
+    })
     .eq('id', sessionId);
 
   if (error) {
@@ -708,10 +708,12 @@ export async function createAppointment(
         setTimeout(() => reject(new Error('Timeout: проверка роли пользователя заняла слишком много времени')), 5000)
       );
       
-      let currentUserProfile;
+      let currentUserProfile: { role: string | null } | null = null;
       try {
-        const result = await Promise.race([profilePromise, timeoutPromise]) as any;
-        currentUserProfile = result.data;
+        const result = await Promise.race([profilePromise, timeoutPromise]);
+        currentUserProfile = result && typeof result === 'object' && 'data' in result
+          ? (result.data as { role: string | null } | null)
+          : null;
       } catch (err) {
         console.error('[createAppointment] Error or timeout getting user profile:', err);
         // If timeout or error, assume not admin and continue (RLS will enforce)
@@ -753,7 +755,7 @@ export async function createAppointment(
     const startDate = new Date(scheduledAt);
     const endDate = new Date(recurringEndDate);
     const createdSessions: Session[] = [];
-    let currentDate = new Date(startDate);
+    const currentDate = new Date(startDate);
 
     // Create first (parent) appointment
     const parentSessionData: SessionInsert = {
