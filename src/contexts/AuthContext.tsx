@@ -503,6 +503,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
             // No need to update state again - it was already set above
           });
         } else if (event === 'SIGNED_OUT') {
+          // Clear module-level caches to prevent stale data on re-login
+          // (signOut() clears them too, but SIGNED_OUT can fire from session expiry)
+          profileCache.clear();
+          clinicCache.clear();
+          profileRequests.clear();
+          clinicRequests.clear();
+
           setState({
             user: null,
             profile: null,

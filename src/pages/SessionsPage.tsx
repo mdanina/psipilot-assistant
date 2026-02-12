@@ -279,8 +279,9 @@ const SessionsPage = () => {
     // Don't filter by sessionId - track all user's transcriptions
     // This ensures processing transcriptions are visible even if their session is not open
     onComplete: async (recordingId, sessionId) => {
+      if (!isMountedRef.current) return;
       console.log(`[SessionsPage] Transcription completed: ${recordingId} in session ${sessionId}`);
-      
+
       // Open tab for the session if it's not already open
       setOpenTabs(prev => {
         if (!prev.has(sessionId)) {
@@ -289,29 +290,30 @@ const SessionsPage = () => {
         }
         return prev;
       });
-      
+
       // Set as active session if no active session or if this is the active one
       if (!activeSession || sessionId === activeSession) {
         setActiveSession(sessionId);
       }
-      
+
       // Reload recordings to update UI
       if (sessionId === activeSession || !activeSession) {
         try {
           const recordingsData = await getSessionRecordings(sessionId);
-          setRecordings(recordingsData);
+          if (isMountedRef.current) setRecordings(recordingsData);
         } catch (error) {
           console.error('Error reloading recordings after transcription:', error);
         }
       }
     },
     onError: async (recordingId, error) => {
+      if (!isMountedRef.current) return;
       console.error(`[SessionsPage] Transcription failed: ${recordingId}`, error);
       // Reload recordings to show error state
       if (activeSession) {
         try {
           const recordingsData = await getSessionRecordings(activeSession);
-          setRecordings(recordingsData);
+          if (isMountedRef.current) setRecordings(recordingsData);
         } catch (err) {
           console.error('Error reloading recordings after error:', err);
         }
@@ -445,6 +447,12 @@ const SessionsPage = () => {
 
   // Track if we're processing navigation with sessionId
   const processingNavigationRef = useRef(false);
+  // Guard against setState after unmount for async operations
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => { isMountedRef.current = false; };
+  }, []);
 
   // Load open tabs immediately when user is available
   // user is available immediately after login, profile loads later
@@ -454,6 +462,7 @@ const SessionsPage = () => {
       // Always reload tabs from DB when component mounts or user changes
       // This ensures tabs are always restored from DB, even after long navigation
       loadOpenTabs().then(tabs => {
+        if (!isMountedRef.current) return;
         console.log('[Tabs] ✅ Loaded tabs from DB:', Array.from(tabs), '(count:', tabs.size, ')');
         // Always set tabs from DB - they are the source of truth
         // Don't merge with existing tabs, as DB tabs are authoritative

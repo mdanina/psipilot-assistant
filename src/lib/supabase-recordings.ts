@@ -302,7 +302,7 @@ export async function getRecordingStatus(
       transcriptionText = await decryptPHI(transcriptionText);
     } catch (decryptError) {
       console.error(`Failed to decrypt transcription for recording ${recordingId}:`, decryptError);
-      // Keep encrypted text - UI will show it as-is
+      transcriptionText = '[Ошибка расшифровки. Обновите страницу или войдите заново.]';
     }
   }
 
@@ -401,8 +401,10 @@ export async function getSessionRecordings(sessionId: string): Promise<Recording
           return { ...recording, transcription_text: decryptedText };
         } catch (decryptError) {
           console.error(`Failed to decrypt transcription for recording ${recording.id}:`, decryptError);
-          // Return with encrypted text if decryption fails (UI will show error)
-          return recording;
+          return {
+            ...recording,
+            transcription_text: '[Ошибка расшифровки. Обновите страницу или войдите заново.]',
+          };
         }
       }
       return recording;

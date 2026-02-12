@@ -31,6 +31,7 @@ import {
   markRecordingUploadFailed,
   getUnuploadedRecordings,
   getLocalRecording,
+  deleteLocalRecording,
 } from "@/lib/local-recording-storage";
 import { logLocalStorageOperation } from "@/lib/local-recording-audit";
 import { RecoveryDialog } from "@/components/scribe/RecoveryDialog";
@@ -176,15 +177,36 @@ const ScribePage = () => {
 
         console.log('[ScribePage] Connection restored, attempting to upload', unuploaded.length, 'recordings');
 
+        const processedIds = new Set<string>();
         for (const recordingMeta of unuploaded) {
+          // Skip checkpoints and hidden recordings — they are intermediate data
+          if (recordingMeta.fileName.includes('checkpoint') || recordingMeta.fileName.includes('hidden')) {
+            continue;
+          }
+          if (processedIds.has(recordingMeta.id)) continue;
+
           try {
             const recording = await getLocalRecording(recordingMeta.id);
             if (!recording || recording.uploaded) continue;
 
             // Try to upload
             await retryUploadRecording(recordingMeta.id, recording);
+            processedIds.add(recordingMeta.id);
           } catch (error) {
             console.error(`[ScribePage] Failed to retry upload for ${recordingMeta.id}:`, error);
+          }
+        }
+
+        // Clean up checkpoint/hidden entries after successful uploads
+        if (processedIds.size > 0) {
+          for (const recordingMeta of unuploaded) {
+            if (recordingMeta.fileName.includes('checkpoint') || recordingMeta.fileName.includes('hidden')) {
+              try {
+                await deleteLocalRecording(recordingMeta.id);
+              } catch (e) {
+                // Ignore cleanup errors
+              }
+            }
           }
         }
 
