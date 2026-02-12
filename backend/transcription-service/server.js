@@ -120,7 +120,9 @@ const cryptoLimiter = rateLimit({
 });
 
 // Middleware
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: false, // CSP managed by nginx reverse proxy
+}));
 app.use(cors(corsOptions));
 app.use(express.json());
 
