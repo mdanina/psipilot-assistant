@@ -254,7 +254,8 @@ export function useTranscriptionRecovery(
 
             // For stuck transcriptions, remove from list after a short delay
             // This keeps the UI clean while still showing the toast notification
-            setTimeout(() => {
+            const stuckTimeout = setTimeout(() => {
+              if (!isMountedRef.current) return;
               stopPolling(recordingId);
               setProcessingTranscriptions(prev => {
                 const next = new Map(prev);
@@ -263,6 +264,8 @@ export function useTranscriptionRecovery(
               });
               console.log(`[useTranscriptionRecovery] Removed stuck transcription from UI: ${recordingId}`);
             }, 5000); // Remove after 5 seconds
+            // Track this timeout so stopAllPolling can clear it
+            pollingTimeoutsRef.current.set(`stuck-${recordingId}`, stuckTimeout);
           }
         } catch (updateErr) {
           console.error('[useTranscriptionRecovery] Error updating recording status:', updateErr);
@@ -295,7 +298,7 @@ export function useTranscriptionRecovery(
           
           // Force immediate refetch to ensure new session appears
           try {
-            await queryClient.refetchQueries({ 
+            await queryClient.refetchQueries({
               queryKey: ['sessions', profile.clinic_id],
               type: 'active' // Only refetch active queries
             });
@@ -304,6 +307,9 @@ export function useTranscriptionRecovery(
             console.error(`[useTranscriptionRecovery] Error refetching sessions:`, refetchError);
           }
         }
+
+        if (!isMountedRef.current) return;
+
         // Invalidate all sessions queries
         queryClient.invalidateQueries({ queryKey: ['sessions'] });
         // Also invalidate sessions by IDs cache (for open tabs)
@@ -343,7 +349,8 @@ export function useTranscriptionRecovery(
 
         // Remove from list after showing notification (5 seconds)
         // This keeps the UI clean while user sees the error
-        setTimeout(() => {
+        const failedTimeout = setTimeout(() => {
+          if (!isMountedRef.current) return;
           setProcessingTranscriptions(prev => {
             const next = new Map(prev);
             next.delete(recordingId);
@@ -351,6 +358,8 @@ export function useTranscriptionRecovery(
           });
           recordingInfoRef.current.delete(recordingId);
         }, 5000);
+        // Track this timeout so stopAllPolling can clear it
+        pollingTimeoutsRef.current.set(`failed-${recordingId}`, failedTimeout);
 
       } else {
         // Still processing - schedule next poll

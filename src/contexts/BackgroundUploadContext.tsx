@@ -79,6 +79,7 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
 
   const [pendingUploads, setPendingUploads] = useState<Map<string, PendingUpload>>(new Map());
   const processingRef = useRef<Set<string>>(new Set());
+  const cleanupTimeoutsRef = useRef<Set<NodeJS.Timeout>>(new Set());
   const onTranscriptionStartedRef = useRef<((recordingId: string, sessionId: string) => void) | null>(null);
 
   const setOnTranscriptionStarted = useCallback((callback: ((recordingId: string, sessionId: string) => void) | null) => {
@@ -230,9 +231,11 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
       }
 
       // Remove from queue after short delay (to show completion)
-      setTimeout(() => {
+      const cleanupTimeout = setTimeout(() => {
+        cleanupTimeoutsRef.current.delete(cleanupTimeout);
         removeUpload(id);
       }, 2000);
+      cleanupTimeoutsRef.current.add(cleanupTimeout);
 
     } catch (error) {
       console.error('[BackgroundUpload] Upload failed:', error);
@@ -390,6 +393,14 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
   }, [hasActiveUploads]);
+
+  // Clean up pending removal timeouts on unmount
+  useEffect(() => {
+    return () => {
+      cleanupTimeoutsRef.current.forEach(t => clearTimeout(t));
+      cleanupTimeoutsRef.current.clear();
+    };
+  }, []);
 
   // Keep session alive during file uploads to prevent timeout
   // This mirrors the keep-alive logic used during recording (every 30 seconds)
