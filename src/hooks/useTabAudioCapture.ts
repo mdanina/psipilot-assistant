@@ -124,6 +124,8 @@ export function useTabAudioCapture(): UseTabAudioCaptureReturn {
 
       // Проверяем что есть аудио трек
       const audioTracks = stream.getAudioTracks();
+      console.log('[TabCapture] Audio tracks:', audioTracks.length, audioTracks.map(t => ({ label: t.label, enabled: t.enabled, muted: t.muted, readyState: t.readyState })));
+
       if (audioTracks.length === 0) {
         // Пользователь не выбрал "Поделиться звуком" или браузер не поддерживает
         stream.getTracks().forEach(track => track.stop());
@@ -132,13 +134,14 @@ export function useTabAudioCapture(): UseTabAudioCaptureReturn {
         return;
       }
 
-      // Останавливаем видео трек - нам нужен только звук
+      // ВАЖНО: НЕ останавливаем видео трек сразу!
+      // В Chrome остановка видео трека может убить связанный аудио трек.
+      // Вместо этого сохраняем весь stream и останавливаем все треки при cleanup.
       const videoTracks = stream.getVideoTracks();
-      videoTracks.forEach(track => track.stop());
+      console.log('[TabCapture] Video tracks:', videoTracks.length);
 
-      // Создаём новый поток только с аудио
-      const audioOnlyStream = new MediaStream(audioTracks);
-      streamRef.current = audioOnlyStream;
+      // Сохраняем полный stream (включая видео) - cleanup остановит всё
+      streamRef.current = stream;
 
       // Определяем поддерживаемый MIME тип
       const mimeTypes = [
@@ -156,10 +159,15 @@ export function useTabAudioCapture(): UseTabAudioCaptureReturn {
         }
       }
 
+      // Создаём поток только с аудио для MediaRecorder
+      // (но исходный stream с видео остаётся активным)
+      const audioOnlyStream = new MediaStream(audioTracks);
+
       // Создаём MediaRecorder
       const mediaRecorder = new MediaRecorder(audioOnlyStream, {
         mimeType: selectedMimeType || undefined,
       });
+      console.log('[TabCapture] MediaRecorder created with mimeType:', selectedMimeType || 'default');
 
       mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
@@ -240,6 +248,7 @@ export function useTabAudioCapture(): UseTabAudioCaptureReturn {
       mediaRecorder.start(1000); // Chunk каждую секунду
       startTimeRef.current = Date.now();
       setStatus('recording');
+      console.log('[TabCapture] Recording started, mediaRecorder state:', mediaRecorder.state);
 
       // Запускаем таймер
       timerRef.current = setInterval(() => {
