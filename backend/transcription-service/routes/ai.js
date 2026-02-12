@@ -608,7 +608,11 @@ async function generateSectionsInBackground(
       r => r.status === 'rejected' || r.value?.status === 'failed'
     ).length;
 
-    const finalStatus = failedCount === sections.length ? 'failed' : 'completed';
+    const finalStatus = failedCount === sections.length
+      ? 'failed'
+      : failedCount > 0
+        ? 'partial_failure'
+        : 'completed';
 
     // Обновляем статус clinical_note
     await supabase
@@ -858,7 +862,7 @@ router.post('/case-summary', async (req, res) => {
       .from('clinical_notes')
       .select('*, sections (*)')
       .eq('session_id', session_id)
-      .in('generation_status', ['completed'])
+      .in('generation_status', ['completed', 'partial_failure'])
       .in('status', ['finalized', 'completed'])
       .order('created_at', { ascending: true });
 
@@ -1007,7 +1011,7 @@ router.post('/patient-case-summary', async (req, res) => {
       .from('clinical_notes')
       .select('*, sections (*)')
       .eq('patient_id', patient_id)
-      .in('generation_status', ['completed'])
+      .in('generation_status', ['completed', 'partial_failure'])
       .in('status', ['finalized', 'completed'])
       .order('created_at', { ascending: true });
 

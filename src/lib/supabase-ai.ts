@@ -398,12 +398,8 @@ export async function regenerateSection(
     try {
       result.ai_content = await decryptPHI(result.ai_content);
     } catch (err) {
-      // Если расшифровка не удалась (например, нет ключа), используем как есть
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      if (!errorMsg.includes('Encryption key is not configured')) {
-        console.warn('Failed to decrypt regenerated section content:', err);
-      }
-      // Оставляем ai_content как есть - возможно, он уже расшифрован
+      console.warn('Failed to decrypt regenerated section content:', err);
+      result.ai_content = '[Ошибка расшифровки. Обновите страницу или войдите заново.]';
     }
   }
   
@@ -478,27 +474,22 @@ export async function getClinicalNote(
         try {
           section.ai_content = await decryptPHI(section.ai_content);
         } catch (err) {
-          const errorMsg = err instanceof Error ? err.message : String(err);
-          // Если расшифровка не удалась из-за отсутствия ключа, используем как есть
-          if (!errorMsg.includes('Encryption key is not configured')) {
-            console.warn('Failed to decrypt section ai_content:', err);
-          }
-          // Оставляем ai_content как есть - возможно, он уже расшифрован
+          console.warn('Failed to decrypt section ai_content:', err);
+          // If decryption failed, replace with error message instead of showing base64 gibberish
+          section.ai_content = '[Ошибка расшифровки. Обновите страницу или войдите заново.]';
         }
       }
       // Расшифровываем content, если он зашифрован
       if (section.content) {
-        try {
-          const isLikelyEncrypted = section.content.length > 50 && 
-                                   /^[A-Za-z0-9+/=]+$/.test(section.content) &&
-                                   !section.content.includes('\n');
-          if (isLikelyEncrypted) {
+        const isLikelyEncrypted = section.content.length > 50 &&
+                                 /^[A-Za-z0-9+/=]+$/.test(section.content) &&
+                                 !section.content.includes('\n');
+        if (isLikelyEncrypted) {
+          try {
             section.content = await decryptPHI(section.content);
-          }
-        } catch (err) {
-          const errorMsg = err instanceof Error ? err.message : String(err);
-          if (!errorMsg.includes('Encryption key is not configured')) {
+          } catch (err) {
             console.warn('Failed to decrypt section content:', err);
+            section.content = '[Ошибка расшифровки. Обновите страницу или войдите заново.]';
           }
         }
       }
@@ -747,7 +738,10 @@ export async function getClinicalNotesForSession(
               error: errorMsg,
               count: encryptedValues.length,
             });
-            // При ошибке оставляем значения как есть (возможно уже расшифрованы)
+            // Show error message instead of leaving base64 gibberish in the UI
+            encryptedValues.forEach((item) => {
+              item.section[item.field] = '[Ошибка расшифровки. Обновите страницу или войдите заново.]';
+            });
           }
         }
       }
@@ -856,7 +850,10 @@ export async function getClinicalNotesForPatient(
           error: errorMsg,
           count: encryptedValues.length,
         });
-        // При ошибке оставляем значения как есть (возможно уже расшифрованы)
+        // Show error message instead of leaving base64 gibberish in the UI
+        encryptedValues.forEach((item) => {
+          item.section[item.field] = '[Ошибка расшифровки. Обновите страницу или войдите заново.]';
+        });
       }
     }
   }

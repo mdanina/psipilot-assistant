@@ -1027,25 +1027,31 @@ const SessionsPage = () => {
     }
   }, [activeSession]);
 
-  // Auto-refresh recordings ONLY if there are pending/processing transcriptions
+  // Auto-refresh recordings ONLY if there are pending/processing transcriptions.
+  // NOTE: We use a ref to track whether polling is needed, to avoid an infinite loop.
+  // Previously, `recordings` was in the dependency array — but loadRecordings calls
+  // setRecordings, which creates a new array reference, re-triggering this effect → infinite loop.
+  const hasPendingTranscriptionsRef = useRef(false);
+  hasPendingTranscriptionsRef.current = recordings.some(
+    r => r.session_id === activeSession &&
+         (r.transcription_status === 'pending' || r.transcription_status === 'processing')
+  );
+
   useEffect(() => {
     if (!activeSession) return;
 
-    // Check if there are any recordings that need polling
-    const hasPendingTranscriptions = recordings.some(
-      r => r.session_id === activeSession &&
-           (r.transcription_status === 'pending' || r.transcription_status === 'processing')
-    );
-
-    // Only set up interval if there are pending transcriptions
-    if (!hasPendingTranscriptions) return;
+    // Only set up interval if there are pending transcriptions (checked via ref)
+    if (!hasPendingTranscriptionsRef.current) return;
 
     const refreshInterval = setInterval(() => {
-      loadRecordings(activeSession);
+      // Re-check ref inside interval — stop polling once all transcriptions are done
+      if (hasPendingTranscriptionsRef.current) {
+        loadRecordings(activeSession);
+      }
     }, 5000);
 
     return () => clearInterval(refreshInterval);
-  }, [activeSession, recordings]);
+  }, [activeSession]);
 
   // Refresh recordings when page becomes visible
   useEffect(() => {

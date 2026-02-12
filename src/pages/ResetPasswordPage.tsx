@@ -54,8 +54,21 @@ export default function ResetPasswordPage() {
         }
       } else if (hash && hash.includes('type=recovery')) {
         // Token from hash fragment (standard Supabase format)
-        // Supabase client handles this automatically
-        setIsValidToken(true);
+        // Supabase client auto-exchanges the hash token for a session.
+        // Verify that the exchange actually succeeded by checking for an active session.
+        try {
+          const { data: { session: currentSession } } = await supabase.auth.getSession();
+          if (currentSession) {
+            setIsValidToken(true);
+          } else {
+            setError('Не удалось подтвердить ссылку для сброса пароля. Попробуйте запросить новую.');
+            setIsValidToken(false);
+          }
+        } catch (err) {
+          console.error('Hash token verification error:', err);
+          setError('Ошибка при проверке ссылки');
+          setIsValidToken(false);
+        }
       } else {
         setError('Недействительная или истёкшая ссылка для сброса пароля');
         setIsValidToken(false);

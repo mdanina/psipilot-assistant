@@ -97,7 +97,6 @@ router.get('/feed/:token', async (req, res) => {
       .from('sessions')
       .select(`
         id,
-        title,
         scheduled_at,
         duration_minutes,
         status,
@@ -126,12 +125,12 @@ router.get('/feed/:token', async (req, res) => {
       const durationMinutes = session.duration_minutes || 60;
       const endDate = new Date(startDate.getTime() + durationMinutes * 60 * 1000);
 
-      // Build event title - use session title if available, otherwise generic title
-      // SECURITY: Do NOT include patient name in iCal feed - it syncs to cloud services
-      // (Google Calendar, iCloud, etc.) which would be a PHI/HIPAA/152-ФЗ violation
-      let eventTitle = 'Сессия';
-      if (session.title) {
-        eventTitle = session.title;
+      // SECURITY: Use ONLY generic titles in iCal feed - it syncs to cloud services
+      // (Google Calendar, iCloud, etc.) which would be a PHI/HIPAA/152-ФЗ violation.
+      // session.title may contain patient names or other PHI entered by the therapist.
+      let eventTitle = 'Приём';
+      if (session.meeting_format === 'online') {
+        eventTitle = 'Приём (онлайн)';
       }
 
       // Build description

@@ -440,7 +440,7 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
                   {notes.map((note) => {
                     const isExpanded = expandedNotes.has(note.id);
                     const isInProgress = note.generation_status === 'generating';
-                    const hasFailed = note.generation_status === 'failed';
+                    const hasFailed = note.generation_status === 'failed' || note.generation_status === 'partial_failure';
 
                     return (
                       <div
@@ -512,7 +512,7 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
           const note = activity.data;
           const isExpanded = expandedNotes.has(note.id);
           const isInProgress = note.generation_status === 'generating';
-          const hasFailed = note.generation_status === 'failed';
+          const hasFailed = note.generation_status === 'failed' || note.generation_status === 'partial_failure';
 
           return (
             <div
@@ -744,7 +744,7 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
               {notes.map((note) => {
                 const isExpanded = expandedNotes.has(note.id);
                 const isInProgress = note.generation_status === 'generating';
-                const hasFailed = note.generation_status === 'failed';
+                const hasFailed = note.generation_status === 'failed' || note.generation_status === 'partial_failure';
 
                 return (
                   <div
@@ -822,7 +822,7 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
           {orphanNotes.map((note) => {
             const isExpanded = expandedNotes.has(note.id);
             const isInProgress = note.generation_status === 'generating';
-            const hasFailed = note.generation_status === 'failed';
+            const hasFailed = note.generation_status === 'failed' || note.generation_status === 'partial_failure';
 
             return (
               <div
