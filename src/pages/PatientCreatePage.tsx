@@ -6,6 +6,10 @@ import { PatientForm } from "@/components/patients/PatientForm";
 import { useCreatePatient } from "@/hooks/usePatients";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import type { Database } from "@/types/database.types";
+
+type PatientInsert = Database['public']['Tables']['patients']['Insert'];
+type PatientUpdate = Database['public']['Tables']['patients']['Update'];
 
 const PatientCreatePage = () => {
   const navigate = useNavigate();
@@ -13,7 +17,7 @@ const PatientCreatePage = () => {
   const { toast } = useToast();
   const createPatientMutation = useCreatePatient();
 
-  const handleSave = async (formData: any) => {
+  const handleSave = async (formData: PatientInsert | PatientUpdate) => {
     if (!profile?.clinic_id) {
       toast({
         title: "Ошибка",
@@ -84,7 +88,6 @@ const PatientCreatePage = () => {
 };
 
 export default PatientCreatePage;
-
 
 
 

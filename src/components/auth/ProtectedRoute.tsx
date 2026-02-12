@@ -27,14 +27,11 @@ export function ProtectedRoute({ children, requiredRole, skipOnboardingCheck }: 
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // Wait for profile to load before checking clinic
-  // This prevents access to protected routes before we know if user has a clinic
+  // If profile couldn't be loaded, do not block indefinitely on spinner.
+  // Redirect to login so the user can re-authenticate and retry profile loading.
+  // This keeps protected content closed when authorization context is incomplete.
   if (!skipOnboardingCheck && profile === null) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
   // Check if user needs onboarding (no clinic assigned)

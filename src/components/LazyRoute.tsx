@@ -14,6 +14,13 @@ import { Button } from '@/components/ui/button';
 
 // ============ Error Boundary ============
 
+
+interface WindowWithAnalytics extends Window {
+  analytics?: {
+    track: (eventName: string, payload: Record<string, unknown>) => void;
+  };
+}
+
 interface ErrorState {
   hasError: boolean;
   error: Error | null;
@@ -48,8 +55,9 @@ class LazyErrorBoundary extends Component<ErrorBoundaryProps, ErrorState> {
     this.props.onError?.(error, errorInfo);
 
     // Отправляем в аналитику если доступна
-    if (typeof window !== 'undefined' && (window as any).analytics) {
-      (window as any).analytics.track('lazy_load_error', {
+    const trackedWindow = window as WindowWithAnalytics;
+    if (typeof window !== 'undefined' && trackedWindow.analytics) {
+      trackedWindow.analytics.track('lazy_load_error', {
         error: error.message,
         retryCount: this.state.retryCount,
       });
@@ -178,7 +186,7 @@ function LoadingFallback({ message = 'Загрузка...' }: LoadingFallbackPro
 /**
  * Создаёт lazy компонент с автоматическим retry при ошибках
  */
-function lazyWithRetry<T extends ComponentType<any>>(
+function lazyWithRetry<T extends ComponentType<object>>(
   importFn: () => Promise<{ default: T }>,
   retries = 3,
   retryDelay = 1000
@@ -215,14 +223,13 @@ function lazyWithRetry<T extends ComponentType<any>>(
 
 interface LazyRouteProps {
   /** Функция импорта компонента */
-  component: () => Promise<{ default: ComponentType<any> }>;
+  component: () => Promise<{ default: ComponentType<object> }>;
+  componentProps?: Record<string, unknown>;
   /** Сообщение при загрузке */
   loadingMessage?: string;
   /** Callback при ошибке */
   onError?: (error: Error, errorInfo: React.ErrorInfo) => void;
-  /** Дополнительные props для компонента */
-  [key: string]: any;
-}
+  }
 
 /**
  * LazyRoute - обёртка для ленивой загрузки страниц с обработкой ошибок
@@ -237,14 +244,14 @@ export function LazyRoute({
   component,
   loadingMessage,
   onError,
-  ...props
+  componentProps
 }: LazyRouteProps) {
   const LazyComponent = lazyWithRetry(component);
 
   return (
     <LazyErrorBoundary onError={onError}>
       <Suspense fallback={<LoadingFallback message={loadingMessage} />}>
-        <LazyComponent {...props} />
+        <LazyComponent {...(componentProps ?? {})} />
       </Suspense>
     </LazyErrorBoundary>
   );

@@ -118,8 +118,8 @@ describe('ProtectedRoute', () => {
           onboarding_completed: true,
           specialization: 'psychologist',
         },
-        user: { id: 'user-123', email: 'test@example.com' } as any,
-        session: {} as any,
+        user: null,
+        session: null,
         mfaEnabled: false,
         mfaVerified: false,
         lastActivity: Date.now(),
@@ -163,8 +163,8 @@ describe('ProtectedRoute', () => {
           onboarding_completed: false,
           specialization: null,
         },
-        user: { id: 'user-123', email: 'test@example.com' } as any,
-        session: {} as any,
+        user: null,
+        session: null,
         mfaEnabled: false,
         mfaVerified: false,
         lastActivity: Date.now(),
@@ -207,8 +207,8 @@ describe('ProtectedRoute', () => {
           onboarding_completed: false,
           specialization: null,
         },
-        user: { id: 'user-123', email: 'test@example.com' } as any,
-        session: {} as any,
+        user: null,
+        session: null,
         mfaEnabled: false,
         mfaVerified: false,
         lastActivity: Date.now(),
@@ -252,8 +252,8 @@ describe('ProtectedRoute', () => {
           onboarding_completed: true,
           specialization: null,
         },
-        user: { id: 'user-123', email: 'test@example.com' } as any,
-        session: {} as any,
+        user: null,
+        session: null,
         mfaEnabled: false,
         mfaVerified: false,
         lastActivity: Date.now(),
@@ -295,8 +295,8 @@ describe('ProtectedRoute', () => {
           onboarding_completed: true,
           specialization: 'psychologist',
         },
-        user: { id: 'user-123', email: 'test@example.com' } as any,
-        session: {} as any,
+        user: null,
+        session: null,
         mfaEnabled: false,
         mfaVerified: false,
         lastActivity: Date.now(),
@@ -339,8 +339,8 @@ describe('ProtectedRoute', () => {
           onboarding_completed: true,
           specialization: null,
         },
-        user: { id: 'user-123', email: 'test@example.com' } as any,
-        session: {} as any,
+        user: null,
+        session: null,
         mfaEnabled: false,
         mfaVerified: false,
         lastActivity: Date.now(),
@@ -382,8 +382,8 @@ describe('ProtectedRoute', () => {
           onboarding_completed: true,
           specialization: 'psychologist',
         },
-        user: { id: 'user-123', email: 'test@example.com' } as any,
-        session: {} as any,
+        user: null,
+        session: null,
         mfaEnabled: false,
         mfaVerified: false,
         lastActivity: Date.now(),
@@ -411,13 +411,13 @@ describe('ProtectedRoute', () => {
   });
 
   describe('profile loading', () => {
-    it('should show loading when authenticated but profile is null and not skipping onboarding', () => {
+    it('should redirect to login when authenticated but profile is null and not skipping onboarding', () => {
       mockUseAuth.mockReturnValue({
         isAuthenticated: true,
         isLoading: false,
         profile: null,
-        user: { id: 'user-123', email: 'test@example.com' } as any,
-        session: {} as any,
+        user: null,
+        session: null,
         mfaEnabled: false,
         mfaVerified: false,
         lastActivity: Date.now(),
@@ -440,7 +440,8 @@ describe('ProtectedRoute', () => {
         </ProtectedRoute>
       );
 
-      // Should show loading, not protected content
+      // Should redirect to login, not render protected content
+      expect(screen.getByText('Login Page')).toBeInTheDocument();
       expect(screen.queryByText('Protected Content')).not.toBeInTheDocument();
     });
   });
