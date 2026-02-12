@@ -151,12 +151,13 @@ router.get('/anonymized-transcripts', async (req, res) => {
       });
     }
 
-    // Параметры запроса
+    // Параметры запроса с валидацией
     const limit = parseInt(req.query.limit) || 100;
     const offset = parseInt(req.query.offset) || 0;
     const maxLimit = 1000; // Максимальный лимит для безопасности
 
-    const actualLimit = Math.min(limit, maxLimit);
+    const actualLimit = Math.max(1, Math.min(limit, maxLimit));
+    const actualOffset = Math.max(0, offset);
 
     // Получаем транскрипты с согласием на исследования
     // Используем admin client, но проверяем согласие через JOIN
@@ -187,7 +188,7 @@ router.get('/anonymized-transcripts', async (req, res) => {
       .eq('patients.consent_records.consent_type', 'research')
       .eq('patients.consent_records.status', 'active')
       .order('scheduled_at', { ascending: false })
-      .range(offset, offset + actualLimit - 1);
+      .range(actualOffset, actualOffset + actualLimit - 1);
 
     if (error) {
       console.error('[Research API] Error fetching sessions:', error);

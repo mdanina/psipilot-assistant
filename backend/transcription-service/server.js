@@ -222,6 +222,7 @@ app.get('/health', (req, res) => {
 // ВАЖНО: verifyAuthToken должен быть ПЕРЕД rate limiter, чтобы req.user был установлен
 app.post('/api/transcribe', verifyAuthToken, transcriptionLimiter);
 app.post('/api/transcribe/:recordingId/sync', verifyAuthToken, syncLimiter); // Синхронизация с отдельным лимитом
+app.get('/api/transcribe/:recordingId/status', verifyAuthToken, readOnlyLimiter); // Статус с аутентификацией
 app.use('/api', transcribeRoute);
 
 // Webhook routes (no rate limit - called by external services)

@@ -55,10 +55,9 @@ export function GenerationProgress({
         timeoutRef.current = setTimeout(poll, 2000);
       } else if (status.status === 'completed' || status.status === 'partial_failure' || status.status === 'failed') {
         // Вызываем callback только ОДИН РАЗ при переходе в completed/partial_failure
-        // и только если предыдущий статус был 'generating'
+        // Учитываем случай когда генерация завершилась до первого poll (lastStatus === null)
         if (
           !hasCalledCompleteRef.current &&
-          lastStatusRef.current === 'generating' &&
           (status.status === 'completed' || status.status === 'partial_failure')
         ) {
           hasCalledCompleteRef.current = true;

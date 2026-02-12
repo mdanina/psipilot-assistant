@@ -139,40 +139,6 @@ async function verifySessionAccess(userId, sessionId, supabase) {
 }
 
 /**
- * Verify Supabase JWT token and get user
- */
-async function verifyAuthToken(token) {
-  try {
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
-
-    if (!supabaseUrl || !supabaseAnonKey) {
-      console.error('Missing SUPABASE_URL or SUPABASE_ANON_KEY');
-      return null;
-    }
-
-    // Create client with the user's token for verification
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      global: {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      }
-    });
-
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if (error || !user) {
-      console.error('Token verification failed:', error?.message);
-      return null;
-    }
-    return user;
-  } catch (err) {
-    console.error('Error verifying token:', err);
-    return null;
-  }
-}
-
-/**
  * POST /api/transcribe
  * Start transcription for a recording
  */
@@ -409,16 +375,11 @@ router.post('/transcribe/:recordingId/sync', async (req, res) => {
  */
 router.get('/transcribe/:recordingId/status', async (req, res) => {
   try {
-    // Verify authentication
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
-    }
-
-    const token = authHeader.substring(7);
-    const user = await verifyAuthToken(token);
+    // Authentication is handled by verifyAuthToken middleware in server.js
+    // req.user is set by the middleware with { id, email, clinic_id }
+    const user = req.user;
     if (!user) {
-      return res.status(401).json({ error: 'Unauthorized: Invalid token' });
+      return res.status(401).json({ error: 'Unauthorized: Missing authentication' });
     }
 
     const { recordingId } = req.params;
