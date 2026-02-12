@@ -34,12 +34,12 @@ const STORE_NAME = 'recordings';
 const TTL_MS = 48 * 60 * 60 * 1000; // 48 hours
 
 /**
- * Initialize IndexedDB database
- * Database is created automatically on first access
+ * Open a fresh IndexedDB connection.
+ * Each caller gets its own connection to avoid transaction serialization issues.
+ * Callers MUST close the connection when done (use try/finally).
  */
 async function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    // Check if IndexedDB is available
+  return new Promise<IDBDatabase>((resolve, reject) => {
     if (typeof indexedDB === 'undefined') {
       reject(new Error('IndexedDB is not available in this browser'));
       return;
@@ -51,21 +51,18 @@ async function openDB(): Promise<IDBDatabase> {
       console.error('[LocalStorage] IndexedDB open error:', request.error);
       reject(request.error);
     };
-    
+
     request.onsuccess = () => {
-      console.log('[LocalStorage] IndexedDB opened successfully');
       resolve(request.result);
     };
 
     request.onupgradeneeded = (event) => {
-      console.log('[LocalStorage] IndexedDB upgrade needed, creating database');
       const db = (event.target as IDBOpenDBRequest).result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         const objectStore = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
         objectStore.createIndex('createdAt', 'createdAt', { unique: false });
         objectStore.createIndex('uploaded', 'uploaded', { unique: false });
         objectStore.createIndex('expiresAt', 'expiresAt', { unique: false });
-        console.log('[LocalStorage] Object store and indexes created');
       }
     };
   });
@@ -78,10 +75,11 @@ export async function isIndexedDBAvailable(): Promise<boolean> {
   if (typeof indexedDB === 'undefined') {
     return false;
   }
-  
+
   try {
     // Try to open database to check availability
-    await openDB();
+    const db = await openDB();
+    db.close();
     return true;
   } catch (error) {
     console.warn('[LocalStorage] IndexedDB not available:', error);
@@ -95,26 +93,30 @@ export async function isIndexedDBAvailable(): Promise<boolean> {
 async function cleanupExpiredRecordings(): Promise<void> {
   try {
     const db = await openDB();
-    const transaction = db.transaction([STORE_NAME], 'readwrite');
-    const store = transaction.objectStore(STORE_NAME);
-    const index = store.index('expiresAt');
-    const now = Date.now();
+    try {
+      const transaction = db.transaction([STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      const index = store.index('expiresAt');
+      const now = Date.now();
 
-    return new Promise((resolve, reject) => {
-      const request = index.openCursor(IDBKeyRange.upperBound(now));
+      await new Promise<void>((resolve, reject) => {
+        const request = index.openCursor(IDBKeyRange.upperBound(now));
 
-      request.onsuccess = (event) => {
-        const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
-        if (cursor) {
-          cursor.delete();
-          cursor.continue();
-        } else {
-          resolve();
-        }
-      };
+        request.onsuccess = (event) => {
+          const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
+          if (cursor) {
+            cursor.delete();
+            cursor.continue();
+          } else {
+            resolve();
+          }
+        };
 
-      request.onerror = () => reject(request.error);
-    });
+        request.onerror = () => reject(request.error);
+      });
+    } finally {
+      db.close();
+    }
   } catch (error) {
     console.warn('Error cleaning up expired recordings:', error);
     // Don't throw - cleanup failure shouldn't break the app
@@ -131,17 +133,17 @@ async function checkStorageQuota(): Promise<{ available: boolean; reason?: strin
       const used = estimate.usage || 0;
       const quota = estimate.quota || 0;
       const availableSpace = quota - used;
-      
+
       // Минимум 50MB должно быть свободно
       const minRequired = 50 * 1024 * 1024; // 50MB
-      
+
       if (availableSpace < minRequired) {
         return {
           available: false,
           reason: `Недостаточно места в хранилище. Свободно: ${Math.round(availableSpace / 1024 / 1024)}MB, требуется: ${Math.round(minRequired / 1024 / 1024)}MB`,
         };
       }
-      
+
       return { available: true };
     } catch (error) {
       console.warn('[LocalStorage] Failed to check quota:', error);
@@ -149,7 +151,7 @@ async function checkStorageQuota(): Promise<{ available: boolean; reason?: strin
       return { available: true };
     }
   }
-  
+
   // Если API недоступен, продолжаем
   return { available: true };
 }
@@ -174,35 +176,39 @@ export async function saveRecordingLocally(
   await cleanupExpiredRecordings();
 
   const db = await openDB();
-  const id = `local-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  try {
+    const id = `local-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-  // Store blob as ArrayBuffer (no encryption)
-  const arrayBuffer = await blob.arrayBuffer();
+    // Store blob as ArrayBuffer (no encryption)
+    const arrayBuffer = await blob.arrayBuffer();
 
-  const recording: StoredRecording = {
-    id,
-    blob: arrayBuffer,
-    fileName,
-    duration,
-    mimeType,
-    createdAt: Date.now(),
-    expiresAt: Date.now() + TTL_MS,
-    uploaded: false,
-    sessionId,
-    isEncrypted: false,
-  };
-
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction([STORE_NAME], 'readwrite');
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.put(recording);
-
-    request.onsuccess = () => {
-      console.log('[LocalStorage] Recording saved locally:', id);
-      resolve(id);
+    const recording: StoredRecording = {
+      id,
+      blob: arrayBuffer,
+      fileName,
+      duration,
+      mimeType,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + TTL_MS,
+      uploaded: false,
+      sessionId,
+      isEncrypted: false,
     };
-    request.onerror = () => reject(request.error);
-  });
+
+    return await new Promise<string>((resolve, reject) => {
+      const transaction = db.transaction([STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.put(recording);
+
+      request.onsuccess = () => {
+        console.log('[LocalStorage] Recording saved locally:', id);
+        resolve(id);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  } finally {
+    db.close();
+  }
 }
 
 /**
@@ -221,60 +227,65 @@ export async function getLocalRecording(id: string): Promise<{
   uploadError?: string;
 } | null> {
   const db = await openDB();
+  try {
+    const recording = await new Promise<StoredRecording | null>((resolve, reject) => {
+      const transaction = db.transaction([STORE_NAME], 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.get(id);
 
-  const recording = await new Promise<StoredRecording | null>((resolve, reject) => {
-    const transaction = db.transaction([STORE_NAME], 'readonly');
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.get(id);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
+    });
 
-    request.onsuccess = () => resolve(request.result || null);
-    request.onerror = () => reject(request.error);
-  });
-
-  if (!recording) {
-    return null;
-  }
-
-  // Check if expired
-  if (Date.now() > recording.expiresAt) {
-    // Delete expired recording
-    await deleteLocalRecording(id);
-    return null;
-  }
-
-  let blob: Blob;
-
-  // Handle legacy encrypted recordings (backward compatibility)
-  if (recording.encryptedBlob && recording.iv) {
-    try {
-      // Dynamically import decryption only when needed for legacy data
-      const { decryptBlob } = await import('./recording-encryption');
-      blob = await decryptBlob(recording.encryptedBlob, recording.iv, recording.mimeType);
-      console.log('[LocalStorage] Decrypted legacy encrypted recording:', id);
-    } catch (error) {
-      console.error('[LocalStorage] Failed to decrypt legacy recording:', id, error);
-      // Cannot recover - encryption key might be lost
+    if (!recording) {
       return null;
     }
-  } else if (recording.blob) {
-    // New unencrypted format
-    blob = new Blob([recording.blob], { type: recording.mimeType });
-  } else {
-    console.error('[LocalStorage] Recording has no blob data:', id);
-    return null;
-  }
 
-  return {
-    blob,
-    fileName: recording.fileName,
-    duration: recording.duration,
-    mimeType: recording.mimeType,
-    createdAt: recording.createdAt,
-    uploaded: recording.uploaded,
-    recordingId: recording.recordingId,
-    sessionId: recording.sessionId,
-    uploadError: recording.uploadError,
-  };
+    // Check if expired
+    if (Date.now() > recording.expiresAt) {
+      // Close this connection before calling deleteLocalRecording (which opens its own)
+      db.close();
+      await deleteLocalRecording(id);
+      return null;
+    }
+
+    let blob: Blob;
+
+    // Handle legacy encrypted recordings (backward compatibility)
+    if (recording.encryptedBlob && recording.iv) {
+      try {
+        // Dynamically import decryption only when needed for legacy data
+        const { decryptBlob } = await import('./recording-encryption');
+        blob = await decryptBlob(recording.encryptedBlob, recording.iv, recording.mimeType);
+        console.log('[LocalStorage] Decrypted legacy encrypted recording:', id);
+      } catch (error) {
+        console.error('[LocalStorage] Failed to decrypt legacy recording:', id, error);
+        // Cannot recover - encryption key might be lost
+        return null;
+      }
+    } else if (recording.blob) {
+      // New unencrypted format
+      blob = new Blob([recording.blob], { type: recording.mimeType });
+    } else {
+      console.error('[LocalStorage] Recording has no blob data:', id);
+      return null;
+    }
+
+    return {
+      blob,
+      fileName: recording.fileName,
+      duration: recording.duration,
+      mimeType: recording.mimeType,
+      createdAt: recording.createdAt,
+      uploaded: recording.uploaded,
+      recordingId: recording.recordingId,
+      sessionId: recording.sessionId,
+      uploadError: recording.uploadError,
+    };
+  } finally {
+    // close() is safe to call multiple times (noop if already closed)
+    try { db.close(); } catch { /* already closed */ }
+  }
 }
 
 /**
@@ -286,36 +297,39 @@ export async function markRecordingUploaded(
   sessionId: string
 ): Promise<void> {
   const db = await openDB();
-  
-  const recording = await new Promise<StoredRecording | null>((resolve, reject) => {
-    const transaction = db.transaction([STORE_NAME], 'readonly');
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.get(localId);
+  try {
+    const recording = await new Promise<StoredRecording | null>((resolve, reject) => {
+      const transaction = db.transaction([STORE_NAME], 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.get(localId);
 
-    request.onsuccess = () => resolve(request.result || null);
-    request.onerror = () => reject(request.error);
-  });
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
+    });
 
-  if (!recording) {
-    throw new Error('Recording not found in local storage');
+    if (!recording) {
+      throw new Error('Recording not found in local storage');
+    }
+
+    recording.uploaded = true;
+    recording.recordingId = recordingId;
+    recording.sessionId = sessionId;
+    delete recording.uploadError;
+
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction([STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.put(recording);
+
+      request.onsuccess = () => {
+        console.log('[LocalStorage] Recording marked as uploaded:', localId);
+        resolve();
+      };
+      request.onerror = () => reject(request.error);
+    });
+  } finally {
+    db.close();
   }
-
-  recording.uploaded = true;
-  recording.recordingId = recordingId;
-  recording.sessionId = sessionId;
-  delete recording.uploadError;
-
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction([STORE_NAME], 'readwrite');
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.put(recording);
-
-    request.onsuccess = () => {
-      console.log('[LocalStorage] Recording marked as uploaded:', localId);
-      resolve();
-    };
-    request.onerror = () => reject(request.error);
-  });
 }
 
 /**
@@ -326,30 +340,33 @@ export async function markRecordingUploadFailed(
   error: string
 ): Promise<void> {
   const db = await openDB();
-  
-  const recording = await new Promise<StoredRecording | null>((resolve, reject) => {
-    const transaction = db.transaction([STORE_NAME], 'readonly');
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.get(localId);
+  try {
+    const recording = await new Promise<StoredRecording | null>((resolve, reject) => {
+      const transaction = db.transaction([STORE_NAME], 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.get(localId);
 
-    request.onsuccess = () => resolve(request.result || null);
-    request.onerror = () => reject(request.error);
-  });
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
+    });
 
-  if (!recording) {
-    throw new Error('Recording not found in local storage');
+    if (!recording) {
+      throw new Error('Recording not found in local storage');
+    }
+
+    recording.uploadError = error;
+
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction([STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.put(recording);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  } finally {
+    db.close();
   }
-
-  recording.uploadError = error;
-
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction([STORE_NAME], 'readwrite');
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.put(recording);
-
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
-  });
 }
 
 /**
@@ -362,47 +379,50 @@ export async function getUnuploadedRecordings(): Promise<Array<{
   createdAt: number;
   uploadError?: string;
 }>> {
-  const db = await openDB();
-  
   // Clean up expired recordings first
   await cleanupExpiredRecordings();
 
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction([STORE_NAME], 'readonly');
-    const store = transaction.objectStore(STORE_NAME);
-    const index = store.index('uploaded');
-    
-    // Open cursor on the entire index and filter manually
-    // Some browsers don't support openCursor with boolean values directly
-    const request = index.openCursor();
+  const db = await openDB();
+  try {
+    return await new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_NAME], 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const index = store.index('uploaded');
 
-    const recordings: StoredRecording[] = [];
-    const now = Date.now();
+      // Open cursor on the entire index and filter manually
+      // Some browsers don't support openCursor with boolean values directly
+      const request = index.openCursor();
 
-    request.onsuccess = (event) => {
-      const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
-      if (cursor) {
-        const recording = cursor.value as StoredRecording;
-        // Filter for unuploaded and non-expired recordings
-        if (recording.uploaded === false && recording.expiresAt > now) {
-          recordings.push(recording);
+      const recordings: StoredRecording[] = [];
+      const now = Date.now();
+
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
+        if (cursor) {
+          const recording = cursor.value as StoredRecording;
+          // Filter for unuploaded and non-expired recordings
+          if (recording.uploaded === false && recording.expiresAt > now) {
+            recordings.push(recording);
+          }
+          cursor.continue();
+        } else {
+          // All records processed
+          const validRecordings = recordings.map(r => ({
+            id: r.id,
+            fileName: r.fileName,
+            duration: r.duration,
+            createdAt: r.createdAt,
+            uploadError: r.uploadError,
+          }));
+          resolve(validRecordings);
         }
-        cursor.continue();
-      } else {
-        // All records processed
-        const validRecordings = recordings.map(r => ({
-          id: r.id,
-          fileName: r.fileName,
-          duration: r.duration,
-          createdAt: r.createdAt,
-          uploadError: r.uploadError,
-        }));
-        resolve(validRecordings);
-      }
-    };
-    
-    request.onerror = () => reject(request.error);
-  });
+      };
+
+      request.onerror = () => reject(request.error);
+    });
+  } finally {
+    db.close();
+  }
 }
 
 /**
@@ -410,18 +430,21 @@ export async function getUnuploadedRecordings(): Promise<Array<{
  */
 export async function deleteLocalRecording(id: string): Promise<void> {
   const db = await openDB();
-  
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction([STORE_NAME], 'readwrite');
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.delete(id);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction([STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.delete(id);
 
-    request.onsuccess = () => {
-      console.log('[LocalStorage] Recording deleted:', id);
-      resolve();
-    };
-    request.onerror = () => reject(request.error);
-  });
+      request.onsuccess = () => {
+        console.log('[LocalStorage] Recording deleted:', id);
+        resolve();
+      };
+      request.onerror = () => reject(request.error);
+    });
+  } finally {
+    db.close();
+  }
 }
 
 /**
@@ -429,18 +452,21 @@ export async function deleteLocalRecording(id: string): Promise<void> {
  */
 export async function clearAllLocalRecordings(): Promise<void> {
   const db = await openDB();
-  
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction([STORE_NAME], 'readwrite');
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.clear();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction([STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.clear();
 
-    request.onsuccess = () => {
-      console.log('[LocalStorage] All recordings cleared');
-      resolve();
-    };
-    request.onerror = () => reject(request.error);
-  });
+      request.onsuccess = () => {
+        console.log('[LocalStorage] All recordings cleared');
+        resolve();
+      };
+      request.onerror = () => reject(request.error);
+    });
+  } finally {
+    db.close();
+  }
 }
 
 /**
@@ -467,28 +493,30 @@ export async function downloadLocalRecording(id: string): Promise<void> {
  */
 export async function getStorageUsage(): Promise<{ count: number; totalSize: number }> {
   const db = await openDB();
+  try {
+    return await new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_NAME], 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.getAll();
 
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction([STORE_NAME], 'readonly');
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.getAll();
-
-    request.onsuccess = () => {
-      const recordings = (request.result || []) as StoredRecording[];
-      const now = Date.now();
-      // Only count non-expired recordings
-      const validRecordings = recordings.filter(r => r.expiresAt > now);
-      const totalSize = validRecordings.reduce((sum, r) => {
-        // Handle both new (blob) and legacy (encryptedBlob) formats
-        const blobData = r.blob || r.encryptedBlob;
-        return sum + (blobData?.byteLength || 0);
-      }, 0);
-      resolve({
-        count: validRecordings.length,
-        totalSize,
-      });
-    };
-    request.onerror = () => reject(request.error);
-  });
+      request.onsuccess = () => {
+        const recordings = (request.result || []) as StoredRecording[];
+        const now = Date.now();
+        // Only count non-expired recordings
+        const validRecordings = recordings.filter(r => r.expiresAt > now);
+        const totalSize = validRecordings.reduce((sum, r) => {
+          // Handle both new (blob) and legacy (encryptedBlob) formats
+          const blobData = r.blob || r.encryptedBlob;
+          return sum + (blobData?.byteLength || 0);
+        }, 0);
+        resolve({
+          count: validRecordings.length,
+          totalSize,
+        });
+      };
+      request.onerror = () => reject(request.error);
+    });
+  } finally {
+    db.close();
+  }
 }
-

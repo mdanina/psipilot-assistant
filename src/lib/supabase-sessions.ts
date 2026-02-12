@@ -561,33 +561,24 @@ export async function searchPatientSessions(
 
     // Search in sections content
     if (clinicalNotesData && clinicalNotesData.length > 0) {
-      const clinicalNoteIds = clinicalNotesData.map(n => n.session_id);
-      const { data: sectionsData } = await supabase
-        .from('sections')
-        .select('clinical_note_id, content, ai_content')
-        .in(
-          'clinical_note_id',
-          clinicalNotesData.map(n => n.session_id) // This should be note id, let's fix
-        );
-
-      // Actually we need to get clinical note IDs first
+      // Get clinical note IDs and their session mappings
       const { data: clinicalNoteIdsData } = await supabase
         .from('clinical_notes')
         .select('id, session_id')
         .eq('patient_id', patientId);
 
-      if (clinicalNoteIdsData) {
+      if (clinicalNoteIdsData && clinicalNoteIdsData.length > 0) {
         const noteIdToSessionId = new Map(
           clinicalNoteIdsData.map(n => [n.id, n.session_id])
         );
 
-        const { data: sectionsData2 } = await supabase
+        const { data: sectionsData } = await supabase
           .from('sections')
           .select('clinical_note_id, content, ai_content')
           .in('clinical_note_id', clinicalNoteIdsData.map(n => n.id));
 
-        if (sectionsData2) {
-          sectionsData2.forEach(section => {
+        if (sectionsData) {
+          sectionsData.forEach(section => {
             const searchableText = [section.content, section.ai_content]
               .filter(Boolean)
               .join(' ')

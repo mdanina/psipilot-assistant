@@ -108,10 +108,10 @@ function SectionCard({
               contentLength: rawContent.length,
             });
           }
-          // Если расшифровка не удалась, пробуем использовать как есть (возможно уже расшифровано)
-          // НЕ очищаем контент, даже если расшифровка не удалась
-          setDecryptedContent(rawContent);
-          setContent(rawContent);
+          // Content was identified as encrypted but decryption failed — show error, not gibberish
+          const errorPlaceholder = '[Ошибка расшифровки. Обновите страницу или войдите заново.]';
+          setDecryptedContent(errorPlaceholder);
+          setContent(errorPlaceholder);
         } finally {
           setIsDecrypting(false);
         }

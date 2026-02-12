@@ -102,13 +102,14 @@ export async function sendMessageToSupervisor(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 300000); // 300 секунд (5 минут) таймаут
 
+    // SECURITY: Do NOT send patient_name or patient_id to external n8n webhook.
+    // These are PHI and should not leave the system boundary without encryption.
+    // Only send the message content and conversation history.
     const response = await fetch(webhookUrl, {
       method: 'POST',
       headers: await getAuthHeaders(),
       body: JSON.stringify({
         message: request.message,
-        patient_id: request.patientId,
-        patient_name: request.patientName,
         conversation_history: request.conversationHistory || [],
         context: request.context || {},
         timestamp: new Date().toISOString(),

@@ -112,9 +112,10 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
   // Convert search results to Set for filtering
   const filteredSessionIds = useMemo(() => {
     if (!searchQuery.trim()) {
-      return null;
+      return null; // No filter when no search query
     }
-    return searchResults.length > 0 ? new Set(searchResults) : null;
+    // When searching, always return a Set (even if empty) so "no results" is shown
+    return new Set(searchResults);
   }, [searchQuery, searchResults]);
 
   const getStatusLabel = (status: string): string => {
@@ -440,7 +441,7 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
                   {notes.map((note) => {
                     const isExpanded = expandedNotes.has(note.id);
                     const isInProgress = note.generation_status === 'generating';
-                    const hasFailed = note.generation_status === 'failed';
+                    const hasFailed = note.generation_status === 'failed' || note.generation_status === 'partial_failure';
 
                     return (
                       <div
@@ -512,7 +513,7 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
           const note = activity.data;
           const isExpanded = expandedNotes.has(note.id);
           const isInProgress = note.generation_status === 'generating';
-          const hasFailed = note.generation_status === 'failed';
+          const hasFailed = note.generation_status === 'failed' || note.generation_status === 'partial_failure';
 
           return (
             <div
@@ -744,7 +745,7 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
               {notes.map((note) => {
                 const isExpanded = expandedNotes.has(note.id);
                 const isInProgress = note.generation_status === 'generating';
-                const hasFailed = note.generation_status === 'failed';
+                const hasFailed = note.generation_status === 'failed' || note.generation_status === 'partial_failure';
 
                 return (
                   <div
@@ -822,7 +823,7 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
           {orphanNotes.map((note) => {
             const isExpanded = expandedNotes.has(note.id);
             const isInProgress = note.generation_status === 'generating';
-            const hasFailed = note.generation_status === 'failed';
+            const hasFailed = note.generation_status === 'failed' || note.generation_status === 'partial_failure';
 
             return (
               <div

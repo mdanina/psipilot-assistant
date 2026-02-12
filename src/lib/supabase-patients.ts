@@ -14,6 +14,9 @@ type Patient = Database['public']['Tables']['patients']['Row'];
 type PatientInsert = Database['public']['Tables']['patients']['Insert'];
 type PatientUpdate = Database['public']['Tables']['patients']['Update'];
 
+// HIPAA: Only log PHI-related debug info in development
+const isDev = import.meta.env.DEV;
+
 // Fields that should be encrypted
 const PII_FIELDS = ['name', 'email', 'phone', 'address', 'notes'] as const;
 type PIIField = (typeof PII_FIELDS)[number];
@@ -155,7 +158,7 @@ async function decryptPatientPII(patient: Patient): Promise<DecryptedPatient> {
     if (encryptedValue) {
       const valueType = typeof encryptedValue;
       const valueStr = String(encryptedValue);
-      console.log(`[decryptPatientPII] Found encrypted ${field}, type: ${valueType}, length: ${valueStr.length}, preview: ${valueStr.substring(0, 50)}...`);
+      if (isDev) console.log(`[decryptPatientPII] Found encrypted ${field}, type: ${valueType}, length: ${valueStr.length}`);
       
       let valueToDecrypt: string;
       
@@ -168,8 +171,13 @@ async function decryptPatientPII(patient: Patient): Promise<DecryptedPatient> {
           for (let i = 0; i < hexString.length; i += 2) {
             bytes[i / 2] = parseInt(hexString.substr(i, 2), 16);
           }
-          valueToDecrypt = btoa(String.fromCharCode(...bytes));
-          console.log(`[decryptPatientPII] Converted hex BYTEA to base64 for ${field}, base64 length: ${valueToDecrypt.length}`);
+          // Use chunked conversion to avoid stack overflow on large arrays
+          let binaryStr = '';
+          for (let j = 0; j < bytes.length; j++) {
+            binaryStr += String.fromCharCode(bytes[j]);
+          }
+          valueToDecrypt = btoa(binaryStr);
+          if (isDev) console.log(`[decryptPatientPII] Converted hex BYTEA to base64 for ${field}, length: ${valueToDecrypt.length}`);
         } else {
           // Already base64 or plain string
           valueToDecrypt = encryptedValue;
@@ -178,15 +186,19 @@ async function decryptPatientPII(patient: Patient): Promise<DecryptedPatient> {
       } else if (encryptedValue instanceof ArrayBuffer || encryptedValue instanceof Uint8Array) {
         // BYTEA returned as binary - convert to base64
         const bytes = encryptedValue instanceof ArrayBuffer ? new Uint8Array(encryptedValue) : encryptedValue;
-        valueToDecrypt = btoa(String.fromCharCode(...bytes));
-        console.log(`[decryptPatientPII] Converted BYTEA to base64 for ${field}, base64 length: ${valueToDecrypt.length}`);
+        let binaryStr = '';
+        for (let j = 0; j < bytes.length; j++) {
+          binaryStr += String.fromCharCode(bytes[j]);
+        }
+        valueToDecrypt = btoa(binaryStr);
+        if (isDev) console.log(`[decryptPatientPII] Converted BYTEA to base64 for ${field}, length: ${valueToDecrypt.length}`);
         encryptedValues.push({ field, value: valueToDecrypt });
       } else {
         console.warn(`[decryptPatientPII] Unexpected type for encrypted ${field}: ${valueType}`);
         continue;
       }
     } else {
-      console.log(`[decryptPatientPII] No encrypted ${field} found`);
+      if (isDev) console.log(`[decryptPatientPII] No encrypted ${field} found`);
     }
   }
 
@@ -194,21 +206,19 @@ async function decryptPatientPII(patient: Patient): Promise<DecryptedPatient> {
   if (encryptedValues.length > 0) {
     try {
       const valuesToDecrypt = encryptedValues.map(v => v.value);
-      console.log('[decryptPatientPII] Sending to decryptPHIBatch:', {
+      if (isDev) console.log('[decryptPatientPII] Sending to decryptPHIBatch:', {
         count: valuesToDecrypt.length,
         firstValueType: typeof valuesToDecrypt[0],
         firstValueLength: valuesToDecrypt[0]?.length || 0,
-        firstValuePreview: valuesToDecrypt[0] ? valuesToDecrypt[0].substring(0, 100) : 'N/A'
       });
       const decryptedValues = await decryptPHIBatch(valuesToDecrypt);
       
-      console.log(`[decryptPatientPII] Decrypted ${decryptedValues.length} values`);
-      
+      if (isDev) console.log(`[decryptPatientPII] Decrypted ${decryptedValues.length} values`);
+
       // Применяем расшифрованные значения
       encryptedValues.forEach((item, index) => {
         const decryptedValue = decryptedValues[index];
         (decrypted as Record<string, unknown>)[item.field] = decryptedValue;
-        console.log(`[decryptPatientPII] Decrypted ${item.field}: "${decryptedValue}" (length: ${decryptedValue?.length || 0})`);
       });
       
       decrypted._isDecrypted = true;
@@ -244,7 +254,7 @@ export async function createPatient(
       return { data: null, error: new Error('Имя пациента обязательно.') };
     }
 
-    console.log('createPatient: Creating patient with HIPAA-compliant encryption, clinic_id:', data.clinic_id);
+    if (isDev) console.log('createPatient: Creating patient with encryption, clinic_id:', data.clinic_id);
 
     // HIPAA COMPLIANCE: Encrypt all PII data before storage
     // Note: encryptPatientPII returns both hex (for direct insert) and base64 (for RPC) versions
@@ -255,14 +265,14 @@ export async function createPatient(
     for (const field of PII_FIELDS) {
       const base64Field = `${field}_encrypted_base64`;
       base64Data[field] = (encryptedData as any)[base64Field] || null;
-      console.log(`[createPatient] Extracted base64 for ${field}:`, base64Data[field] ? `present (length: ${base64Data[field]?.length || 0})` : 'null');
+      if (isDev) console.log(`[createPatient] Extracted base64 for ${field}:`, base64Data[field] ? `present (length: ${base64Data[field]?.length || 0})` : 'null');
     }
 
     // SECURITY: Use placeholder for name field to satisfy NOT NULL constraint
     // The encrypted version (name_encrypted) is the ONLY source of truth
     if (!('name' in encryptedData)) {
       encryptedData.name = '[ENCRYPTED]';
-      console.log('createPatient: Using HIPAA-compliant placeholder for NOT NULL constraint');
+      if (isDev) console.log('createPatient: Using placeholder for NOT NULL constraint');
     }
 
     const rpcParams = {
@@ -286,13 +296,11 @@ export async function createPatient(
       p_pii_encryption_version: encryptedData.pii_encryption_version || null,
     };
 
-    console.log('[createPatient] RPC params:', {
+    if (isDev) console.log('[createPatient] RPC params:', {
       hasNameEncrypted: !!rpcParams.p_name_encrypted,
-      nameEncryptedLength: rpcParams.p_name_encrypted?.length || 0,
       hasEmailEncrypted: !!rpcParams.p_email_encrypted,
       hasPhoneEncrypted: !!rpcParams.p_phone_encrypted,
       piiVersion: rpcParams.p_pii_encryption_version,
-      allKeys: Object.keys(rpcParams)
     });
 
     // Use RPC function to bypass RLS while maintaining HIPAA compliance
@@ -308,7 +316,7 @@ export async function createPatient(
       return { data: null, error: new Error('Не удалось создать пациента') };
     }
 
-    console.log('createPatient: Patient created with id:', patientId);
+    if (isDev) console.log('createPatient: Patient created with id:', patientId);
 
     // Fetch the created patient to return decrypted data
     const { data: patient, error: fetchError } = await supabase
@@ -420,7 +428,7 @@ export async function updatePatient(
     if (data.name !== undefined) {
       const trimmedName = typeof data.name === 'string' ? data.name.trim() : '';
       if (!trimmedName) {
-        console.error('[updatePatient] Attempted to update patient with empty name:', { id, data });
+        console.error('[updatePatient] Attempted to update patient with empty name, id:', id);
         return { 
           data: null, 
           error: new Error('Имя пациента не может быть пустым') 
@@ -430,7 +438,7 @@ export async function updatePatient(
       data.name = trimmedName;
     }
 
-    console.log('[updatePatient] Updating patient:', { id, name: data.name, hasName: data.name !== undefined, dataKeys: Object.keys(data) });
+    if (isDev) console.log('[updatePatient] Updating patient:', { id, hasName: data.name !== undefined, dataKeys: Object.keys(data) });
 
     // SECURITY: Always get current patient to preserve existing name value in DB
     // This is needed to satisfy NOT NULL constraint, even though we only use name_encrypted as source of truth
@@ -442,7 +450,6 @@ export async function updatePatient(
       .single();
     
     const existingName = currentPatient?.name || null;
-    console.log('[updatePatient] Current name in DB:', existingName);
 
     const encryptedData = await encryptPatientPII(data);
 
@@ -454,16 +461,15 @@ export async function updatePatient(
       }
     }
 
-    console.log('[updatePatient] After encryption:', { 
-      id, 
-      hasName: 'name' in encryptedData, 
+    if (isDev) console.log('[updatePatient] After encryption:', {
+      id,
+      hasName: 'name' in encryptedData,
       hasNameEncrypted: 'name_encrypted' in encryptedData,
-      encryptedKeys: Object.keys(encryptedData)
     });
 
     // Double-check that name_encrypted is present after encryption if name was provided
     if (data.name !== undefined && !encryptedData.name_encrypted) {
-      console.error('[updatePatient] Name encryption failed - name_encrypted missing:', { id, data, encryptedData });
+      console.error('[updatePatient] Name encryption failed - name_encrypted missing for patient:', id);
       return {
         data: null,
         error: new Error('Ошибка при обработке имени пациента')
@@ -479,16 +485,13 @@ export async function updatePatient(
     if (!('name' in encryptedData)) {
       // Use constant placeholder - never store real plaintext name
       encryptedData.name = '[ENCRYPTED]';
-      console.log('[updatePatient] Using HIPAA-compliant placeholder for NOT NULL constraint (no plaintext PHI stored)');
+      if (isDev) console.log('[updatePatient] Using placeholder for NOT NULL constraint');
     }
 
-    console.log('[updatePatient] Final encryptedData before update:', {
+    if (isDev) console.log('[updatePatient] Final encryptedData before update:', {
       id,
       hasName: 'name' in encryptedData,
-      nameValue: encryptedData.name,
       hasNameEncrypted: 'name_encrypted' in encryptedData,
-      nameEncryptedLength: encryptedData.name_encrypted ? String(encryptedData.name_encrypted).length : 0,
-      allKeys: Object.keys(encryptedData)
     });
 
     const { data: patient, error } = await supabase
@@ -503,21 +506,14 @@ export async function updatePatient(
       return { data: null, error: new Error(error.message) };
     }
 
-    console.log('[updatePatient] Patient after update (before decryption):', {
+    if (isDev) console.log('[updatePatient] Patient updated (before decryption):', {
       id: patient.id,
-      name: patient.name,
       hasNameEncrypted: 'name_encrypted' in patient,
-      nameEncryptedValue: patient.name_encrypted ? 'present' : 'missing',
-      piiVersion: patient.pii_encryption_version
+      piiVersion: patient.pii_encryption_version,
     });
 
     const decryptedPatient = await decryptPatientPII(patient);
-    console.log('[updatePatient] Patient updated successfully:', { 
-      id, 
-      name: decryptedPatient.name,
-      nameLength: decryptedPatient.name?.length || 0,
-      isDecrypted: decryptedPatient._isDecrypted
-    });
+    if (isDev) console.log('[updatePatient] Patient updated successfully:', { id, isDecrypted: decryptedPatient._isDecrypted });
     return { data: decryptedPatient, error: null };
   } catch (error) {
     console.error('[updatePatient] Unexpected error:', error);
@@ -534,7 +530,7 @@ export async function deletePatient(
   id: string
 ): Promise<{ success: boolean; error: Error | null }> {
   try {
-    console.log('[deletePatient] Soft deleting patient via RPC function:', id);
+    if (isDev) console.log('[deletePatient] Soft deleting patient:', id);
     
     const { data, error } = await supabase.rpc('soft_delete_patient', {
       p_patient_id: id,
@@ -545,7 +541,7 @@ export async function deletePatient(
       return { success: false, error: new Error(error.message) };
     }
 
-    console.log('[deletePatient] Patient soft deleted successfully');
+    if (isDev) console.log('[deletePatient] Patient soft deleted successfully');
     return { success: true, error: null };
   } catch (error) {
     console.error('[deletePatient] Unexpected error:', error);
@@ -639,8 +635,17 @@ export async function migratePatientToEncrypted(
     for (const field of PII_FIELDS) {
       const value = patient[field as keyof typeof patient];
       if (value && typeof value === 'string') {
-        const encrypted = await encryptPHI(value);
-        updateData[`${field}_encrypted`] = encrypted;
+        const encryptedBase64 = await encryptPHI(value);
+        // Convert base64 to hex format for BYTEA column (same as encryptPatientPII)
+        const binaryString = atob(encryptedBase64);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const hexString = Array.from(bytes)
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('');
+        updateData[`${field}_encrypted`] = `\\x${hexString}`;
       }
     }
 

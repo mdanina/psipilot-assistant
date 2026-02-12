@@ -1,31 +1,8 @@
 import express from 'express';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseAdmin } from '../services/supabase-admin.js';
 import icalGenerator from 'ical-generator';
 
 const router = express.Router();
-
-/**
- * Helper function to get Supabase admin client
- */
-function getSupabaseAdmin() {
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl) {
-    throw new Error('SUPABASE_URL is required. Please set it in .env file.');
-  }
-
-  if (!supabaseKey) {
-    throw new Error('SUPABASE_SERVICE_ROLE_KEY is required. Please set it in .env file.');
-  }
-
-  return createClient(supabaseUrl, supabaseKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  });
-}
 
 /**
  * POST /api/calendar/generate-token
@@ -97,12 +74,10 @@ router.get('/feed/:token', async (req, res) => {
       .from('sessions')
       .select(`
         id,
-        title,
         scheduled_at,
         duration_minutes,
         status,
-        meeting_format,
-        patients(id, name)
+        meeting_format
       `)
       .eq('user_id', userId)
       .in('status', ['scheduled', 'in_progress'])
@@ -127,12 +102,12 @@ router.get('/feed/:token', async (req, res) => {
       const durationMinutes = session.duration_minutes || 60;
       const endDate = new Date(startDate.getTime() + durationMinutes * 60 * 1000);
 
-      // Build event title - prefer session title, fallback to patient name
-      let eventTitle = 'Сессия';
-      if (session.title) {
-        eventTitle = session.title;
-      } else if (session.patients?.name) {
-        eventTitle = `Сессия: ${session.patients.name}`;
+      // SECURITY: Use ONLY generic titles in iCal feed - it syncs to cloud services
+      // (Google Calendar, iCloud, etc.) which would be a PHI/HIPAA/152-ФЗ violation.
+      // session.title may contain patient names or other PHI entered by the therapist.
+      let eventTitle = 'Приём';
+      if (session.meeting_format === 'online') {
+        eventTitle = 'Приём (онлайн)';
       }
 
       // Build description

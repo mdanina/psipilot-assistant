@@ -5,30 +5,8 @@
 
 import { verifyAuthToken } from './auth.js';
 import { createClient } from '@supabase/supabase-js';
+import { getSupabaseAdmin } from '../services/supabase-admin.js';
 import { rateLimitStore } from './rate-limit-store.js';
-
-/**
- * Helper function to get Supabase admin client
- */
-function getSupabaseAdmin() {
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl) {
-    throw new Error('SUPABASE_URL is required. Please set it in .env file.');
-  }
-
-  if (!supabaseKey) {
-    throw new Error('SUPABASE_SERVICE_ROLE_KEY is required. Please set it in .env file.');
-  }
-
-  return createClient(supabaseUrl, supabaseKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  });
-}
 
 /**
  * Проверка rate limit для исследователя
@@ -53,12 +31,12 @@ export async function authenticateResearcher(req, res, next) {
   try {
     // Сначала проверяем JWT токен через существующий middleware
     // Но не вызываем next() сразу - нам нужна дополнительная проверка роли
-    
+
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        error: 'Unauthorized: Missing or invalid token' 
+        error: 'Unauthorized: Missing or invalid token'
       });
     }
 
@@ -68,9 +46,9 @@ export async function authenticateResearcher(req, res, next) {
 
     if (!supabaseUrl || !supabaseAnonKey) {
       console.error('Missing SUPABASE_URL or SUPABASE_ANON_KEY');
-      return res.status(500).json({ 
+      return res.status(500).json({
         success: false,
-        error: 'Server configuration error' 
+        error: 'Server configuration error'
       });
     }
 
@@ -86,9 +64,9 @@ export async function authenticateResearcher(req, res, next) {
     const { data: { user }, error } = await supabase.auth.getUser();
     if (error || !user) {
       console.error('Token verification failed:', error?.message);
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        error: 'Unauthorized: Invalid token' 
+        error: 'Unauthorized: Invalid token'
       });
     }
 
@@ -102,17 +80,17 @@ export async function authenticateResearcher(req, res, next) {
 
     if (profileError || !profile) {
       console.error('Error fetching profile:', profileError);
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        error: 'Unauthorized: Profile not found' 
+        error: 'Unauthorized: Profile not found'
       });
     }
 
     // Проверяем роль исследователя
     if (profile.role !== 'researcher') {
-      return res.status(403).json({ 
+      return res.status(403).json({
         success: false,
-        error: 'Forbidden: Researcher role required' 
+        error: 'Forbidden: Researcher role required'
       });
     }
 
@@ -152,10 +130,9 @@ export async function authenticateResearcher(req, res, next) {
     next();
   } catch (err) {
     console.error('Error in authenticateResearcher:', err);
-    return res.status(500).json({ 
+    return res.status(500).json({
       success: false,
-      error: 'Internal server error' 
+      error: 'Internal server error'
     });
   }
 }
-

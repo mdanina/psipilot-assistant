@@ -1,5 +1,5 @@
 import express from 'express';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseAdmin } from '../services/supabase-admin.js';
 import crypto from 'crypto';
 import { generateBlockContent, generateCaseSummaryContent, generatePatientCaseSummaryContent } from '../services/openai.js';
 import { anonymize, deanonymize } from '../services/anonymization.js';
@@ -57,26 +57,7 @@ async function executeWithConcurrencyLimit(items, asyncFn, concurrencyLimit = OP
   return Promise.all(results);
 }
 
-// Helper function to get Supabase admin client
-function getSupabaseAdmin() {
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl) {
-    throw new Error('SUPABASE_URL is required. Please set it in .env file.');
-  }
-
-  if (!supabaseKey) {
-    throw new Error('SUPABASE_SERVICE_ROLE_KEY is required. Please set it in .env file.');
-  }
-
-  return createClient(supabaseUrl, supabaseKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  });
-}
+// getSupabaseAdmin imported from ../services/supabase-admin.js
 
 // ============================================
 // AUTHORIZATION HELPERS - Проверка владельца ресурсов
@@ -608,7 +589,11 @@ async function generateSectionsInBackground(
       r => r.status === 'rejected' || r.value?.status === 'failed'
     ).length;
 
-    const finalStatus = failedCount === sections.length ? 'failed' : 'completed';
+    const finalStatus = failedCount === sections.length
+      ? 'failed'
+      : failedCount > 0
+        ? 'partial_failure'
+        : 'completed';
 
     // Обновляем статус clinical_note
     await supabase
@@ -858,7 +843,7 @@ router.post('/case-summary', async (req, res) => {
       .from('clinical_notes')
       .select('*, sections (*)')
       .eq('session_id', session_id)
-      .in('generation_status', ['completed'])
+      .in('generation_status', ['completed', 'partial_failure'])
       .in('status', ['finalized', 'completed'])
       .order('created_at', { ascending: true });
 
@@ -1007,7 +992,7 @@ router.post('/patient-case-summary', async (req, res) => {
       .from('clinical_notes')
       .select('*, sections (*)')
       .eq('patient_id', patient_id)
-      .in('generation_status', ['completed'])
+      .in('generation_status', ['completed', 'partial_failure'])
       .in('status', ['finalized', 'completed'])
       .order('created_at', { ascending: true });
 
@@ -1055,17 +1040,19 @@ router.post('/patient-case-summary', async (req, res) => {
       });
     }
 
-    // Анонимизируем
-    const combinedText = clinicalNotesText + (transcriptsText ? '\n\n' + transcriptsText : '');
+    // Анонимизируем клинические заметки и транскрипты по отдельности,
+    // чтобы корректно передать их в генератор сводки
+    const TRANSCRIPT_SEPARATOR = '\n\n===TRANSCRIPTS_SEPARATOR===\n\n';
+    const combinedText = clinicalNotesText + (transcriptsText ? TRANSCRIPT_SEPARATOR + transcriptsText : '');
     const { text: anonymizedText, map: anonymizationMap } = anonymize(
       combinedText,
       patient
     );
 
-    // Разделяем анонимизированный текст обратно
-    const anonymizedNotes = anonymizedText.split('\n\nТранскрипты сессий:\n\n');
-    const anonymizedClinicalNotes = anonymizedNotes[0] || anonymizedText;
-    const anonymizedTranscripts = anonymizedNotes[1] || '';
+    // Разделяем анонимизированный текст обратно по разделителю
+    const separatorIndex = anonymizedText.indexOf(TRANSCRIPT_SEPARATOR);
+    const anonymizedClinicalNotes = separatorIndex >= 0 ? anonymizedText.slice(0, separatorIndex) : anonymizedText;
+    const anonymizedTranscripts = separatorIndex >= 0 ? anonymizedText.slice(separatorIndex + TRANSCRIPT_SEPARATOR.length) : '';
 
     // Генерируем HTML сводку
     const aiSummary = await generatePatientCaseSummaryContent(

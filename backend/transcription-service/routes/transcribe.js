@@ -1,6 +1,6 @@
 import express from 'express';
 import { AssemblyAI } from 'assemblyai';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseAdmin } from '../services/supabase-admin.js';
 import { encrypt, isEncryptionConfigured } from '../services/encryption.js';
 import { getUserRoleFromRecording, formatTranscriptWithSpeakers } from '../services/transcript-formatting.js';
 
@@ -20,26 +20,7 @@ function getAssemblyAI() {
   return assemblyaiClient;
 }
 
-// Helper function to get Supabase admin client (for DB operations)
-function getSupabaseAdmin() {
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl) {
-    throw new Error('SUPABASE_URL is required. Please set it in .env file.');
-  }
-
-  if (!supabaseKey) {
-    throw new Error('SUPABASE_SERVICE_ROLE_KEY is required. Please set it in .env file.');
-  }
-
-  return createClient(supabaseUrl, supabaseKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  });
-}
+// getSupabaseAdmin imported from ../services/supabase-admin.js
 
 /**
  * Sync transcription status from AssemblyAI API
@@ -76,22 +57,21 @@ async function syncTranscriptionStatus(recording) {
         updateData.transcription_status = 'completed';
         updateData.transcribed_at = new Date().toISOString();
 
-        // SECURITY: Encrypt transcript before saving
-        if (isEncryptionConfigured()) {
+        // SECURITY: Encrypt transcript before saving — NEVER store PHI in plaintext
+        if (!isEncryptionConfigured()) {
+          const errMsg = 'SECURITY: ENCRYPTION_KEY not configured. Refusing to store PHI in plaintext.';
+          console.error(`[syncTranscriptionStatus] ${errMsg}`);
+          updateData.transcription_status = 'error';
+          updateData.transcription_error = errMsg;
+        } else {
           try {
             updateData.transcription_text = encrypt(formattedText);
             updateData.transcription_encrypted = true;
           } catch (encryptError) {
             console.error('[syncTranscriptionStatus] Encryption failed:', encryptError.message);
-            updateData.transcription_text = formattedText;
-            updateData.transcription_encrypted = false;
+            updateData.transcription_status = 'error';
+            updateData.transcription_error = 'Encryption failed - transcript not stored for security';
           }
-        } else {
-          if (process.env.NODE_ENV === 'production') {
-            console.warn('[SECURITY WARNING] ENCRYPTION_KEY not configured in production!');
-          }
-          updateData.transcription_text = formattedText;
-          updateData.transcription_encrypted = false;
         }
       } else {
         // AssemblyAI returned completed but no text - likely silent/empty audio
@@ -159,55 +139,16 @@ async function verifySessionAccess(userId, sessionId, supabase) {
 }
 
 /**
- * Verify Supabase JWT token and get user
- */
-async function verifyAuthToken(token) {
-  try {
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
-
-    if (!supabaseUrl || !supabaseAnonKey) {
-      console.error('Missing SUPABASE_URL or SUPABASE_ANON_KEY');
-      return null;
-    }
-
-    // Create client with the user's token for verification
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      global: {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      }
-    });
-
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if (error || !user) {
-      console.error('Token verification failed:', error?.message);
-      return null;
-    }
-    return user;
-  } catch (err) {
-    console.error('Error verifying token:', err);
-    return null;
-  }
-}
-
-/**
  * POST /api/transcribe
  * Start transcription for a recording
  */
 router.post('/transcribe', async (req, res) => {
   try {
-    // Verify authentication
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
-    }
-
-    const token = authHeader.substring(7);
-    const user = await verifyAuthToken(token);
+    // Authentication is handled by verifyAuthToken middleware in server.js
+    // req.user is set by the middleware with { id, email, clinic_id }
+    const user = req.user;
     if (!user) {
-      return res.status(401).json({ error: 'Unauthorized: Invalid token' });
+      return res.status(401).json({ error: 'Unauthorized: Missing authentication' });
     }
 
     const { recordingId } = req.body;
@@ -296,22 +237,21 @@ router.post('/transcribe', async (req, res) => {
           formattedText = formatTranscriptWithSpeakers(transcript.utterances, userRole);
         }
 
-        // SECURITY: Encrypt transcript before saving
-        if (isEncryptionConfigured()) {
+        // SECURITY: Encrypt transcript before saving — NEVER store PHI in plaintext
+        if (!isEncryptionConfigured()) {
+          const errMsg = 'SECURITY: ENCRYPTION_KEY not configured. Refusing to store PHI in plaintext.';
+          console.error(`[POST /transcribe] ${errMsg}`);
+          updateData.transcription_status = 'error';
+          updateData.transcription_error = errMsg;
+        } else {
           try {
             updateData.transcription_text = encrypt(formattedText);
             updateData.transcription_encrypted = true;
           } catch (encryptError) {
             console.error('[POST /transcribe] Encryption failed:', encryptError.message);
-            updateData.transcription_text = formattedText;
-            updateData.transcription_encrypted = false;
+            updateData.transcription_status = 'error';
+            updateData.transcription_error = 'Encryption failed - transcript not stored for security';
           }
-        } else {
-          if (process.env.NODE_ENV === 'production') {
-            console.warn('[SECURITY WARNING] ENCRYPTION_KEY not configured in production!');
-          }
-          updateData.transcription_text = formattedText;
-          updateData.transcription_encrypted = false;
         }
       } else {
         // AssemblyAI returned completed but no text - likely silent/empty audio
@@ -373,16 +313,10 @@ router.post('/transcribe', async (req, res) => {
  */
 router.post('/transcribe/:recordingId/sync', async (req, res) => {
   try {
-    // Verify authentication
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
-    }
-
-    const token = authHeader.substring(7);
-    const user = await verifyAuthToken(token);
+    // Authentication is handled by verifyAuthToken middleware in server.js
+    const user = req.user;
     if (!user) {
-      return res.status(401).json({ error: 'Unauthorized: Invalid token' });
+      return res.status(401).json({ error: 'Unauthorized: Missing authentication' });
     }
 
     const { recordingId } = req.params;
@@ -441,16 +375,11 @@ router.post('/transcribe/:recordingId/sync', async (req, res) => {
  */
 router.get('/transcribe/:recordingId/status', async (req, res) => {
   try {
-    // Verify authentication
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
-    }
-
-    const token = authHeader.substring(7);
-    const user = await verifyAuthToken(token);
+    // Authentication is handled by verifyAuthToken middleware in server.js
+    // req.user is set by the middleware with { id, email, clinic_id }
+    const user = req.user;
     if (!user) {
-      return res.status(401).json({ error: 'Unauthorized: Invalid token' });
+      return res.status(401).json({ error: 'Unauthorized: Missing authentication' });
     }
 
     const { recordingId } = req.params;

@@ -302,7 +302,7 @@ export async function getRecordingStatus(
       transcriptionText = await decryptPHI(transcriptionText);
     } catch (decryptError) {
       console.error(`Failed to decrypt transcription for recording ${recordingId}:`, decryptError);
-      // Keep encrypted text - UI will show it as-is
+      transcriptionText = '[Ошибка расшифровки. Обновите страницу или войдите заново.]';
     }
   }
 
@@ -401,8 +401,10 @@ export async function getSessionRecordings(sessionId: string): Promise<Recording
           return { ...recording, transcription_text: decryptedText };
         } catch (decryptError) {
           console.error(`Failed to decrypt transcription for recording ${recording.id}:`, decryptError);
-          // Return with encrypted text if decryption fails (UI will show error)
-          return recording;
+          return {
+            ...recording,
+            transcription_text: '[Ошибка расшифровки. Обновите страницу или войдите заново.]',
+          };
         }
       }
       return recording;
@@ -410,47 +412,6 @@ export async function getSessionRecordings(sessionId: string): Promise<Recording
   );
 
   return decryptedRecordings;
-}
-
-/**
- * Poll recording status until transcription is complete or failed
- */
-export async function pollTranscriptionStatus(
-  recordingId: string,
-  onStatusUpdate?: (status: TranscriptionStatus) => void,
-  maxAttempts: number = 60,
-  intervalMs: number = 2000
-): Promise<TranscriptionStatus> {
-  let attempts = 0;
-
-  return new Promise((resolve, reject) => {
-    const poll = async () => {
-      try {
-        attempts++;
-        const status = await getRecordingStatus(recordingId);
-
-        if (onStatusUpdate) {
-          onStatusUpdate(status);
-        }
-
-        if (status.status === 'completed' || status.status === 'failed') {
-          resolve(status);
-          return;
-        }
-
-        if (attempts >= maxAttempts) {
-          reject(new Error('Transcription timeout: Maximum polling attempts reached'));
-          return;
-        }
-
-        setTimeout(poll, intervalMs);
-      } catch (error) {
-        reject(error);
-      }
-    };
-
-    poll();
-  });
 }
 
 /**

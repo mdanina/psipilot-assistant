@@ -255,12 +255,18 @@ bot.callbackQuery('confirm_send', async (ctx) => {
       const categoryLabel = CATEGORIES[session.category]?.label || session.category;
       const userName = user.username ? `@${user.username}` : user.first_name;
 
+      // SECURITY: Escape Markdown special characters in user-controlled content
+      const escapeMd = (str) => {
+        if (!str) return '';
+        return String(str).replace(/[_*`\[\]()~>#+=|{}.!\\-]/g, '\\$&');
+      };
+
       let adminMessage =
         `🔔 *Новое обращение*\n\n` +
-        `👤 От: ${userName}\n` +
-        `📋 Категория: ${categoryLabel}\n` +
-        `📧 Контакт: ${session.contact || 'не указан'}\n\n` +
-        `📝 *Сообщение:*\n${session.message?.substring(0, 500)}`;
+        `👤 От: ${escapeMd(userName)}\n` +
+        `📋 Категория: ${escapeMd(categoryLabel)}\n` +
+        `📧 Контакт: ${escapeMd(session.contact || 'не указан')}\n\n` +
+        `📝 *Сообщение:*\n${escapeMd(session.message?.substring(0, 500))}`;
 
       if (session.attachments.length > 0) {
         adminMessage += `\n\n📎 Вложений: ${session.attachments.length}`;
@@ -365,6 +371,22 @@ async function sendEmailNotification(session, user) {
   const userName = user.username ? `@${user.username}` : `${user.first_name || ''} ${user.last_name || ''}`.trim();
   const date = new Date().toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' });
 
+  // SECURITY: Escape HTML to prevent XSS injection in email notifications
+  const escapeHtml = (str) => {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  };
+
+  const safeUserName = escapeHtml(userName);
+  const safeCategoryLabel = escapeHtml(categoryLabel);
+  const safeContact = escapeHtml(session.contact || 'не указан');
+  const safeMessage = escapeHtml(session.message);
+
   const htmlContent = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <h2 style="color: #333; border-bottom: 2px solid #4F46E5; padding-bottom: 10px;">
@@ -378,15 +400,15 @@ async function sendEmailNotification(session, user) {
         </tr>
         <tr>
           <td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">От:</td>
-          <td style="padding: 8px; border-bottom: 1px solid #eee;">${userName}</td>
+          <td style="padding: 8px; border-bottom: 1px solid #eee;">${safeUserName}</td>
         </tr>
         <tr>
           <td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">Категория:</td>
-          <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>${categoryLabel}</strong></td>
+          <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>${safeCategoryLabel}</strong></td>
         </tr>
         <tr>
           <td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">Контакт:</td>
-          <td style="padding: 8px; border-bottom: 1px solid #eee;">${session.contact || 'не указан'}</td>
+          <td style="padding: 8px; border-bottom: 1px solid #eee;">${safeContact}</td>
         </tr>
         <tr>
           <td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">Вложений:</td>
@@ -396,7 +418,7 @@ async function sendEmailNotification(session, user) {
 
       <div style="background: #f9fafb; padding: 15px; border-radius: 8px; margin: 20px 0;">
         <h3 style="margin: 0 0 10px 0; color: #333;">Сообщение:</h3>
-        <p style="margin: 0; white-space: pre-wrap; color: #444;">${session.message}</p>
+        <p style="margin: 0; white-space: pre-wrap; color: #444;">${safeMessage}</p>
       </div>
 
       <p style="color: #888; font-size: 12px; margin-top: 30px;">

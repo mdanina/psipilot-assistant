@@ -164,7 +164,9 @@ export const RecordingCard = ({
       }
 
       if (blob) {
-        const fileName = `recording-${Date.now()}.webm`;
+        // Determine file extension from actual MIME type (Safari uses audio/mp4, Firefox uses audio/ogg)
+        const ext = blob.type.includes('mp4') ? 'm4a' : blob.type.includes('ogg') ? 'ogg' : 'webm';
+        const fileName = `recording-${Date.now()}.${ext}`;
         setCompletedRecording({
           blob,
           duration: recordingTime,
@@ -342,7 +344,7 @@ export const RecordingCard = ({
                   <span className="text-sm font-mono text-foreground">{formatTime(recordingTime)}</span>
                 </div>
 
-                {/* Waveform visualization */}
+                {/* Waveform visualization — heights driven by CSS animation, not JS Math.random() */}
                 <div className="flex items-center gap-0.5 h-6">
                   {[...Array(12)].map((_, i) => (
                     <div
@@ -350,7 +352,7 @@ export const RecordingCard = ({
                       className={`w-0.5 bg-primary/60 rounded-full ${isPaused ? '' : 'waveform-bar'}`}
                       style={{
                         animationDelay: `${i * 0.1}s`,
-                        height: isPaused ? '8px' : `${Math.random() * 16 + 4}px`
+                        height: isPaused ? '8px' : undefined,
                       }}
                     />
                   ))}

@@ -66,14 +66,15 @@ export function usePatientCaseSummary(patientId: string | undefined) {
 }
 
 /**
- * Invalidate case summary cache for a patient
- * Note: This should be called from a component that has access to QueryClient
+ * Refetch case summary cache for a patient
+ * Note: Uses refetchQueries instead of invalidateQueries because with staleTime: Infinity,
+ * invalidateQueries only marks data as stale but doesn't trigger a refetch
  */
 export function useInvalidatePatientCaseSummary() {
   const queryClient = useQueryClient();
-  
+
   return (patientId: string) => {
-    queryClient.invalidateQueries({ queryKey: ['patients', patientId, 'case_summary'] });
+    queryClient.refetchQueries({ queryKey: ['patients', patientId, 'case_summary'] });
   };
 }
 

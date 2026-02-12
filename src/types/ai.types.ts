@@ -36,7 +36,7 @@ export interface ClinicalNoteTemplate {
 }
 
 export type GenerationStatus = 'pending' | 'generating' | 'completed' | 'failed' | 'skipped';
-export type ClinicalNoteGenerationStatus = 'draft' | 'generating' | 'completed' | 'failed';
+export type ClinicalNoteGenerationStatus = 'draft' | 'generating' | 'completed' | 'partial_failure' | 'failed';
 
 export interface GeneratedSection {
   id: string;

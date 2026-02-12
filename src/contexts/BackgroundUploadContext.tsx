@@ -79,6 +79,7 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
 
   const [pendingUploads, setPendingUploads] = useState<Map<string, PendingUpload>>(new Map());
   const processingRef = useRef<Set<string>>(new Set());
+  const cleanupTimeoutsRef = useRef<Set<NodeJS.Timeout>>(new Set());
   const onTranscriptionStartedRef = useRef<((recordingId: string, sessionId: string) => void) | null>(null);
 
   const setOnTranscriptionStarted = useCallback((callback: ((recordingId: string, sessionId: string) => void) | null) => {
@@ -113,9 +114,12 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
 
     const { id, blob, duration, sessionId, patientId, clinicId, userId } = upload;
     let localRecordingId = upload.localRecordingId;
+    let createdRecordingId: string | null = null; // Track DB recording for orphan cleanup
     // Use original filename for external files, or generate one for recordings
-    const fileName = upload.fileName || `recording-${Date.now()}.webm`;
+    // Determine extension from actual MIME type (Safari uses audio/mp4, Firefox uses audio/ogg)
     const mimeType = blob.type || 'audio/webm';
+    const ext = mimeType.includes('mp4') ? 'm4a' : mimeType.includes('ogg') ? 'ogg' : 'webm';
+    const fileName = upload.fileName || `recording-${Date.now()}.${ext}`;
 
     try {
       // 1. Save locally first (if not already saved)
@@ -166,6 +170,7 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
         userId,
         fileName,
       });
+      createdRecordingId = recording.id;
       updateUpload(id, { progress: 40 });
 
       // 4. Upload audio file
@@ -228,13 +233,26 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
       }
 
       // Remove from queue after short delay (to show completion)
-      setTimeout(() => {
+      const cleanupTimeout = setTimeout(() => {
+        cleanupTimeoutsRef.current.delete(cleanupTimeout);
         removeUpload(id);
       }, 2000);
+      cleanupTimeoutsRef.current.add(cleanupTimeout);
 
     } catch (error) {
       console.error('[BackgroundUpload] Upload failed:', error);
       const errorMessage = error instanceof Error ? error.message : 'Неизвестная ошибка';
+
+      // Cleanup orphaned DB recording (created at step 3 but upload/transcription failed)
+      if (createdRecordingId) {
+        try {
+          const { supabase } = await import('@/lib/supabase');
+          await supabase.from('recordings').delete().eq('id', createdRecordingId);
+          console.log('[BackgroundUpload] Cleaned up orphaned recording:', createdRecordingId);
+        } catch (cleanupError) {
+          console.warn('[BackgroundUpload] Failed to cleanup orphaned recording:', cleanupError);
+        }
+      }
 
       // Mark local recording as failed
       if (localRecordingId) {
@@ -388,6 +406,14 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
   }, [hasActiveUploads]);
+
+  // Clean up pending removal timeouts on unmount
+  useEffect(() => {
+    return () => {
+      cleanupTimeoutsRef.current.forEach(t => clearTimeout(t));
+      cleanupTimeoutsRef.current.clear();
+    };
+  }, []);
 
   // Keep session alive during file uploads to prevent timeout
   // This mirrors the keep-alive logic used during recording (every 30 seconds)

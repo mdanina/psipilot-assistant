@@ -24,6 +24,8 @@ export default function ResetPasswordPage() {
 
   // Verify the recovery token on mount
   useEffect(() => {
+    let isMounted = true;
+
     const verifyToken = async () => {
       // Check for token in query string (from Supabase email link)
       const token = searchParams.get('token');
@@ -40,6 +42,7 @@ export default function ResetPasswordPage() {
             type: 'recovery',
           });
 
+          if (!isMounted) return;
           if (error) {
             console.error('Token verification error:', error);
             setError('Недействительная или истёкшая ссылка для сброса пароля');
@@ -48,23 +51,40 @@ export default function ResetPasswordPage() {
             setIsValidToken(true);
           }
         } catch (err) {
+          if (!isMounted) return;
           console.error('Token verification exception:', err);
           setError('Ошибка при проверке ссылки');
           setIsValidToken(false);
         }
       } else if (hash && hash.includes('type=recovery')) {
         // Token from hash fragment (standard Supabase format)
-        // Supabase client handles this automatically
-        setIsValidToken(true);
+        // Supabase client auto-exchanges the hash token for a session.
+        // Verify that the exchange actually succeeded by checking for an active session.
+        try {
+          const { data: { session: currentSession } } = await supabase.auth.getSession();
+          if (!isMounted) return;
+          if (currentSession) {
+            setIsValidToken(true);
+          } else {
+            setError('Не удалось подтвердить ссылку для сброса пароля. Попробуйте запросить новую.');
+            setIsValidToken(false);
+          }
+        } catch (err) {
+          if (!isMounted) return;
+          console.error('Hash token verification error:', err);
+          setError('Ошибка при проверке ссылки');
+          setIsValidToken(false);
+        }
       } else {
         setError('Недействительная или истёкшая ссылка для сброса пароля');
         setIsValidToken(false);
       }
 
-      setIsLoading(false);
+      if (isMounted) setIsLoading(false);
     };
 
     verifyToken();
+    return () => { isMounted = false; };
   }, [searchParams]);
 
   const validateForm = (): string | null => {

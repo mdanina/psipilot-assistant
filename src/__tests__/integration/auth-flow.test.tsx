@@ -214,8 +214,8 @@ describe('Authentication Flow Integration', () => {
         const hasOnboarding = screen.queryByText('Onboarding Page');
         const hasDashboard = screen.queryByText('Dashboard - Welcome!');
         const hasLogin = screen.queryByText('Login Page');
-        // One of these should be present
-        expect(hasOnboarding || hasDashboard || hasLogin || true).toBeTruthy();
+        // One of these should be present (user without clinic → onboarding or login)
+        expect(hasOnboarding || hasDashboard || hasLogin).toBeTruthy();
       });
     });
   });

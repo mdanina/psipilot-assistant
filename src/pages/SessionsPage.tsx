@@ -279,8 +279,9 @@ const SessionsPage = () => {
     // Don't filter by sessionId - track all user's transcriptions
     // This ensures processing transcriptions are visible even if their session is not open
     onComplete: async (recordingId, sessionId) => {
+      if (!isMountedRef.current) return;
       console.log(`[SessionsPage] Transcription completed: ${recordingId} in session ${sessionId}`);
-      
+
       // Open tab for the session if it's not already open
       setOpenTabs(prev => {
         if (!prev.has(sessionId)) {
@@ -289,29 +290,30 @@ const SessionsPage = () => {
         }
         return prev;
       });
-      
+
       // Set as active session if no active session or if this is the active one
       if (!activeSession || sessionId === activeSession) {
         setActiveSession(sessionId);
       }
-      
+
       // Reload recordings to update UI
       if (sessionId === activeSession || !activeSession) {
         try {
           const recordingsData = await getSessionRecordings(sessionId);
-          setRecordings(recordingsData);
+          if (isMountedRef.current) setRecordings(recordingsData);
         } catch (error) {
           console.error('Error reloading recordings after transcription:', error);
         }
       }
     },
     onError: async (recordingId, error) => {
+      if (!isMountedRef.current) return;
       console.error(`[SessionsPage] Transcription failed: ${recordingId}`, error);
       // Reload recordings to show error state
       if (activeSession) {
         try {
           const recordingsData = await getSessionRecordings(activeSession);
-          setRecordings(recordingsData);
+          if (isMountedRef.current) setRecordings(recordingsData);
         } catch (err) {
           console.error('Error reloading recordings after error:', err);
         }
@@ -445,6 +447,12 @@ const SessionsPage = () => {
 
   // Track if we're processing navigation with sessionId
   const processingNavigationRef = useRef(false);
+  // Guard against setState after unmount for async operations
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => { isMountedRef.current = false; };
+  }, []);
 
   // Load open tabs immediately when user is available
   // user is available immediately after login, profile loads later
@@ -454,6 +462,7 @@ const SessionsPage = () => {
       // Always reload tabs from DB when component mounts or user changes
       // This ensures tabs are always restored from DB, even after long navigation
       loadOpenTabs().then(tabs => {
+        if (!isMountedRef.current) return;
         console.log('[Tabs] ✅ Loaded tabs from DB:', Array.from(tabs), '(count:', tabs.size, ')');
         // Always set tabs from DB - they are the source of truth
         // Don't merge with existing tabs, as DB tabs are authoritative
@@ -682,7 +691,7 @@ const SessionsPage = () => {
           userId: user.id,
           clinicId: profile.clinic_id,
           patientId: null,
-          title: `Сессия ${new Date(recording.duration * 1000).toLocaleString('ru-RU')}`,
+          title: `Сессия ${new Date().toLocaleString('ru-RU')}`,
         });
         sessionId = newSession.id;
       }
@@ -864,8 +873,9 @@ const SessionsPage = () => {
           }
         }
 
-        // Сохранить новый checkpoint
-        const fileName = `recording-${Date.now()}-checkpoint.webm`;
+        // Сохранить новый checkpoint — use actual MIME type for extension
+        const ext = mimeType.includes('mp4') ? 'm4a' : mimeType.includes('ogg') ? 'ogg' : 'webm';
+        const fileName = `recording-${Date.now()}-checkpoint.${ext}`;
         const checkpointId = await saveRecordingLocally(
           blob,
           fileName,
@@ -944,9 +954,10 @@ const SessionsPage = () => {
               }
             }
             
+            const hiddenExt = mimeType.includes('mp4') ? 'm4a' : mimeType.includes('ogg') ? 'ogg' : 'webm';
             const checkpointId = await saveRecordingLocally(
               blob,
-              `recording-${Date.now()}-hidden.webm`,
+              `recording-${Date.now()}-hidden.${hiddenExt}`,
               recordingTime,
               mimeType,
               sessionId
@@ -1027,25 +1038,31 @@ const SessionsPage = () => {
     }
   }, [activeSession]);
 
-  // Auto-refresh recordings ONLY if there are pending/processing transcriptions
+  // Auto-refresh recordings ONLY if there are pending/processing transcriptions.
+  // NOTE: We use a ref to track whether polling is needed, to avoid an infinite loop.
+  // Previously, `recordings` was in the dependency array — but loadRecordings calls
+  // setRecordings, which creates a new array reference, re-triggering this effect → infinite loop.
+  const hasPendingTranscriptionsRef = useRef(false);
+  hasPendingTranscriptionsRef.current = recordings.some(
+    r => r.session_id === activeSession &&
+         (r.transcription_status === 'pending' || r.transcription_status === 'processing')
+  );
+
   useEffect(() => {
     if (!activeSession) return;
 
-    // Check if there are any recordings that need polling
-    const hasPendingTranscriptions = recordings.some(
-      r => r.session_id === activeSession &&
-           (r.transcription_status === 'pending' || r.transcription_status === 'processing')
-    );
-
-    // Only set up interval if there are pending transcriptions
-    if (!hasPendingTranscriptions) return;
+    // Only set up interval if there are pending transcriptions (checked via ref)
+    if (!hasPendingTranscriptionsRef.current) return;
 
     const refreshInterval = setInterval(() => {
-      loadRecordings(activeSession);
+      // Re-check ref inside interval — stop polling once all transcriptions are done
+      if (hasPendingTranscriptionsRef.current) {
+        loadRecordings(activeSession);
+      }
     }, 5000);
 
     return () => clearInterval(refreshInterval);
-  }, [activeSession, recordings]);
+  }, [activeSession]);
 
   // Refresh recordings when page becomes visible
   useEffect(() => {
@@ -1240,11 +1257,12 @@ const SessionsPage = () => {
     // If session is linked to patient, just close the tab (no deletion option)
     if (session.patient_id) {
       // Simply remove from open tabs and update active session if needed
-      let newTabs: Set<string>;
+      // Compute newTabs synchronously before setState to avoid closure issues
+      let newTabs: Set<string> | undefined;
       setOpenTabs(prev => {
         newTabs = new Set(prev);
         newTabs.delete(sessionId);
-        
+
         // If closed session was active, select another one from remaining open tabs
         if (activeSession === sessionId) {
           const remainingOpenTabIds = Array.from(newTabs);
@@ -1255,10 +1273,10 @@ const SessionsPage = () => {
             setActiveSession(null);
           }
         }
-        
+
         return newTabs;
       });
-      
+
         // Save to DB immediately (don't wait for debounce)
         // This prevents race conditions where loadOpenTabs might reload old data
         if (user?.id && newTabs) {
@@ -2462,16 +2480,13 @@ const SessionsPage = () => {
                         <span className="text-sm font-mono text-foreground">{formatTime(recordingTime)}</span>
                       </div>
                       
-                      {/* Waveform visualization */}
+                      {/* Waveform visualization — CSS animation controls height, no JS Math.random() */}
                       <div className="flex items-center gap-0.5 h-6 flex-1">
                         {[...Array(12)].map((_, i) => (
                           <div
                             key={i}
                             className="w-0.5 bg-primary/60 rounded-full waveform-bar"
-                            style={{ 
-                              animationDelay: `${i * 0.1}s`,
-                              height: `${Math.random() * 16 + 4}px`
-                            }}
+                            style={{ animationDelay: `${i * 0.1}s` }}
                           />
                         ))}
                       </div>

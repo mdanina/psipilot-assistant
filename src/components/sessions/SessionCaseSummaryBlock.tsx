@@ -48,6 +48,7 @@ export function SessionCaseSummaryBlock({ sessionId }: SessionCaseSummaryBlockPr
           setGeneratedAt(data.case_summary_generated_at || null);
         } catch (err) {
           console.error('Error decrypting case summary:', err);
+          setCaseSummary('[Ошибка расшифровки. Обновите страницу или войдите заново.]');
         }
       }
     } catch (error) {

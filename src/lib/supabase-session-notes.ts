@@ -94,7 +94,7 @@ export function getCombinedTranscriptWithNotes(
       const sourceInfo = note.original_filename
         ? ` (из файла: ${note.original_filename})`
         : '';
-      return note.content;
+      return `${note.content}${sourceInfo}`;
     })
     .join('\n\n');
 

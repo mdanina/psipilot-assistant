@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
-import { CheckCircle2, XCircle, Loader2, Clock } from 'lucide-react';
+import { CheckCircle2, XCircle, Loader2, Clock, AlertTriangle } from 'lucide-react';
 import { getGenerationStatus } from '@/lib/supabase-ai';
 import type { GenerationProgress as GenerationProgressType } from '@/types/ai.types';
 
@@ -53,13 +53,12 @@ export function GenerationProgress({
       if (status.status === 'generating') {
         // Планируем следующий запрос ПОСЛЕ завершения текущего
         timeoutRef.current = setTimeout(poll, 2000);
-      } else if (status.status === 'completed' || status.status === 'failed') {
-        // Вызываем callback только ОДИН РАЗ при переходе в completed
-        // и только если предыдущий статус был 'generating'
+      } else if (status.status === 'completed' || status.status === 'partial_failure' || status.status === 'failed') {
+        // Вызываем callback только ОДИН РАЗ при переходе в completed/partial_failure
+        // Учитываем случай когда генерация завершилась до первого poll (lastStatus === null)
         if (
           !hasCalledCompleteRef.current &&
-          lastStatusRef.current === 'generating' &&
-          status.status === 'completed'
+          (status.status === 'completed' || status.status === 'partial_failure')
         ) {
           hasCalledCompleteRef.current = true;
           onCompleteRef.current?.();
@@ -121,6 +120,13 @@ export function GenerationProgress({
           <Badge variant="default" className="gap-1">
             <CheckCircle2 className="h-3 w-3" />
             Завершено
+          </Badge>
+        );
+      case 'partial_failure':
+        return (
+          <Badge variant="secondary" className="gap-1 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200">
+            <AlertTriangle className="h-3 w-3" />
+            Частично завершено
           </Badge>
         );
       case 'failed':

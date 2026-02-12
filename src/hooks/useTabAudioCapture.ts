@@ -49,13 +49,23 @@ export function useTabAudioCapture(): UseTabAudioCaptureReturn {
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const startTimeRef = useRef<number>(0);
   const stopResolveRef = useRef<((blob: Blob | null) => void) | null>(null);
+  const stopResolvedRef = useRef<boolean>(false);
+  const stopTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isStartingRef = useRef<boolean>(false);
+  const isStoppingRef = useRef<boolean>(false);
 
-  const isSupported = checkSupport();
+  const isSupportedRef = useRef<boolean>(checkSupport());
+  const isSupported = isSupportedRef.current;
 
   const cleanup = useCallback(() => {
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
+    }
+
+    if (stopTimeoutRef.current) {
+      clearTimeout(stopTimeoutRef.current);
+      stopTimeoutRef.current = null;
     }
 
     if (streamRef.current) {
@@ -74,17 +84,22 @@ export function useTabAudioCapture(): UseTabAudioCaptureReturn {
     setError(null);
     chunksRef.current = [];
     stopResolveRef.current = null;
+    isStartingRef.current = false;
+    isStoppingRef.current = false;
   }, [cleanup]);
 
   const startCapture = useCallback(async () => {
-    if (status !== 'idle') {
-      console.warn('[TabCapture] Already capturing or in invalid state:', status);
+    // Защита от двойного вызова через ref (closure-safe, не зависит от батчинга React)
+    if (isStartingRef.current) {
+      console.log('[TabCapture] startCapture already in progress, ignoring');
       return;
     }
+    isStartingRef.current = true;
 
     if (!isSupported) {
       setError('Ваш браузер не поддерживает захват звука вкладки');
       setStatus('error');
+      isStartingRef.current = false;
       return;
     }
 
@@ -157,6 +172,17 @@ export function useTabAudioCapture(): UseTabAudioCaptureReturn {
       };
 
       mediaRecorder.onstop = () => {
+        // Проверяем, не был ли уже выполнен resolve (например, по timeout)
+        if (stopResolvedRef.current) {
+          console.log('[TabCapture] onstop called after timeout resolve, skipping state update');
+          if (streamRef.current) {
+            streamRef.current.getTracks().forEach(track => track.stop());
+            streamRef.current = null;
+          }
+          mediaRecorderRef.current = null;
+          return;
+        }
+
         let blob: Blob | null = null;
         console.log('[TabCapture] Recording stopped, chunks:', chunksRef.current.length);
         if (chunksRef.current.length > 0) {
@@ -189,6 +215,9 @@ export function useTabAudioCapture(): UseTabAudioCaptureReturn {
           setAudioBlob(partialBlob);
         }
 
+        // Защита от позднего вызова onstop после ошибки
+        stopResolvedRef.current = true;
+        isStoppingRef.current = false;
         setError('Ошибка записи звука вкладки');
         setStatus('stopped');
         cleanup();
@@ -236,23 +265,86 @@ export function useTabAudioCapture(): UseTabAudioCaptureReturn {
       setError(errorMessage);
       setStatus('error');
       cleanup();
+    } finally {
+      isStartingRef.current = false;
     }
-  }, [status, isSupported, cleanup]);
+  }, [isSupported, cleanup]);
 
   const stopCapture = useCallback((): Promise<Blob | null> => {
     return new Promise((resolve) => {
+      // Защита от двойного вызова через ref (closure-safe)
+      if (isStoppingRef.current) {
+        console.log('[TabCapture] stopCapture already in progress, ignoring');
+        resolve(null);
+        return;
+      }
+
       if (status !== 'recording') {
         resolve(null);
         return;
       }
 
+      isStoppingRef.current = true;
       setStatus('stopping');
-      stopResolveRef.current = resolve;
+      stopResolvedRef.current = false;
+
+      // Очищаем предыдущий timeout если есть
+      if (stopTimeoutRef.current) {
+        clearTimeout(stopTimeoutRef.current);
+        stopTimeoutRef.current = null;
+      }
 
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        // Функция для безопасного resolve (только один раз)
+        const safeResolve = (blob: Blob | null) => {
+          if (stopResolvedRef.current) return;
+          stopResolvedRef.current = true;
+          isStoppingRef.current = false;
+
+          if (stopTimeoutRef.current) {
+            clearTimeout(stopTimeoutRef.current);
+            stopTimeoutRef.current = null;
+          }
+
+          resolve(blob);
+        };
+
+        // Timeout protection — 30 секунд. Без этого Promise может зависнуть навсегда
+        // если onstop не вызовется (проблема с getDisplayMedia в некоторых браузерах)
+        stopTimeoutRef.current = setTimeout(() => {
+          console.error('[TabCapture] Stop timeout after 30s. Chunks:', chunksRef.current.length);
+
+          let partialBlob: Blob | null = null;
+          if (chunksRef.current.length > 0) {
+            partialBlob = new Blob(chunksRef.current, {
+              type: mediaRecorderRef.current?.mimeType || 'audio/webm',
+            });
+            setAudioBlob(partialBlob);
+          }
+
+          setStatus('stopped');
+          safeResolve(partialBlob);
+
+          // Cleanup без повторного вызова stop()
+          if (streamRef.current) {
+            streamRef.current.getTracks().forEach(track => track.stop());
+            streamRef.current = null;
+          }
+          mediaRecorderRef.current = null;
+          if (timerRef.current) {
+            clearInterval(timerRef.current);
+            timerRef.current = null;
+          }
+        }, 30000);
+
+        stopResolveRef.current = (blob) => {
+          safeResolve(blob);
+        };
+
         mediaRecorderRef.current.stop();
       } else {
         setStatus('idle');
+        isStoppingRef.current = false;
         resolve(null);
       }
     });
@@ -266,6 +358,19 @@ export function useTabAudioCapture(): UseTabAudioCaptureReturn {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      // Помечаем как resolved чтобы onstop не обновлял state после unmount
+      stopResolvedRef.current = true;
+
+      if (stopTimeoutRef.current) {
+        clearTimeout(stopTimeoutRef.current);
+        stopTimeoutRef.current = null;
+      }
+
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         try {
           mediaRecorderRef.current.stop();
@@ -273,9 +378,14 @@ export function useTabAudioCapture(): UseTabAudioCaptureReturn {
           // Ignore
         }
       }
-      cleanup();
+
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+      mediaRecorderRef.current = null;
     };
-  }, [cleanup]);
+  }, []);
 
   return {
     status,

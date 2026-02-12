@@ -370,7 +370,7 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     } finally {
       isStartingRef.current = false;
     }
-  }, [status, startTimer, cleanup]);
+  }, [startTimer, cleanup]); // status not needed — isStartingRef guards against invalid states
 
   const pauseRecording = useCallback(() => {
     if (status === 'recording' && mediaRecorderRef.current?.state === 'recording') {

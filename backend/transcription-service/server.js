@@ -1,4 +1,5 @@
 import express from 'express';
+import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
@@ -119,13 +120,23 @@ const cryptoLimiter = rateLimit({
 });
 
 // Middleware
+app.use(helmet({
+  contentSecurityPolicy: false, // CSP managed by nginx reverse proxy
+}));
 app.use(cors(corsOptions));
 app.use(express.json());
 
 // Устанавливаем правильную кодировку для JSON ответов
+// Перехватываем res.json() чтобы добавить charset=utf-8 только к JSON ответам,
+// не затрагивая другие Content-Type (text/calendar, text/html и т.д.)
 app.use((req, res, next) => {
-  // Устанавливаем charset=utf-8 для всех JSON ответов
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  const originalJson = res.json.bind(res);
+  res.json = function (body) {
+    if (!res.headersSent) {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    }
+    return originalJson(body);
+  };
   next();
 });
 
@@ -211,6 +222,7 @@ app.get('/health', (req, res) => {
 // ВАЖНО: verifyAuthToken должен быть ПЕРЕД rate limiter, чтобы req.user был установлен
 app.post('/api/transcribe', verifyAuthToken, transcriptionLimiter);
 app.post('/api/transcribe/:recordingId/sync', verifyAuthToken, syncLimiter); // Синхронизация с отдельным лимитом
+app.get('/api/transcribe/:recordingId/status', verifyAuthToken, readOnlyLimiter); // Статус с аутентификацией
 app.use('/api', transcribeRoute);
 
 // Webhook routes (no rate limit - called by external services)
