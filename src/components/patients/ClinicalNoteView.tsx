@@ -81,6 +81,18 @@ function noteToPlainText(clinicalNote: GeneratedClinicalNote): string {
 }
 
 /**
+ * Escape HTML entities to prevent XSS when interpolating into HTML strings
+ */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+/**
  * Компонент для просмотра полной клинической заметки
  * Показывает все секции как единый документ
  */
@@ -138,7 +150,7 @@ export function ClinicalNoteView({ clinicalNote, searchQuery, onDelete }: Clinic
         <!DOCTYPE html>
         <html>
         <head>
-          <title>${clinicalNote.title}</title>
+          <title>${escapeHtml(clinicalNote.title)}</title>
           <style>
             body {
               font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -178,12 +190,12 @@ export function ClinicalNoteView({ clinicalNote, searchQuery, onDelete }: Clinic
           </style>
         </head>
         <body>
-          <h1>${clinicalNote.title}</h1>
-          ${clinicalNote.template ? `<div class="template">Шаблон: ${clinicalNote.template.name}</div>` : ''}
+          <h1>${escapeHtml(clinicalNote.title)}</h1>
+          ${clinicalNote.template ? `<div class="template">Шаблон: ${escapeHtml(clinicalNote.template.name)}</div>` : ''}
           ${sectionsWithContent.map(section => `
             <div class="section">
-              <div class="section-title">${section.name}</div>
-              <div class="section-content">${(section.content || section.ai_content || '').replace(/\n/g, '<br>')}</div>
+              <div class="section-title">${escapeHtml(section.name)}</div>
+              <div class="section-content">${escapeHtml(section.content || section.ai_content || '').replace(/\n/g, '<br>')}</div>
             </div>
           `).join('')}
         </body>

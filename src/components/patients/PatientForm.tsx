@@ -53,6 +53,19 @@ export function PatientForm({ patient, onSave, onCancel, isSaving = false }: Pat
     },
   });
 
+  // Sync form and tags when patient prop changes (e.g. switching between patients)
+  useEffect(() => {
+    setTagsInput(patient?.tags?.join(', ') || '');
+    setValue('name', patient?.name || '');
+    setValue('email', patient?.email || '');
+    setValue('phone', patient?.phone || '');
+    setValue('date_of_birth', patient?.date_of_birth ? new Date(patient.date_of_birth).toISOString().split('T')[0] : '');
+    setValue('gender', patient?.gender || '');
+    setValue('address', patient?.address || '');
+    setValue('notes', patient?.notes || '');
+    setValue('tags', patient?.tags || []);
+  }, [patient?.id, setValue]);
+
   const gender = watch('gender');
 
   const onSubmit = async (data: PatientFormData) => {

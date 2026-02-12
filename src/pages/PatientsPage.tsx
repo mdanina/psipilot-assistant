@@ -256,8 +256,8 @@ const PatientsPage = () => {
           {/* Table footer */}
           <div className="p-4 border-t border-border text-center text-sm text-muted-foreground">
             {searchQuery
-              ? `Найдено: ${filteredPatients.length} ${filteredPatients.length === 1 ? 'пациент' : filteredPatients.length < 5 ? 'пациента' : 'пациентов'}`
-              : `Всего: ${patients.length} ${patients.length === 1 ? 'пациент' : patients.length < 5 ? 'пациента' : 'пациентов'}`
+              ? `Найдено: ${filteredPatients.length} ${getPatientsLabel(filteredPatients.length)}`
+              : `Всего: ${patients.length} ${getPatientsLabel(patients.length)}`
             }
           </div>
         </div>
@@ -288,5 +288,24 @@ const PatientsPage = () => {
     </>
   );
 };
+
+/**
+ * Correct Russian plural form for "пациент"
+ */
+function getPatientsLabel(count: number): string {
+  const lastDigit = count % 10;
+  const lastTwoDigits = count % 100;
+
+  if (lastTwoDigits >= 11 && lastTwoDigits <= 19) {
+    return "пациентов";
+  }
+  if (lastDigit === 1) {
+    return "пациент";
+  }
+  if (lastDigit >= 2 && lastDigit <= 4) {
+    return "пациента";
+  }
+  return "пациентов";
+}
 
 export default PatientsPage;

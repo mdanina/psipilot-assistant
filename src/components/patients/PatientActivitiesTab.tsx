@@ -112,9 +112,10 @@ export function PatientActivitiesTab({ patientId }: PatientActivitiesTabProps) {
   // Convert search results to Set for filtering
   const filteredSessionIds = useMemo(() => {
     if (!searchQuery.trim()) {
-      return null;
+      return null; // No filter when no search query
     }
-    return searchResults.length > 0 ? new Set(searchResults) : null;
+    // When searching, always return a Set (even if empty) so "no results" is shown
+    return new Set(searchResults);
   }, [searchQuery, searchResults]);
 
   const getStatusLabel = (status: string): string => {
