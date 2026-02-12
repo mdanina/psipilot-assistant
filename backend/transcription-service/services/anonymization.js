@@ -4,10 +4,22 @@
  */
 
 /**
- * Заменяет все вхождения строки в тексте
+ * Заменяет все вхождения строки в тексте с учётом границ слов.
+ * Используем Unicode-aware regex вместо \b (который не работает с кириллицей).
+ * Lookbehind/lookahead проверяют, что совпадение не внутри слова.
  */
 function replaceAll(str, search, replace) {
-  return str.split(search).join(replace);
+  if (!search || search.length === 0) return str;
+  // Экранируем спецсимволы regex
+  const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Unicode-aware word boundary для кириллицы и латиницы:
+  // (?<![а-яёА-ЯЁa-zA-Z]) — перед совпадением нет буквы
+  // (?![а-яёА-ЯЁa-zA-Z]) — после совпадения нет буквы
+  const wordBoundaryRegex = new RegExp(
+    `(?<![а-яёА-ЯЁa-zA-Z])${escaped}(?![а-яёА-ЯЁa-zA-Z])`,
+    'g'
+  );
+  return str.replace(wordBoundaryRegex, replace);
 }
 
 /**
@@ -128,14 +140,11 @@ export function anonymize(text, patient = {}) {
     return `${title} ${placeholder}`;
   });
 
-  // 9. Города (в Москве, из Санкт-Петербурга)
-  const cityRegex = /(в|из|в\s+городе)\s+([А-ЯЁ][а-яё]+)/gi;
+  // 9. Города (в городе X, из города X) — только с явным указанием "город/городе"
+  // Не используем простое "в X" — слишком много ложных срабатываний
+  // ("в Понедельник", "в Январе", "в России", "в Институте" и т.д.)
+  const cityRegex = /(в\s+городе|из\s+города|город)\s+([А-ЯЁ][а-яё-]+)/gi;
   anonymized = anonymized.replace(cityRegex, (match, prefix, city) => {
-    // Пропускаем известные общие слова
-    const commonWords = ['пациент', 'врач', 'сестра', 'брат', 'мать', 'отец'];
-    if (commonWords.includes(city.toLowerCase())) {
-      return match;
-    }
     const placeholder = '[CITY]';
     if (!map[placeholder]) {
       map[placeholder] = city;

@@ -114,25 +114,22 @@ router.post('/webhook/assemblyai', webhookAuth, async (req, res) => {
         updateData.transcription_status = 'completed';
         updateData.transcribed_at = new Date().toISOString();
 
-        // SECURITY: Encrypt transcript before saving to database
-        if (isEncryptionConfigured()) {
+        // SECURITY: Encrypt transcript before saving — NEVER store PHI in plaintext
+        if (!isEncryptionConfigured()) {
+          const errMsg = 'SECURITY: ENCRYPTION_KEY not configured. Refusing to store PHI in plaintext.';
+          console.error(`[webhook] ${errMsg}`);
+          updateData.transcription_status = 'error';
+          updateData.transcription_error = errMsg;
+        } else {
           try {
             updateData.transcription_text = encrypt(formattedText);
             updateData.transcription_encrypted = true;
             console.log('Updating recording with encrypted transcription:', recording.id);
           } catch (encryptError) {
-            // FALLBACK: If encryption fails, save plaintext but log error
-            console.error('Encryption failed, saving plaintext:', encryptError.message);
-            updateData.transcription_text = formattedText;
-            updateData.transcription_encrypted = false;
+            console.error('[webhook] Encryption failed:', encryptError.message);
+            updateData.transcription_status = 'error';
+            updateData.transcription_error = 'Encryption failed - transcript not stored for security';
           }
-        } else {
-          // Encryption not configured - save plaintext with warning in production
-          if (process.env.NODE_ENV === 'production') {
-            console.warn('[SECURITY WARNING] ENCRYPTION_KEY not configured in production! Transcript saved as plaintext.');
-          }
-          updateData.transcription_text = formattedText;
-          updateData.transcription_encrypted = false;
         }
       } else {
         // AssemblyAI returned completed but no text - likely silent/empty audio

@@ -76,22 +76,21 @@ async function syncTranscriptionStatus(recording) {
         updateData.transcription_status = 'completed';
         updateData.transcribed_at = new Date().toISOString();
 
-        // SECURITY: Encrypt transcript before saving
-        if (isEncryptionConfigured()) {
+        // SECURITY: Encrypt transcript before saving — NEVER store PHI in plaintext
+        if (!isEncryptionConfigured()) {
+          const errMsg = 'SECURITY: ENCRYPTION_KEY not configured. Refusing to store PHI in plaintext.';
+          console.error(`[syncTranscriptionStatus] ${errMsg}`);
+          updateData.transcription_status = 'error';
+          updateData.transcription_error = errMsg;
+        } else {
           try {
             updateData.transcription_text = encrypt(formattedText);
             updateData.transcription_encrypted = true;
           } catch (encryptError) {
             console.error('[syncTranscriptionStatus] Encryption failed:', encryptError.message);
-            updateData.transcription_text = formattedText;
-            updateData.transcription_encrypted = false;
+            updateData.transcription_status = 'error';
+            updateData.transcription_error = 'Encryption failed - transcript not stored for security';
           }
-        } else {
-          if (process.env.NODE_ENV === 'production') {
-            console.warn('[SECURITY WARNING] ENCRYPTION_KEY not configured in production!');
-          }
-          updateData.transcription_text = formattedText;
-          updateData.transcription_encrypted = false;
         }
       } else {
         // AssemblyAI returned completed but no text - likely silent/empty audio
@@ -296,22 +295,21 @@ router.post('/transcribe', async (req, res) => {
           formattedText = formatTranscriptWithSpeakers(transcript.utterances, userRole);
         }
 
-        // SECURITY: Encrypt transcript before saving
-        if (isEncryptionConfigured()) {
+        // SECURITY: Encrypt transcript before saving — NEVER store PHI in plaintext
+        if (!isEncryptionConfigured()) {
+          const errMsg = 'SECURITY: ENCRYPTION_KEY not configured. Refusing to store PHI in plaintext.';
+          console.error(`[POST /transcribe] ${errMsg}`);
+          updateData.transcription_status = 'error';
+          updateData.transcription_error = errMsg;
+        } else {
           try {
             updateData.transcription_text = encrypt(formattedText);
             updateData.transcription_encrypted = true;
           } catch (encryptError) {
             console.error('[POST /transcribe] Encryption failed:', encryptError.message);
-            updateData.transcription_text = formattedText;
-            updateData.transcription_encrypted = false;
+            updateData.transcription_status = 'error';
+            updateData.transcription_error = 'Encryption failed - transcript not stored for security';
           }
-        } else {
-          if (process.env.NODE_ENV === 'production') {
-            console.warn('[SECURITY WARNING] ENCRYPTION_KEY not configured in production!');
-          }
-          updateData.transcription_text = formattedText;
-          updateData.transcription_encrypted = false;
         }
       } else {
         // AssemblyAI returned completed but no text - likely silent/empty audio

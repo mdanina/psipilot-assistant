@@ -33,14 +33,37 @@ const DB_VERSION = 1;
 const STORE_NAME = 'recordings';
 const TTL_MS = 48 * 60 * 60 * 1000; // 48 hours
 
+// Singleton: reuse the same IDBDatabase connection to avoid
+// opening multiple connections (which can cause deadlocks and resource leaks)
+let dbInstance: IDBDatabase | null = null;
+let dbPromise: Promise<IDBDatabase> | null = null;
+
 /**
- * Initialize IndexedDB database
- * Database is created automatically on first access
+ * Initialize IndexedDB database (singleton)
+ * Database connection is reused across all calls to prevent deadlocks
  */
 async function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    // Check if IndexedDB is available
+  // Return existing connection if still open
+  if (dbInstance) {
+    try {
+      // Verify connection is still alive by checking objectStoreNames
+      if (dbInstance.objectStoreNames.contains(STORE_NAME)) {
+        return dbInstance;
+      }
+    } catch {
+      // Connection was closed, reset
+      dbInstance = null;
+    }
+  }
+
+  // If another call is already opening, wait for it
+  if (dbPromise) {
+    return dbPromise;
+  }
+
+  dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
     if (typeof indexedDB === 'undefined') {
+      dbPromise = null;
       reject(new Error('IndexedDB is not available in this browser'));
       return;
     }
@@ -49,26 +72,33 @@ async function openDB(): Promise<IDBDatabase> {
 
     request.onerror = () => {
       console.error('[LocalStorage] IndexedDB open error:', request.error);
+      dbPromise = null;
       reject(request.error);
     };
-    
+
     request.onsuccess = () => {
-      console.log('[LocalStorage] IndexedDB opened successfully');
-      resolve(request.result);
+      dbInstance = request.result;
+      // Reset singleton if connection is closed externally
+      dbInstance.onclose = () => {
+        dbInstance = null;
+        dbPromise = null;
+      };
+      dbPromise = null;
+      resolve(dbInstance);
     };
 
     request.onupgradeneeded = (event) => {
-      console.log('[LocalStorage] IndexedDB upgrade needed, creating database');
       const db = (event.target as IDBOpenDBRequest).result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         const objectStore = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
         objectStore.createIndex('createdAt', 'createdAt', { unique: false });
         objectStore.createIndex('uploaded', 'uploaded', { unique: false });
         objectStore.createIndex('expiresAt', 'expiresAt', { unique: false });
-        console.log('[LocalStorage] Object store and indexes created');
       }
     };
   });
+
+  return dbPromise;
 }
 
 /**
