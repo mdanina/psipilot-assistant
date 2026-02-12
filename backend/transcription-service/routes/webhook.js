@@ -175,9 +175,9 @@ router.post('/webhook/assemblyai', webhookAuth, async (req, res) => {
     });
   } catch (error) {
     console.error('Webhook error:', error);
+    // SECURITY: Do not leak internal error details to external callers
     res.status(500).json({
       error: 'Webhook processing failed',
-      message: error.message,
     });
   }
 });

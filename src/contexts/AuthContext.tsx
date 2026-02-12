@@ -740,8 +740,27 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
 
     try {
+      // Get the actual factor ID from enrolled TOTP factors
+      const { data: factorsData, error: listError } = await supabase.auth.mfa.listFactors();
+      if (listError) {
+        return { error: listError };
+      }
+      const totpFactor = factorsData?.totp?.[0];
+      if (!totpFactor) {
+        return { error: new Error('No TOTP factor enrolled. Please enroll MFA first.') };
+      }
+
+      // Create a challenge for the factor
+      const { data: challengeData, error: challengeError } = await supabase.auth.mfa.challenge({
+        factorId: totpFactor.id,
+      });
+      if (challengeError) {
+        return { error: challengeError };
+      }
+
       const { error } = await supabase.auth.mfa.verify({
-        factorId: 'totp', // This should be the actual factor ID from enrollment
+        factorId: totpFactor.id,
+        challengeId: challengeData.id,
         code,
       });
 

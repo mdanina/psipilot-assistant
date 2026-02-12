@@ -403,56 +403,6 @@ export function CaseSummaryBlock({ patientId, patient }: CaseSummaryBlockProps) 
               </p>
             )}
             <CaseSummaryContent content={caseSummary} />
-            <style>{`
-              .case-summary-content h2 {
-                font-size: 1.25rem;
-                font-weight: 600;
-                margin-top: 1.5rem;
-                margin-bottom: 0.75rem;
-                color: hsl(var(--foreground));
-              }
-              .case-summary-content h2:first-child {
-                margin-top: 0;
-              }
-              .case-summary-content p {
-                margin-bottom: 0.75rem;
-                color: hsl(var(--foreground));
-              }
-              .case-summary-content ul {
-                margin-left: 1.5rem;
-                margin-bottom: 0.75rem;
-                list-style-type: disc;
-              }
-              .case-summary-content li {
-                margin-bottom: 0.5rem;
-                color: hsl(var(--foreground));
-              }
-              .case-summary-content strong {
-                font-weight: 600;
-              }
-              .case-summary-content em {
-                font-style: italic;
-              }
-              @media print {
-                .case-summary-content {
-                  font-size: 12pt;
-                  line-height: 1.6;
-                }
-                .case-summary-content h2 {
-                  font-size: 16pt;
-                  page-break-after: avoid;
-                  margin-top: 20pt;
-                }
-                .case-summary-content p {
-                  margin-bottom: 10pt;
-                  text-align: justify;
-                }
-                .case-summary-content ul {
-                  margin-left: 20pt;
-                  margin-bottom: 10pt;
-                }
-              }
-            `}</style>
           </>
         ) : (
           <div className="text-center py-8 text-muted-foreground">

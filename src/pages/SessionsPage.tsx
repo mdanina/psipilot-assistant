@@ -682,7 +682,7 @@ const SessionsPage = () => {
           userId: user.id,
           clinicId: profile.clinic_id,
           patientId: null,
-          title: `Сессия ${new Date(recording.duration * 1000).toLocaleString('ru-RU')}`,
+          title: `Сессия ${new Date().toLocaleString('ru-RU')}`,
         });
         sessionId = newSession.id;
       }
@@ -1240,11 +1240,12 @@ const SessionsPage = () => {
     // If session is linked to patient, just close the tab (no deletion option)
     if (session.patient_id) {
       // Simply remove from open tabs and update active session if needed
-      let newTabs: Set<string>;
+      // Compute newTabs synchronously before setState to avoid closure issues
+      let newTabs: Set<string> | undefined;
       setOpenTabs(prev => {
         newTabs = new Set(prev);
         newTabs.delete(sessionId);
-        
+
         // If closed session was active, select another one from remaining open tabs
         if (activeSession === sessionId) {
           const remainingOpenTabIds = Array.from(newTabs);
@@ -1255,10 +1256,10 @@ const SessionsPage = () => {
             setActiveSession(null);
           }
         }
-        
+
         return newTabs;
       });
-      
+
         // Save to DB immediately (don't wait for debounce)
         // This prevents race conditions where loadOpenTabs might reload old data
         if (user?.id && newTabs) {

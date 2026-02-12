@@ -159,7 +159,7 @@ const App = () => (
             <Route
               path="/administration"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute requiredRole={['admin']}>
                   <MainLayout>
                     <LazyRoute
                       component={() => import("./pages/AdministrationPage")}

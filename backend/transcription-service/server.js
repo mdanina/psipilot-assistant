@@ -123,9 +123,16 @@ app.use(cors(corsOptions));
 app.use(express.json());
 
 // Устанавливаем правильную кодировку для JSON ответов
+// Перехватываем res.json() чтобы добавить charset=utf-8 только к JSON ответам,
+// не затрагивая другие Content-Type (text/calendar, text/html и т.д.)
 app.use((req, res, next) => {
-  // Устанавливаем charset=utf-8 для всех JSON ответов
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  const originalJson = res.json.bind(res);
+  res.json = function (body) {
+    if (!res.headersSent) {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    }
+    return originalJson(body);
+  };
   next();
 });
 

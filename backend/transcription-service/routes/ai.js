@@ -1055,17 +1055,19 @@ router.post('/patient-case-summary', async (req, res) => {
       });
     }
 
-    // Анонимизируем
-    const combinedText = clinicalNotesText + (transcriptsText ? '\n\n' + transcriptsText : '');
+    // Анонимизируем клинические заметки и транскрипты по отдельности,
+    // чтобы корректно передать их в генератор сводки
+    const TRANSCRIPT_SEPARATOR = '\n\n===TRANSCRIPTS_SEPARATOR===\n\n';
+    const combinedText = clinicalNotesText + (transcriptsText ? TRANSCRIPT_SEPARATOR + transcriptsText : '');
     const { text: anonymizedText, map: anonymizationMap } = anonymize(
       combinedText,
       patient
     );
 
-    // Разделяем анонимизированный текст обратно
-    const anonymizedNotes = anonymizedText.split('\n\nТранскрипты сессий:\n\n');
-    const anonymizedClinicalNotes = anonymizedNotes[0] || anonymizedText;
-    const anonymizedTranscripts = anonymizedNotes[1] || '';
+    // Разделяем анонимизированный текст обратно по разделителю
+    const separatorIndex = anonymizedText.indexOf(TRANSCRIPT_SEPARATOR);
+    const anonymizedClinicalNotes = separatorIndex >= 0 ? anonymizedText.slice(0, separatorIndex) : anonymizedText;
+    const anonymizedTranscripts = separatorIndex >= 0 ? anonymizedText.slice(separatorIndex + TRANSCRIPT_SEPARATOR.length) : '';
 
     // Генерируем HTML сводку
     const aiSummary = await generatePatientCaseSummaryContent(

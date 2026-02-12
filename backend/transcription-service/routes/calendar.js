@@ -101,8 +101,7 @@ router.get('/feed/:token', async (req, res) => {
         scheduled_at,
         duration_minutes,
         status,
-        meeting_format,
-        patients(id, name)
+        meeting_format
       `)
       .eq('user_id', userId)
       .in('status', ['scheduled', 'in_progress'])
@@ -127,12 +126,12 @@ router.get('/feed/:token', async (req, res) => {
       const durationMinutes = session.duration_minutes || 60;
       const endDate = new Date(startDate.getTime() + durationMinutes * 60 * 1000);
 
-      // Build event title - prefer session title, fallback to patient name
+      // Build event title - use session title if available, otherwise generic title
+      // SECURITY: Do NOT include patient name in iCal feed - it syncs to cloud services
+      // (Google Calendar, iCloud, etc.) which would be a PHI/HIPAA/152-ФЗ violation
       let eventTitle = 'Сессия';
       if (session.title) {
         eventTitle = session.title;
-      } else if (session.patients?.name) {
-        eventTitle = `Сессия: ${session.patients.name}`;
       }
 
       // Build description
