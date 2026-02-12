@@ -114,6 +114,7 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
 
     const { id, blob, duration, sessionId, patientId, clinicId, userId } = upload;
     let localRecordingId = upload.localRecordingId;
+    let createdRecordingId: string | null = null; // Track DB recording for orphan cleanup
     // Use original filename for external files, or generate one for recordings
     // Determine extension from actual MIME type (Safari uses audio/mp4, Firefox uses audio/ogg)
     const mimeType = blob.type || 'audio/webm';
@@ -169,6 +170,7 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
         userId,
         fileName,
       });
+      createdRecordingId = recording.id;
       updateUpload(id, { progress: 40 });
 
       // 4. Upload audio file
@@ -240,6 +242,17 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
     } catch (error) {
       console.error('[BackgroundUpload] Upload failed:', error);
       const errorMessage = error instanceof Error ? error.message : 'Неизвестная ошибка';
+
+      // Cleanup orphaned DB recording (created at step 3 but upload/transcription failed)
+      if (createdRecordingId) {
+        try {
+          const { supabase } = await import('@/lib/supabase');
+          await supabase.from('recordings').delete().eq('id', createdRecordingId);
+          console.log('[BackgroundUpload] Cleaned up orphaned recording:', createdRecordingId);
+        } catch (cleanupError) {
+          console.warn('[BackgroundUpload] Failed to cleanup orphaned recording:', cleanupError);
+        }
+      }
 
       // Mark local recording as failed
       if (localRecordingId) {

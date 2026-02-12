@@ -1,4 +1,5 @@
 import express from 'express';
+import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
@@ -119,6 +120,7 @@ const cryptoLimiter = rateLimit({
 });
 
 // Middleware
+app.use(helmet());
 app.use(cors(corsOptions));
 app.use(express.json());
 

@@ -415,47 +415,6 @@ export async function getSessionRecordings(sessionId: string): Promise<Recording
 }
 
 /**
- * Poll recording status until transcription is complete or failed
- */
-export async function pollTranscriptionStatus(
-  recordingId: string,
-  onStatusUpdate?: (status: TranscriptionStatus) => void,
-  maxAttempts: number = 60,
-  intervalMs: number = 2000
-): Promise<TranscriptionStatus> {
-  let attempts = 0;
-
-  return new Promise((resolve, reject) => {
-    const poll = async () => {
-      try {
-        attempts++;
-        const status = await getRecordingStatus(recordingId);
-
-        if (onStatusUpdate) {
-          onStatusUpdate(status);
-        }
-
-        if (status.status === 'completed' || status.status === 'failed') {
-          resolve(status);
-          return;
-        }
-
-        if (attempts >= maxAttempts) {
-          reject(new Error('Transcription timeout: Maximum polling attempts reached'));
-          return;
-        }
-
-        setTimeout(poll, intervalMs);
-      } catch (error) {
-        reject(error);
-      }
-    };
-
-    poll();
-  });
-}
-
-/**
  * Soft delete recording (mark as deleted, but keep in database)
  * Recording will be hidden from user but preserved for audit/history
  */
