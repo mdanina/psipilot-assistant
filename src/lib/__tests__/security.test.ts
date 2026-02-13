@@ -207,7 +207,7 @@ describe('security', () => {
             data: mockBlocklist,
             error: null,
           }),
-        } as any);
+        } as never);
 
         const { data, error } = await getIPBlocklist();
 
@@ -347,7 +347,7 @@ describe('security', () => {
             data: { backup_codes_hashed: ['h1', 'h2', 'h3'] },
             error: null,
           }),
-        } as any);
+        } as never);
 
         const { count, error } = await getRemainingBackupCodesCount();
 
@@ -370,7 +370,7 @@ describe('security', () => {
             data: { backup_codes_hashed: null },
             error: null,
           }),
-        } as any);
+        } as never);
 
         const { count, error } = await getRemainingBackupCodesCount();
 
@@ -430,7 +430,7 @@ describe('security', () => {
             data: null,
             error: null,
           }),
-        } as any);
+        } as never);
 
         const { success, error } = await recordFailedLogin(
           'test@example.com',
@@ -449,7 +449,7 @@ describe('security', () => {
             data: null,
             error: null,
           }),
-        } as any);
+        } as never);
 
         const reasons: Array<'invalid_password' | 'user_not_found' | 'account_locked' | 'mfa_failed'> = [
           'invalid_password',
@@ -495,7 +495,7 @@ describe('security', () => {
             data: mockConsent,
             error: null,
           }),
-        } as any);
+        } as never);
 
         const { data, error } = await createConsent(
           'patient-123',
@@ -518,7 +518,7 @@ describe('security', () => {
             data: null,
             error: null,
           }),
-        } as any);
+        } as never);
 
         const { success, error } = await withdrawConsent('consent-123');
 
@@ -541,7 +541,7 @@ describe('security', () => {
             data: mockConsents,
             error: null,
           }),
-        } as any);
+        } as never);
 
         const { data, error } = await getPatientConsents('patient-123');
 

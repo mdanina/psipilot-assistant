@@ -790,7 +790,7 @@ export type Database = {
         ];
       };
     };
-    Views: {};
+    Views: Record<string, never>;
     Functions: {
       get_user_clinic_id: {
         Args: Record<string, never>;
@@ -838,8 +838,8 @@ export type Database = {
         Returns: boolean;
       };
     };
-    Enums: {};
-    CompositeTypes: {};
+    Enums: Record<string, never>;
+    CompositeTypes: Record<string, never>;
   };
 };
 
