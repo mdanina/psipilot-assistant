@@ -209,10 +209,10 @@ export function useTranscriptionRecovery(
       const shouldSyncLongRunning = isLongRunning && (attempts % 5 === 0);
       const shouldSync = shouldSyncOnFirstAttempt || shouldSyncEarly || shouldSyncRegular || shouldSyncLongRunning;
       
-      const status = await getRecordingStatus(recordingId, transcriptionApiUrl, shouldSync);
+      const status = await getRecordingStatus(recordingId, transcriptionApiUrl, shouldSync) as (Awaited<ReturnType<typeof getRecordingStatus>> & { syncError?: Error });
 
       // Check for stuck transcriptions
-      const syncError = (status as any).syncError as Error | undefined;
+      const syncError = status.syncError;
       const isVeryOld = recordingAge > 6 * 60 * 60 * 1000; // > 6 hours (reduced from 24h for better UX)
       const isModeratelyOld = recordingAge > 10 * 60 * 1000; // > 10 minutes
 
@@ -249,8 +249,8 @@ export function useTranscriptionRecovery(
             console.error('[useTranscriptionRecovery] Failed to mark recording as failed:', updateError);
           } else {
             // Update status to reflect the change
-            (status as any).status = 'failed';
-            (status as any).error = failureReason;
+            status.status = 'failed';
+            status.error = failureReason;
 
             // For stuck transcriptions, remove from list after a short delay
             // This keeps the UI clean while still showing the toast notification

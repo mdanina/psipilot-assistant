@@ -106,7 +106,7 @@ describe('supabase-recordings', () => {
           },
         },
         error: null,
-      } as any);
+      } as never);
 
       const mockRecording = {
         id: 'rec-123',
@@ -122,7 +122,7 @@ describe('supabase-recordings', () => {
         select: vi.fn().mockReturnThis(),
         single: vi.fn().mockResolvedValue({ data: mockRecording, error: null }),
       };
-      vi.mocked(supabase.from).mockReturnValue(mockChain as any);
+      vi.mocked(supabase.from).mockReturnValue(mockChain as never);
 
       const result = await createRecording({
         sessionId: 'session-123',
@@ -146,7 +146,7 @@ describe('supabase-recordings', () => {
       vi.mocked(supabase.auth.getSession).mockResolvedValue({
         data: { session: null },
         error: null,
-      } as any);
+      } as never);
 
       await expect(
         createRecording({ sessionId: 's1', userId: 'u1' })
@@ -166,7 +166,7 @@ describe('supabase-recordings', () => {
           },
         },
         error: null,
-      } as any);
+      } as never);
 
       const mockChain = {
         insert: vi.fn().mockReturnThis(),
@@ -176,7 +176,7 @@ describe('supabase-recordings', () => {
           error: null,
         }),
       };
-      vi.mocked(supabase.from).mockReturnValue(mockChain as any);
+      vi.mocked(supabase.from).mockReturnValue(mockChain as never);
 
       await createRecording({
         sessionId: 's1',
@@ -207,7 +207,7 @@ describe('supabase-recordings', () => {
           },
         },
         error: null,
-      } as any);
+      } as never);
 
       mockFetch.mockResolvedValueOnce({ ok: true });
 
@@ -229,7 +229,7 @@ describe('supabase-recordings', () => {
       vi.mocked(supabase.auth.getSession).mockResolvedValue({
         data: { session: null },
         error: null,
-      } as any);
+      } as never);
 
       await expect(
         startTranscription('rec-123', 'http://localhost:3001')
@@ -249,7 +249,7 @@ describe('supabase-recordings', () => {
           },
         },
         error: null,
-      } as any);
+      } as never);
 
       mockFetch.mockResolvedValueOnce({
         ok: false,
@@ -271,7 +271,7 @@ describe('supabase-recordings', () => {
         update: vi.fn().mockReturnThis(),
         eq: vi.fn().mockResolvedValue({ data: null, error: null }),
       };
-      vi.mocked(supabase.from).mockReturnValue(mockChain as any);
+      vi.mocked(supabase.from).mockReturnValue(mockChain as never);
 
       await deleteRecording('rec-123');
 
@@ -290,7 +290,7 @@ describe('supabase-recordings', () => {
           error: { message: 'RLS violation' },
         }),
       };
-      vi.mocked(supabase.from).mockReturnValue(mockChain as any);
+      vi.mocked(supabase.from).mockReturnValue(mockChain as never);
 
       await expect(deleteRecording('rec-123')).rejects.toThrow(/Failed to delete/);
     });
@@ -312,7 +312,7 @@ describe('supabase-recordings', () => {
         is: vi.fn().mockReturnThis(),
         order: vi.fn().mockResolvedValue({ data: mockRecordings, error: null }),
       };
-      vi.mocked(supabase.from).mockReturnValue(mockChain as any);
+      vi.mocked(supabase.from).mockReturnValue(mockChain as never);
 
       const result = await getSessionRecordings('session-123');
 
@@ -332,7 +332,7 @@ describe('supabase-recordings', () => {
         is: vi.fn().mockReturnThis(),
         order: vi.fn().mockResolvedValue({ data: mockRecordings, error: null }),
       };
-      vi.mocked(supabase.from).mockReturnValue(mockChain as any);
+      vi.mocked(supabase.from).mockReturnValue(mockChain as never);
 
       const result = await getSessionRecordings('session-123');
 
@@ -346,7 +346,7 @@ describe('supabase-recordings', () => {
         is: vi.fn().mockReturnThis(),
         order: vi.fn().mockResolvedValue({ data: null, error: null }),
       };
-      vi.mocked(supabase.from).mockReturnValue(mockChain as any);
+      vi.mocked(supabase.from).mockReturnValue(mockChain as never);
 
       const result = await getSessionRecordings('session-123');
 

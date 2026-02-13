@@ -24,8 +24,8 @@ type PhiField<T extends TableName> = typeof PHI_FIELDS[T][number];
  */
 async function encryptPhiFields<T extends TableName>(
   table: T,
-  data: Record<string, any>
-): Promise<Record<string, any>> {
+  data: Record<string, unknown>
+): Promise<Record<string, unknown>> {
   const fields = PHI_FIELDS[table];
   if (!fields) {
     return data;
@@ -54,8 +54,8 @@ async function encryptPhiFields<T extends TableName>(
  */
 async function decryptPhiFields<T extends TableName>(
   table: T,
-  data: Record<string, any>
-): Promise<Record<string, any>> {
+  data: Record<string, unknown>
+): Promise<Record<string, unknown>> {
   const fields = PHI_FIELDS[table];
   if (!fields) {
     return data;
@@ -103,8 +103,8 @@ export function createEncryptedClient(): SupabaseClient<Database> {
             if (result.data && Array.isArray(result.data)) {
               // Decrypt each row
               const decryptedData = await Promise.all(
-                result.data.map((row: any) => 
-                  decryptPhiFields(table as TableName, row)
+                result.data.map((row) => 
+                  decryptPhiFields(table as TableName, row as Record<string, unknown>)
                 )
               );
               return { ...result, data: decryptedData };
@@ -119,7 +119,7 @@ export function createEncryptedClient(): SupabaseClient<Database> {
 
           // Wrap insert to encrypt
           const originalInsert = query.insert.bind(query);
-          query.insert = async (values: any) => {
+          query.insert = async (values: unknown[] | Record<string, unknown>) => {
             if (Array.isArray(values)) {
               const encryptedValues = await Promise.all(
                 values.map((row) => encryptPhiFields(table as TableName, row))
@@ -133,7 +133,7 @@ export function createEncryptedClient(): SupabaseClient<Database> {
 
           // Wrap update to encrypt
           const originalUpdate = query.update.bind(query);
-          query.update = async (values: any) => {
+          query.update = async (values: Record<string, unknown>) => {
             const encryptedValues = await encryptPhiFields(table as TableName, values);
             return originalUpdate(encryptedValues);
           };
