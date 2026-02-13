@@ -218,14 +218,16 @@ describe('use-toast', () => {
     it('should update toast via update function', () => {
       const { result } = renderHook(() => useToast());
 
-      let updateFn: (props: any) => void;
+      let updateFn: ReturnType<typeof result.current.toast>["update"] | undefined;
       act(() => {
         const toastResult = result.current.toast({ title: 'Original Title' });
         updateFn = toastResult.update;
       });
 
+      expect(updateFn).toBeDefined();
+
       act(() => {
-        updateFn({ title: 'Updated Title' });
+        updateFn?.({ title: 'Updated Title' } as never);
       });
 
       expect(result.current.toasts[0].title).toBe('Updated Title');

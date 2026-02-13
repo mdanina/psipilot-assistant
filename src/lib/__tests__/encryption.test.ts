@@ -183,7 +183,7 @@ describe('encryption', () => {
     });
 
     it('should return empty array for null-ish input', async () => {
-      const result = await encryptPHIBatch(null as any);
+      const result = await encryptPHIBatch(null as unknown as string[]);
       expect(result).toEqual([]);
     });
 
@@ -226,7 +226,7 @@ describe('encryption', () => {
     });
 
     it('should return empty array for null-ish input', async () => {
-      const result = await decryptPHIBatch(null as any);
+      const result = await decryptPHIBatch(null as unknown as string[]);
       expect(result).toEqual([]);
     });
 
