@@ -176,8 +176,8 @@ router.get('/block-templates', async (req, res) => {
 
     res.json({ success: true, data });
   } catch (error) {
-    console.error('Error fetching block templates:', error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error('Error fetching block templates:', error.message || error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
 
@@ -244,8 +244,8 @@ router.get('/note-templates', async (req, res) => {
 
     res.json({ success: true, data: templatesWithBlocks });
   } catch (error) {
-    console.error('Error fetching note templates:', error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error('Error fetching note templates:', error.message || error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
 
@@ -315,7 +315,7 @@ router.post('/generate', async (req, res) => {
         .eq('transcription_status', 'completed');
 
       if (recordingsError) {
-        console.error('[AI Generate] Error fetching recordings:', recordingsError);
+        console.error('[AI Generate] Error fetching recordings:', recordingsError.message || recordingsError);
         throw recordingsError;
       }
 
@@ -343,7 +343,7 @@ router.post('/generate', async (req, res) => {
         .eq('session_id', session_id);
 
       if (notesError) {
-        console.error('[AI Generate] Error fetching notes:', notesError);
+        console.error('[AI Generate] Error fetching notes:', notesError.message || notesError);
       } else {
         console.log(`[AI Generate] Found ${notes?.length || 0} session notes`);
       }
@@ -395,7 +395,7 @@ router.post('/generate', async (req, res) => {
       .single();
 
     if (noteError) {
-      console.error('[AI Generate] Error creating clinical note:', noteError);
+      console.error('[AI Generate] Error creating clinical note:', noteError.message || noteError);
       throw noteError;
     }
 
@@ -418,7 +418,7 @@ router.post('/generate', async (req, res) => {
       .in('id', template.block_template_ids);
 
     if (blocksError) {
-      console.error('[AI Generate] Error fetching block templates:', blocksError);
+      console.error('[AI Generate] Error fetching block templates:', blocksError.message || blocksError);
       throw blocksError;
     }
 
@@ -484,7 +484,7 @@ router.post('/generate', async (req, res) => {
       anonymizationMap,
       user_id
     ).catch(err => {
-      console.error('Background generation error:', err);
+      console.error('Background generation error:', err.message || err);
     });
 
     // 9. Логируем
@@ -510,8 +510,8 @@ router.post('/generate', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error starting generation:', error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error('Error starting generation:', error.message || error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
 
@@ -568,7 +568,7 @@ async function generateSectionsInBackground(
 
           return { section_id: section.id, status: 'completed' };
         } catch (error) {
-          console.error(`Error generating section ${section.id}:`, error);
+          console.error(`Error generating section ${section.id}:`, error.message || error);
           await supabase
             .from('sections')
             .update({
@@ -614,7 +614,7 @@ async function generateSectionsInBackground(
       },
     });
   } catch (error) {
-    console.error('Background generation error:', error);
+    console.error('Background generation error:', error.message || error);
 
     await supabase
       .from('clinical_notes')
@@ -677,8 +677,8 @@ router.get('/generate/:clinicalNoteId/status', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error fetching generation status:', error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error('Error fetching generation status:', error.message || error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
 
@@ -784,8 +784,8 @@ router.post('/regenerate-section/:sectionId', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error regenerating section:', error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error('Error regenerating section:', error.message || error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
 
@@ -867,7 +867,7 @@ router.post('/case-summary', async (req, res) => {
             combinedText += `\n### ${section.name}\n`;
             combinedText += decryptedContent;
           } catch (err) {
-            console.error('Error decrypting section content:', err);
+            console.error('Error decrypting section content:', err.message || err);
           }
         }
       }
@@ -926,8 +926,8 @@ router.post('/case-summary', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error generating case summary:', error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error('Error generating case summary:', error.message || error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
 
@@ -1009,7 +1009,7 @@ router.post('/patient-case-summary', async (req, res) => {
             clinicalNotesText += `\n### ${section.name}\n`;
             clinicalNotesText += decryptedContent;
           } catch (err) {
-            console.error('Error decrypting section content:', err);
+            console.error('Error decrypting section content:', err.message || err);
           }
         }
       }
@@ -1026,7 +1026,7 @@ router.post('/patient-case-summary', async (req, res) => {
         .eq('transcription_status', 'completed');
 
       if (recordingsError) {
-        console.error('[Patient Case Summary] Error fetching recordings:', recordingsError);
+        console.error('[Patient Case Summary] Error fetching recordings:', recordingsError.message || recordingsError);
       } else if (recordings?.length) {
         // Используем helper для расшифровки транскриптов
         transcriptsText = extractTranscriptsFromRecordings(recordings) || '';
@@ -1100,8 +1100,8 @@ router.post('/patient-case-summary', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error generating patient case summary:', error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error('Error generating patient case summary:', error.message || error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
 

@@ -57,7 +57,7 @@ export async function verifyAuthToken(req, res, next) {
         .single();
 
       if (profileError) {
-        console.error('Error fetching profile:', profileError);
+        console.error('Error fetching profile:', profileError.message || profileError);
         // SECURITY: Блокируем запрос если профиль не найден —
         // это может быть признаком проблемы с данными или атаки
         return res.status(403).json({
@@ -68,7 +68,7 @@ export async function verifyAuthToken(req, res, next) {
 
       clinic_id = profile?.clinic_id || null;
     } catch (err) {
-      console.error('Error getting admin client for profile:', err);
+      console.error('Error getting admin client for profile:', err.message || err);
       return res.status(500).json({
         success: false,
         error: 'Internal server error: Profile lookup failed'
@@ -84,7 +84,7 @@ export async function verifyAuthToken(req, res, next) {
 
     next();
   } catch (err) {
-    console.error('Error verifying token:', err);
+    console.error('Error verifying token:', err.message || err);
     return res.status(500).json({ 
       success: false,
       error: 'Internal server error' 

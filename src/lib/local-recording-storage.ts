@@ -10,6 +10,8 @@
  * and avoids the problem of losing encryption keys when browser closes.
  */
 
+import { decryptBlob } from './recording-encryption';
+
 interface StoredRecording {
   id: string;
   blob: ArrayBuffer; // Raw audio data (not encrypted)
@@ -254,8 +256,6 @@ export async function getLocalRecording(id: string): Promise<{
     // Handle legacy encrypted recordings (backward compatibility)
     if (recording.encryptedBlob && recording.iv) {
       try {
-        // Dynamically import decryption only when needed for legacy data
-        const { decryptBlob } = await import('./recording-encryption');
         blob = await decryptBlob(recording.encryptedBlob, recording.iv, recording.mimeType);
         console.log('[LocalStorage] Decrypted legacy encrypted recording:', id);
       } catch (error) {

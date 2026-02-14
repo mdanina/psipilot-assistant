@@ -24,6 +24,7 @@ import {
   markRecordingUploadFailed,
   deleteLocalRecording,
 } from '@/lib/local-recording-storage';
+import { supabase } from '@/lib/supabase';
 
 const transcriptionApiUrl = import.meta.env.VITE_TRANSCRIPTION_API_URL || '';
 
@@ -246,7 +247,6 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
       // Cleanup orphaned DB recording (created at step 3 but upload/transcription failed)
       if (createdRecordingId) {
         try {
-          const { supabase } = await import('@/lib/supabase');
           await supabase.from('recordings').delete().eq('id', createdRecordingId);
           console.log('[BackgroundUpload] Cleaned up orphaned recording:', createdRecordingId);
         } catch (cleanupError) {

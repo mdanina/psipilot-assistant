@@ -3,7 +3,6 @@ import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
-import { createClient } from '@supabase/supabase-js';
 import { transcribeRoute } from './routes/transcribe.js';
 import { webhookRoute } from './routes/webhook.js';
 import { aiRoute } from './routes/ai.js';
@@ -256,14 +255,15 @@ app.use('/api/calendar', verifyAuthToken, calendarRoute);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  // Логируем полную ошибку только на сервере
-  console.error('Error:', err);
-
-  // SECURITY: В production не раскрываем детали ошибок клиентам
+  // SECURITY: Log only safe error info — never full error objects (may contain tokens/PII)
   const isProduction = process.env.NODE_ENV === 'production';
+  console.error(`[${req.method} ${req.path}] ${err.message || 'Unknown error'}`);
+  if (!isProduction) {
+    console.error(err.stack);
+  }
+
   res.status(500).json({
     error: 'Internal server error',
-    // В dev показываем детали для отладки, в prod — generic message
     ...(isProduction ? {} : { message: err.message }),
   });
 });

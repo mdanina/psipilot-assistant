@@ -10,6 +10,8 @@ import {
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import type { User, Session } from '@supabase/supabase-js';
 import type { Clinic, Profile, ProfileWithClinic } from '@/types';
+import { clearAllLocalRecordings } from '@/lib/local-recording-storage';
+import { clearSessionKey } from '@/lib/recording-encryption';
 
 type ProfileQueryResult = { data: Profile | null; error: { message?: string } | null };
 type ProfileWithMfaFlag = ProfileWithClinic & { mfa_enabled?: boolean };
@@ -259,8 +261,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
     
     // Clear local recordings on logout
     try {
-      const { clearAllLocalRecordings } = await import('@/lib/local-recording-storage');
-      const { clearSessionKey } = await import('@/lib/recording-encryption');
       await clearAllLocalRecordings();
       clearSessionKey();
       console.log('[AuthContext] Local recordings and session key cleared on logout');
