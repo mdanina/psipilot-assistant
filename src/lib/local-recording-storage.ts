@@ -479,13 +479,16 @@ export async function downloadLocalRecording(id: string): Promise<void> {
   }
 
   const url = URL.createObjectURL(recording.blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = recording.fileName;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  try {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = recording.fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 /**

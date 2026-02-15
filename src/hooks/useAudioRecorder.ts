@@ -305,17 +305,20 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
           console.log('[Recording] Saved partial recording on error:', partialBlob.size, 'bytes');
         }
 
-        // Защита от позднего вызова onstop после ошибки
-        stopResolvedRef.current = true;
         isStoppingRef.current = false;
         setError('Запись прервана. Часть данных могла быть сохранена.');
         setStatus('stopped'); // Use 'stopped' instead of 'error' if we have data
 
-        // Resolve pending stopRecording promise with partial data
+        // Resolve pending stopRecording promise with partial data BEFORE setting stopResolvedRef.
+        // stopResolveRef.current may be a safeResolve wrapper that checks stopResolvedRef,
+        // so we must call it while stopResolvedRef is still false.
         if (stopResolveRef.current) {
           stopResolveRef.current(partialBlob);
           stopResolveRef.current = null;
         }
+
+        // Защита от позднего вызова onstop после ошибки — ставим ПОСЛЕ resolve
+        stopResolvedRef.current = true;
 
         cleanup();
       };
