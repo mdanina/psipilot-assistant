@@ -257,7 +257,7 @@ export async function getLocalRecording(id: string): Promise<{
     if (recording.encryptedBlob && recording.iv) {
       try {
         blob = await decryptBlob(recording.encryptedBlob, recording.iv, recording.mimeType);
-        console.log('[LocalStorage] Decrypted legacy encrypted recording:', id);
+        if (import.meta.env.DEV) console.log('[LocalStorage] Decrypted legacy encrypted recording:', id);
       } catch (error) {
         console.error('[LocalStorage] Failed to decrypt legacy recording:', id, error);
         // Cannot recover - encryption key might be lost

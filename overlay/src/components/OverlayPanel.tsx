@@ -188,7 +188,7 @@ export function OverlayPanel() {
             if (encryptedNames.length > 0) {
               try {
                 const decryptedNames = await decryptPHIBatch(encryptedNames);
-                console.log('Decrypted patient names:', decryptedNames.length);
+                if (import.meta.env.DEV) console.log('Decrypted patient names:', decryptedNames.length);
                 
                 // Объединяем расшифрованные имена с данными пациентов
                 const decryptedPatients = patientRows.map((patient, index) => {
