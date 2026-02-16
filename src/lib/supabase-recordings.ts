@@ -134,6 +134,29 @@ export function validateFileSize(blob: Blob, maxSizeMB: number = MAX_FILE_SIZE_M
 }
 
 /**
+ * Sanitize filename for safe use in Supabase Storage paths.
+ * Replaces spaces, Cyrillic, and special characters with safe ASCII equivalents.
+ * Preserves the file extension.
+ */
+export function sanitizeStorageFileName(fileName: string): string {
+  // Split name and extension
+  const lastDot = fileName.lastIndexOf('.');
+  const name = lastDot > 0 ? fileName.substring(0, lastDot) : fileName;
+  const ext = lastDot > 0 ? fileName.substring(lastDot) : '';
+
+  // Replace non-ASCII and special characters with underscores, collapse multiples
+  const safeName = name
+    .replace(/[^a-zA-Z0-9._-]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
+
+  // If name became empty after sanitization, use a timestamp
+  const finalName = safeName || `file-${Date.now()}`;
+
+  return finalName + ext.toLowerCase();
+}
+
+/**
  * Upload audio file to Supabase Storage with retry logic
  */
 export async function uploadAudioFile(params: UploadAudioParams): Promise<string> {
@@ -142,8 +165,11 @@ export async function uploadAudioFile(params: UploadAudioParams): Promise<string
   // Validate file size before attempting upload
   validateFileSize(audioBlob);
 
-  // Generate file path: recordings/{recordingId}/{fileName}
-  const filePath = `recordings/${recordingId}/${fileName}`;
+  // Sanitize filename for storage (Cyrillic, spaces, special chars cause signed URL issues)
+  const safeFileName = sanitizeStorageFileName(fileName);
+
+  // Generate file path: recordings/{recordingId}/{safeFileName}
+  const filePath = `recordings/${recordingId}/${safeFileName}`;
 
   let lastError: Error | null = null;
 
