@@ -2233,6 +2233,21 @@ const SessionsPage = () => {
                                 size="sm"
                                 onClick={async () => {
                                   try {
+                                    // Guard: check if the audio file was actually uploaded
+                                    // If file_path is still a temp path, the upload never completed
+                                    const isFileUploaded = recording.file_path &&
+                                      !recording.file_path.startsWith('recordings/temp/') &&
+                                      (recording.file_size_bytes != null && recording.file_size_bytes > 0);
+
+                                    if (!isFileUploaded) {
+                                      toast({
+                                        title: "Аудио не загружено",
+                                        description: "Файл записи не был загружен на сервер. Запись нужно выполнить заново.",
+                                        variant: "destructive",
+                                      });
+                                      return;
+                                    }
+
                                     // Step 1: Try to sync first (if we have transcript_id)
                                     if (recording.transcript_id) {
                                       toast({

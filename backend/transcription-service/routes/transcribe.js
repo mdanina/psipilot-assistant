@@ -176,12 +176,20 @@ router.post('/transcribe', async (req, res) => {
       return res.status(403).json({ error: `Forbidden: ${accessCheck.error}` });
     }
 
+    // Validate that audio file was actually uploaded (not still a temp placeholder)
+    if (!recording.file_path || recording.file_path.startsWith('recordings/temp/')) {
+      return res.status(400).json({
+        error: 'Audio file has not been uploaded yet. The recording upload may have been interrupted.',
+      });
+    }
+
     // Get signed URL for audio file from Supabase Storage
     const { data: signedUrlData, error: urlError } = await supabase.storage
       .from('recordings')
       .createSignedUrl(recording.file_path, 3600); // 1 hour expiry
 
     if (urlError || !signedUrlData) {
+      console.error('[transcribe] Failed to create signed URL:', urlError, 'file_path:', recording.file_path);
       return res.status(500).json({ error: 'Failed to generate signed URL for audio file' });
     }
 
