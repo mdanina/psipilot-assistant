@@ -25,7 +25,7 @@ router.post('/generate-token', async (req, res) => {
     );
 
     if (tokenError) {
-      console.error('Token generation error:', tokenError);
+      console.error('Token generation error:', tokenError.message || tokenError);
       return res.status(500).json({ success: false, error: 'Failed to generate token' });
     }
 
@@ -40,7 +40,7 @@ router.post('/generate-token', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Token generation error:', error);
+    console.error('Token generation error:', error.message || error);
     return res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
@@ -86,7 +86,7 @@ router.get('/feed/:token', async (req, res) => {
       .order('scheduled_at', { ascending: true });
 
     if (sessionsError) {
-      console.error('Sessions fetch error:', sessionsError);
+      console.error('Sessions fetch error:', sessionsError.message || sessionsError);
       return res.status(500).json({ error: 'Failed to fetch sessions' });
     }
 
@@ -137,7 +137,7 @@ router.get('/feed/:token', async (req, res) => {
     return res.send(calendar.toString());
 
   } catch (error) {
-    console.error('Calendar feed error:', error);
+    console.error('Calendar feed error:', error.message || error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -162,14 +162,14 @@ router.delete('/revoke-token', async (req, res) => {
       .eq('user_id', userId);
 
     if (deleteError) {
-      console.error('Token revoke error:', deleteError);
+      console.error('Token revoke error:', deleteError.message || deleteError);
       return res.status(500).json({ success: false, error: 'Failed to revoke token' });
     }
 
     return res.json({ success: true });
 
   } catch (error) {
-    console.error('Token revoke error:', error);
+    console.error('Token revoke error:', error.message || error);
     return res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });

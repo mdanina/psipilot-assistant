@@ -138,10 +138,9 @@ router.post('/webhook/assemblyai', webhookAuth, async (req, res) => {
       .eq('id', recording.id);
 
     if (updateError) {
-      console.error('Error updating recording:', updateError);
-      return res.status(500).json({ 
-        error: 'Failed to update recording',
-        message: updateError.message 
+      console.error('Error updating recording:', updateError.message || updateError);
+      return res.status(500).json({
+        error: 'Failed to update recording'
       });
     }
 
@@ -152,7 +151,7 @@ router.post('/webhook/assemblyai', webhookAuth, async (req, res) => {
       status 
     });
   } catch (error) {
-    console.error('Webhook error:', error);
+    console.error('Webhook error:', error.message || error);
     // SECURITY: Do not leak internal error details to external callers
     res.status(500).json({
       error: 'Webhook processing failed',

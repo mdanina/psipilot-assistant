@@ -8,6 +8,7 @@ import {
   getSessionRecordings,
   deleteRecording,
   validateFileSize,
+  sanitizeStorageFileName,
   MAX_FILE_SIZE_MB,
 } from '../supabase-recordings';
 import { supabase } from '../supabase';
@@ -351,6 +352,58 @@ describe('supabase-recordings', () => {
       const result = await getSessionRecordings('session-123');
 
       expect(result).toEqual([]);
+    });
+  });
+
+  // ================================================================
+  // sanitizeStorageFileName
+  // ================================================================
+  describe('sanitizeStorageFileName', () => {
+    it('should keep safe ASCII filenames unchanged', () => {
+      expect(sanitizeStorageFileName('recording-123.webm')).toBe('recording-123.webm');
+      expect(sanitizeStorageFileName('file.mp3')).toBe('file.mp3');
+      expect(sanitizeStorageFileName('audio_2024.m4a')).toBe('audio_2024.m4a');
+    });
+
+    it('should replace Cyrillic characters and generate safe name', () => {
+      const result = sanitizeStorageFileName('Запись сессии.webm');
+      // Fully Cyrillic name → all replaced with underscores → collapsed → stripped → fallback
+      expect(result).toMatch(/^file-\d+\.webm$/);
+      expect(result).not.toContain('Запись');
+      expect(result.endsWith('.webm')).toBe(true);
+    });
+
+    it('should replace spaces with underscores', () => {
+      expect(sanitizeStorageFileName('my recording file.mp3')).toBe('my_recording_file.mp3');
+    });
+
+    it('should replace special characters', () => {
+      expect(sanitizeStorageFileName('file (1) [copy].wav')).toBe('file_1_copy.wav');
+    });
+
+    it('should collapse multiple underscores', () => {
+      expect(sanitizeStorageFileName('a   b___c.ogg')).toBe('a_b_c.ogg');
+    });
+
+    it('should lowercase extension', () => {
+      expect(sanitizeStorageFileName('file.MP3')).toBe('file.mp3');
+      expect(sanitizeStorageFileName('file.M4A')).toBe('file.m4a');
+    });
+
+    it('should handle fully non-ASCII filenames', () => {
+      const result = sanitizeStorageFileName('Аудио.m4a');
+      // Name part becomes empty after replacing Cyrillic → fallback to timestamp
+      expect(result).toMatch(/^file-\d+\.m4a$/);
+    });
+
+    it('should handle filenames without extension', () => {
+      const result = sanitizeStorageFileName('recording');
+      expect(result).toBe('recording');
+    });
+
+    it('should preserve dots in extension only', () => {
+      const result = sanitizeStorageFileName('session.15.02.2026.mp3');
+      expect(result).toBe('session.15.02.2026.mp3');
     });
   });
 });

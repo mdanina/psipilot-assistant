@@ -94,13 +94,13 @@ async function syncTranscriptionStatus(recording) {
       .eq('id', recording.id);
 
     if (updateError) {
-      console.error('Error updating recording during sync:', updateError);
+      console.error('Error updating recording during sync:', updateError.message);
       return null;
     }
 
     return { ...recording, ...updateData, assemblyaiStatus: transcript.status };
   } catch (error) {
-    console.error('Error syncing transcription status:', error);
+    console.error('Error syncing transcription status:', error.message || error);
     return null;
   }
 }
@@ -133,7 +133,7 @@ async function verifySessionAccess(userId, sessionId, supabase) {
 
     return { authorized: true, session };
   } catch (error) {
-    console.error('[verifySessionAccess] Error:', error);
+    console.error('[verifySessionAccess] Error:', error.message || error);
     return { authorized: false, error: 'Internal error checking access' };
   }
 }
@@ -176,12 +176,20 @@ router.post('/transcribe', async (req, res) => {
       return res.status(403).json({ error: `Forbidden: ${accessCheck.error}` });
     }
 
+    // Validate that audio file was actually uploaded (not still a temp placeholder)
+    if (!recording.file_path || recording.file_path.startsWith('recordings/temp/')) {
+      return res.status(400).json({
+        error: 'Audio file has not been uploaded yet. The recording upload may have been interrupted.',
+      });
+    }
+
     // Get signed URL for audio file from Supabase Storage
     const { data: signedUrlData, error: urlError } = await supabase.storage
       .from('recordings')
       .createSignedUrl(recording.file_path, 3600); // 1 hour expiry
 
     if (urlError || !signedUrlData) {
+      console.error('[transcribe] Failed to create signed URL:', urlError, 'file_path:', recording.file_path);
       return res.status(500).json({ error: 'Failed to generate signed URL for audio file' });
     }
 
@@ -281,8 +289,8 @@ router.post('/transcribe', async (req, res) => {
       status: 'processing',
     });
   } catch (error) {
-    console.error('Transcription error:', error);
-    
+    console.error('Transcription error:', error.message || error);
+
     // Update recording status to failed
     if (req.body.recordingId) {
       try {
@@ -295,13 +303,12 @@ router.post('/transcribe', async (req, res) => {
           })
           .eq('id', req.body.recordingId);
       } catch (updateError) {
-        console.error('Error updating recording status:', updateError);
+        console.error('Error updating recording status:', updateError.message || updateError);
       }
     }
 
     res.status(500).json({
       error: 'Transcription failed',
-      message: error.message,
     });
   }
 });
@@ -361,10 +368,9 @@ router.post('/transcribe/:recordingId/sync', async (req, res) => {
       hasText: !!syncedRecording.transcription_text,
     });
   } catch (error) {
-    console.error('Sync error:', error);
+    console.error('Sync error:', error.message || error);
     res.status(500).json({
       error: 'Failed to sync transcription status',
-      message: error.message,
     });
   }
 });
@@ -439,10 +445,9 @@ router.get('/transcribe/:recordingId/status', async (req, res) => {
       synced: false,
     });
   } catch (error) {
-    console.error('Status check error:', error);
+    console.error('Status check error:', error.message || error);
     res.status(500).json({
       error: 'Failed to get status',
-      message: error.message,
     });
   }
 });

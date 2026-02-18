@@ -79,7 +79,7 @@ export async function authenticateResearcher(req, res, next) {
       .single();
 
     if (profileError || !profile) {
-      console.error('Error fetching profile:', profileError);
+      console.error('Error fetching profile:', profileError.message || profileError);
       return res.status(401).json({
         success: false,
         error: 'Unauthorized: Profile not found'
@@ -129,7 +129,7 @@ export async function authenticateResearcher(req, res, next) {
 
     next();
   } catch (err) {
-    console.error('Error in authenticateResearcher:', err);
+    console.error('Error in authenticateResearcher:', err.message || err);
     return res.status(500).json({
       success: false,
       error: 'Internal server error'

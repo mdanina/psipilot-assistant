@@ -77,19 +77,10 @@ function SectionCard({
                                 !rawContent.includes(' ') &&
                                 !rawContent.includes(':');
 
-      console.log('[SectionCard] Decryption check:', {
-        hasUnicodeChars,
-        isLikelyEncrypted,
-        length: rawContent.length,
-        preview: rawContent.substring(0, 30),
-      });
-
       if (isLikelyEncrypted) {
         try {
           setIsDecrypting(true);
-          console.log('[SectionCard] Attempting to decrypt...');
           const decrypted = await decryptPHI(rawContent);
-          console.log('[SectionCard] Decryption successful, length:', decrypted.length);
           if (decrypted && decrypted.trim()) {
             setDecryptedContent(decrypted);
             setContent(decrypted);
@@ -117,7 +108,6 @@ function SectionCard({
         }
       } else {
         // Контент не зашифрован (уже расшифрован в getClinicalNotesForSession)
-        console.log('[SectionCard] Content appears to be already decrypted');
         setDecryptedContent(rawContent);
         setContent(rawContent);
       }

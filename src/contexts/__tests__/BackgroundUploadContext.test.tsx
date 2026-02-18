@@ -21,7 +21,7 @@ vi.mock('@tanstack/react-query', () => ({
 
 const mockCreateSession = vi.fn();
 vi.mock('@/lib/supabase-sessions', () => ({
-  createSession: (...args: any[]) => mockCreateSession(...args),
+  createSession: (...args: unknown[]) => mockCreateSession(...args),
 }));
 
 const mockCreateRecording = vi.fn();
@@ -30,11 +30,11 @@ const mockUpdateRecording = vi.fn();
 const mockStartTranscription = vi.fn();
 const mockValidateFileSize = vi.fn();
 vi.mock('@/lib/supabase-recordings', () => ({
-  createRecording: (...args: any[]) => mockCreateRecording(...args),
-  uploadAudioFile: (...args: any[]) => mockUploadAudioFile(...args),
-  updateRecording: (...args: any[]) => mockUpdateRecording(...args),
-  startTranscription: (...args: any[]) => mockStartTranscription(...args),
-  validateFileSize: (...args: any[]) => mockValidateFileSize(...args),
+  createRecording: (...args: unknown[]) => mockCreateRecording(...args),
+  uploadAudioFile: (...args: unknown[]) => mockUploadAudioFile(...args),
+  updateRecording: (...args: unknown[]) => mockUpdateRecording(...args),
+  startTranscription: (...args: unknown[]) => mockStartTranscription(...args),
+  validateFileSize: (...args: unknown[]) => mockValidateFileSize(...args),
   MAX_FILE_SIZE_MB: 500,
 }));
 
@@ -43,10 +43,10 @@ const mockMarkRecordingUploaded = vi.fn();
 const mockMarkRecordingUploadFailed = vi.fn();
 const mockDeleteLocalRecording = vi.fn();
 vi.mock('@/lib/local-recording-storage', () => ({
-  saveRecordingLocally: (...args: any[]) => mockSaveRecordingLocally(...args),
-  markRecordingUploaded: (...args: any[]) => mockMarkRecordingUploaded(...args),
-  markRecordingUploadFailed: (...args: any[]) => mockMarkRecordingUploadFailed(...args),
-  deleteLocalRecording: (...args: any[]) => mockDeleteLocalRecording(...args),
+  saveRecordingLocally: (...args: unknown[]) => mockSaveRecordingLocally(...args),
+  markRecordingUploaded: (...args: unknown[]) => mockMarkRecordingUploaded(...args),
+  markRecordingUploadFailed: (...args: unknown[]) => mockMarkRecordingUploadFailed(...args),
+  deleteLocalRecording: (...args: unknown[]) => mockDeleteLocalRecording(...args),
 }));
 
 // Mock supabase — used by orphan cleanup via dynamic import
@@ -70,7 +70,7 @@ vi.mock('@/lib/supabase', () => ({
         data: { subscription: { unsubscribe: vi.fn() } },
       }),
     },
-    from: (...args: any[]) => mockSupabaseFromFn(...args),
+    from: (...args: unknown[]) => mockSupabaseFromFn(...args),
   },
   isSupabaseConfigured: true,
 }));

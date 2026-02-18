@@ -728,7 +728,7 @@ export async function getClinicalNotesForSession(
         // Выполняем batch расшифровку
         if (encryptedValues.length > 0) {
           try {
-            console.log(`[getClinicalNotesForSession] Batch decrypting ${encryptedValues.length} values`);
+            if (import.meta.env.DEV) console.log(`[getClinicalNotesForSession] Batch decrypting ${encryptedValues.length} values`);
             const valuesToDecrypt = encryptedValues.map(v => v.value);
             const decryptedValues = await decryptPHIBatch(valuesToDecrypt);
             
@@ -742,7 +742,7 @@ export async function getClinicalNotesForSession(
               // Если расшифровка вернула пустую строку, оставляем исходное значение
             });
             
-            console.log(`[getClinicalNotesForSession] Successfully batch decrypted ${decryptedValues.length} values`);
+            if (import.meta.env.DEV) console.log(`[getClinicalNotesForSession] Successfully batch decrypted ${decryptedValues.length} values`);
           } catch (err) {
             const errorMsg = err instanceof Error ? err.message : String(err);
             console.warn('[getClinicalNotesForSession] Batch decryption failed:', {
@@ -841,7 +841,7 @@ export async function getClinicalNotesForPatient(
     // Выполняем batch расшифровку
     if (encryptedValues.length > 0) {
       try {
-        console.log(`[getClinicalNotesForPatient] Batch decrypting ${encryptedValues.length} values`);
+        if (import.meta.env.DEV) console.log(`[getClinicalNotesForPatient] Batch decrypting ${encryptedValues.length} values`);
         const valuesToDecrypt = encryptedValues.map(v => v.value);
         const decryptedValues = await decryptPHIBatch(valuesToDecrypt);
         
@@ -855,7 +855,7 @@ export async function getClinicalNotesForPatient(
           // Если расшифровка вернула пустую строку, оставляем исходное значение
         });
         
-        console.log(`[getClinicalNotesForPatient] Successfully batch decrypted ${decryptedValues.length} values`);
+        if (import.meta.env.DEV) console.log(`[getClinicalNotesForPatient] Successfully batch decrypted ${decryptedValues.length} values`);
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err);
         console.warn('[getClinicalNotesForPatient] Batch decryption failed:', {

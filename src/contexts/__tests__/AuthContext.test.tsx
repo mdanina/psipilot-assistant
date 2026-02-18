@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { AuthProvider, useAuth } from '../AuthContext';
 import { supabase } from '@/lib/supabase';
+import type { Session } from '@supabase/supabase-js';
+import type { ProfileWithClinic } from '@/types';
 import { ReactNode } from 'react';
 import { BrowserRouter } from 'react-router-dom';
 
@@ -78,7 +80,7 @@ const wrapper = ({ children }: { children: ReactNode }) => (
 );
 
 describe('AuthContext', () => {
-  let authStateCallback: ((event: string, session: any) => void) | null = null;
+  let authStateCallback: ((event: string, session: Session | null) => void) | null = null;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -100,7 +102,7 @@ describe('AuthContext', () => {
       eq: vi.fn().mockReturnThis(),
       single: vi.fn().mockResolvedValue({ data: mockProfile, error: null }),
       order: vi.fn().mockReturnThis(),
-    } as any);
+    } as never);
   });
 
   afterEach(() => {
@@ -138,11 +140,11 @@ describe('AuthContext', () => {
 
   describe('initial state', () => {
     it('should start with loading state', async () => {
-      let resolveSession: (value: any) => void;
+      let resolveSession: (value: unknown) => void;
       const sessionPromise = new Promise((resolve) => {
         resolveSession = resolve;
       });
-      vi.mocked(supabase.auth.getSession).mockReturnValue(sessionPromise as any);
+      vi.mocked(supabase.auth.getSession).mockReturnValue(sessionPromise as never);
 
       const { result } = renderHook(() => useAuth(), { wrapper });
 
@@ -202,7 +204,7 @@ describe('AuthContext', () => {
       vi.mocked(supabase.auth.signInWithPassword).mockResolvedValue({
         data: { user: mockUser, session: mockSession },
         error: null,
-      } as any);
+      } as never);
 
       const { result } = renderHook(() => useAuth(), { wrapper });
 
@@ -210,7 +212,7 @@ describe('AuthContext', () => {
         expect(result.current.isLoading).toBe(false);
       });
 
-      let signInResult: any;
+      let signInResult: { error: Error | null };
       await act(async () => {
         signInResult = await result.current.signIn('test@example.com', 'password123');
       });
@@ -230,8 +232,8 @@ describe('AuthContext', () => {
 
       vi.mocked(supabase.auth.signInWithPassword).mockResolvedValue({
         data: { user: null, session: null },
-        error: { message: 'Invalid login credentials', status: 400 } as any,
-      } as any);
+        error: { message: 'Invalid login credentials', status: 400 } as never,
+      } as never);
 
       const { result } = renderHook(() => useAuth(), { wrapper });
 
@@ -239,7 +241,7 @@ describe('AuthContext', () => {
         expect(result.current.isLoading).toBe(false);
       });
 
-      let signInResult: any;
+      let signInResult: { error: Error | null };
       await act(async () => {
         signInResult = await result.current.signIn('wrong@example.com', 'wrongpassword');
       });
@@ -259,7 +261,7 @@ describe('AuthContext', () => {
       vi.mocked(supabase.auth.signUp).mockResolvedValue({
         data: { user: mockUser, session: null },
         error: null,
-      } as any);
+      } as never);
 
       const { result } = renderHook(() => useAuth(), { wrapper });
 
@@ -267,7 +269,7 @@ describe('AuthContext', () => {
         expect(result.current.isLoading).toBe(false);
       });
 
-      let signUpResult: any;
+      let signUpResult: { error: Error | null };
       await act(async () => {
         signUpResult = await result.current.signUp('new@example.com', 'password123', 'New User');
       });
@@ -290,8 +292,8 @@ describe('AuthContext', () => {
 
       vi.mocked(supabase.auth.signUp).mockResolvedValue({
         data: { user: null, session: null },
-        error: { message: 'User already registered', status: 400 } as any,
-      } as any);
+        error: { message: 'User already registered', status: 400 } as never,
+      } as never);
 
       const { result } = renderHook(() => useAuth(), { wrapper });
 
@@ -299,7 +301,7 @@ describe('AuthContext', () => {
         expect(result.current.isLoading).toBe(false);
       });
 
-      let signUpResult: any;
+      let signUpResult: { error: Error | null };
       await act(async () => {
         signUpResult = await result.current.signUp('existing@example.com', 'password123', 'Test');
       });
@@ -341,7 +343,7 @@ describe('AuthContext', () => {
       vi.mocked(supabase.auth.resetPasswordForEmail).mockResolvedValue({
         data: {},
         error: null,
-      } as any);
+      } as never);
 
       const { result } = renderHook(() => useAuth(), { wrapper });
 
@@ -349,7 +351,7 @@ describe('AuthContext', () => {
         expect(result.current.isLoading).toBe(false);
       });
 
-      let resetResult: any;
+      let resetResult: { error: Error | null };
       await act(async () => {
         resetResult = await result.current.resetPassword('test@example.com');
       });
@@ -372,7 +374,7 @@ describe('AuthContext', () => {
       vi.mocked(supabase.auth.updateUser).mockResolvedValue({
         data: { user: mockUser },
         error: null,
-      } as any);
+      } as never);
 
       const { result } = renderHook(() => useAuth(), { wrapper });
 
@@ -380,7 +382,7 @@ describe('AuthContext', () => {
         expect(result.current.isLoading).toBe(false);
       });
 
-      let updateResult: any;
+      let updateResult: { error: Error | null };
       await act(async () => {
         updateResult = await result.current.updatePassword('newPassword123');
       });
@@ -528,7 +530,7 @@ describe('AuthContext', () => {
           data: null,
           error: { message: 'Profile not found' },
         }),
-      } as any);
+      } as never);
 
       const { result } = renderHook(() => useAuth(), { wrapper });
 
@@ -560,9 +562,9 @@ describe('AuthContext', () => {
         select: vi.fn().mockReturnThis(),
         eq: vi.fn().mockReturnThis(),
         single: vi.fn().mockResolvedValue({ data: updatedProfile, error: null }),
-      } as any);
+      } as never);
 
-      let refreshedProfile: any;
+      let refreshedProfile: ProfileWithClinic | null;
       await act(async () => {
         refreshedProfile = await result.current.refreshProfile();
       });

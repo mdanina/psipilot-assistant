@@ -106,7 +106,7 @@ router.post('/decrypt', async (req, res) => {
         } catch (error) {
           // Логируем ошибку, но не падаем - возвращаем пустую строку для проблемного элемента
           const errorMsg = error.message || 'Unknown decryption error';
-          console.error(`[Batch decrypt] Failed to decrypt item ${i}:`, errorMsg, error);
+          console.error(`[Batch decrypt] Failed to decrypt item ${i}:`, errorMsg);
           decrypted.push(''); // Возвращаем пустую строку для нерасшифрованных элементов
           errors.push({ index: i, error: errorMsg });
         }

@@ -10,6 +10,8 @@
  * and avoids the problem of losing encryption keys when browser closes.
  */
 
+import { decryptBlob } from './recording-encryption';
+
 interface StoredRecording {
   id: string;
   blob: ArrayBuffer; // Raw audio data (not encrypted)
@@ -254,10 +256,8 @@ export async function getLocalRecording(id: string): Promise<{
     // Handle legacy encrypted recordings (backward compatibility)
     if (recording.encryptedBlob && recording.iv) {
       try {
-        // Dynamically import decryption only when needed for legacy data
-        const { decryptBlob } = await import('./recording-encryption');
         blob = await decryptBlob(recording.encryptedBlob, recording.iv, recording.mimeType);
-        console.log('[LocalStorage] Decrypted legacy encrypted recording:', id);
+        if (import.meta.env.DEV) console.log('[LocalStorage] Decrypted legacy encrypted recording:', id);
       } catch (error) {
         console.error('[LocalStorage] Failed to decrypt legacy recording:', id, error);
         // Cannot recover - encryption key might be lost
@@ -479,13 +479,16 @@ export async function downloadLocalRecording(id: string): Promise<void> {
   }
 
   const url = URL.createObjectURL(recording.blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = recording.fileName;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  try {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = recording.fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 /**
