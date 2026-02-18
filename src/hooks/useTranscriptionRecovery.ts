@@ -118,6 +118,7 @@ export function useTranscriptionRecovery(
   const pollingAttemptsRef = useRef<Map<string, number>>(new Map());
   const pollingActiveRef = useRef<Set<string>>(new Set()); // Tracks active polling to prevent duplicates
   const recordingInfoRef = useRef<Map<string, { startedAt?: string }>>(new Map());
+  const refreshInFlightRef = useRef(false);
   const isMountedRef = useRef(true);
 
   // Cleanup function for a single recording's polling
@@ -455,6 +456,12 @@ export function useTranscriptionRecovery(
       return;
     }
 
+    // Avoid concurrent refreshes from mount + interval + session switch.
+    if (refreshInFlightRef.current) {
+      return;
+    }
+    refreshInFlightRef.current = true;
+
     try {
       console.log('[useTranscriptionRecovery] Fetching processing and recently completed recordings from DB...');
 
@@ -587,6 +594,8 @@ export function useTranscriptionRecovery(
       });
     } catch (error) {
       console.error('[useTranscriptionRecovery] Error in refreshFromDatabase:', error);
+    } finally {
+      refreshInFlightRef.current = false;
     }
   }, [user?.id, isAuthenticated, sessionId, startPolling, onComplete, queryClient, profile?.clinic_id]);
 
@@ -622,6 +631,21 @@ export function useTranscriptionRecovery(
       refreshFromDatabase();
     }
   }, [sessionId]); // intentionally minimal deps
+
+  // Periodic reconciliation:
+  // catches transcriptions that started/completed while callback wiring was unavailable
+  // (e.g., navigation/race conditions), without requiring page reload.
+  useEffect(() => {
+    if (!isAuthenticated || !user?.id) {
+      return;
+    }
+
+    const intervalId = setInterval(() => {
+      refreshFromDatabase();
+    }, 10000);
+
+    return () => clearInterval(intervalId);
+  }, [isAuthenticated, user?.id, refreshFromDatabase]);
 
   return {
     processingTranscriptions,
