@@ -153,15 +153,16 @@ deploy/
 ### AuthContext (`src/contexts/AuthContext.tsx`)
 Central authentication and user state management.
 
-**State**: `user`, `profile` (with clinic), `session`, `isLoading`, `isAuthenticated`, `mfaEnabled`, `mfaVerified`, `lastActivity`, `sessionExpiresAt`
+**State**: `user`, `profile` (with clinic), `session`, `isLoading`, `isAuthenticated`, `mfaEnabled`, `mfaVerified`, `lastActivity`, `sessionExpiresAt`, `protectedActivityCount`
 
-**Methods**: `signIn()`, `signUp()`, `signOut()`, `resetPassword()`, `updatePassword()`, `enableMFA()`, `verifyMFA()`, `disableMFA()`, `refreshProfile()`, `updateActivity()`
+**Methods**: `signIn()`, `signUp()`, `signOut()`, `resetPassword()`, `updatePassword()`, `enableMFA()`, `verifyMFA()`, `disableMFA()`, `refreshProfile()`, `updateActivity()`, `startProtectedActivity()`
 
 **Features**:
 - 15-minute session timeout with 2-minute warning dialog
 - Profile and clinic caching with request deduplication
 - MFA support (TOTP)
 - Activity tracking to prevent premature session timeout
+- Protected background activity guard: session timeout is suspended while recording/capture/finalization is active
 
 ### BackgroundUploadContext (`src/contexts/BackgroundUploadContext.tsx`)
 Background recording upload management that persists across page navigation.
@@ -341,6 +342,7 @@ Step 8: addTranscription()          → Begin polling via useTranscriptionRecove
 - **onerror handler ordering**: In `useAudioRecorder`, `stopResolveRef.current()` must be called BEFORE setting `stopResolvedRef.current = true` — the `safeResolve` wrapper checks `stopResolvedRef` and skips if already true
 - **IndexedDB connections**: Each function opens/closes its own `IDBDatabase`. Must close in `finally` block. `getLocalRecording()` closes early before calling `deleteLocalRecording()` (which opens its own)
 - **Blob.arrayBuffer()**: Not available in jsdom test environment — polyfill required in tests
+- **Session timeout during long recording**: use `startProtectedActivity()` (or existing keep-alive hooks) for any long-running foreground/background process that must not be interrupted by the 15-minute inactivity logout
 
 ---
 
@@ -619,6 +621,7 @@ Manual chunk splitting for optimal loading:
 | `src/lib/__tests__/supabase-recordings.test.ts` | 26 | API calls, validation, filename sanitization (Cyrillic) |
 | `src/components/auth/__tests__/ProtectedRoute.test.tsx` | — | Route guard testing |
 | `src/components/auth/__tests__/PasswordStrengthIndicator.test.tsx` | — | Password validation |
+| `e2e/session-timeout-protected.spec.ts` | 1 smoke | Verifies inactivity timeout is blocked by protected activity and resumes after release |
 
 ### Testing Patterns
 - **jsdom limitations**: `Blob.arrayBuffer()` not available — polyfill with FileReader in test file
@@ -655,7 +658,7 @@ Manual chunk splitting for optimal loading:
 - Service role key only on backend — never expose to frontend
 - Never commit `.env` files or credentials
 - Local recordings: unencrypted (trusted device), server: encrypted
-- Session timeout: 15 minutes of inactivity
+- Session timeout: 15 minutes of inactivity (except active protected background tasks such as recording/capture/upload finalization)
 - MFA support (TOTP) for additional security
 - Audit logs track all PHI access
 - Break-the-glass emergency access with full logging
