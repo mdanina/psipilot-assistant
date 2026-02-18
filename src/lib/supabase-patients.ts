@@ -40,10 +40,20 @@ export interface DecryptedPatient extends Omit<Patient, 'name'> {
 async function encryptPatientPII(
   data: Partial<PatientInsert>
 ): Promise<Partial<PatientInsert> & { [key: string]: unknown }> {
-  // SECURITY: Check encryption configuration before proceeding
-  const encryptionReady = await isEncryptionConfiguredAsync();
+  // SECURITY: Check encryption configuration before proceeding.
+  // In production, /api/crypto/status may temporarily fail (e.g. during proxy/backend restarts),
+  // so we verify by making a safe probe encryption call before blocking the operation.
+  let encryptionReady = await isEncryptionConfiguredAsync();
   if (!encryptionReady) {
-    throw new Error('SECURITY: Encryption not configured. Cannot store PHI data without encryption.');
+    try {
+      await encryptPHI('__encryption_probe__');
+      encryptionReady = true;
+    } catch (probeError) {
+      const message = probeError instanceof Error ? probeError.message : String(probeError);
+      throw new Error(
+        `SECURITY: Encryption not configured or unavailable. Cannot store PHI data without encryption. ${message}`
+      );
+    }
   }
 
   // Validate name first before processing
