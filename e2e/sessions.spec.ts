@@ -15,19 +15,20 @@ test.describe('Sessions', () => {
     ).toBeVisible({ timeout: 10_000 });
   });
 
-  test('creates a new session', async ({ authedPage: page }) => {
+  test('opens create session dialog', async ({ authedPage: page }) => {
     await page.goto('/sessions');
 
     const createBtn = page.locator('button[title="Создать новую сессию"]');
     await expect(createBtn).toBeVisible({ timeout: 10_000 });
     await createBtn.click();
 
-    // A new session tab should appear
-    await expect(page.getByText(/Сессия/)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('dialog', { name: 'Создать новую сессию' })).toBeVisible({
+      timeout: 10_000,
+    });
   });
 
   test('navigates to sessions via sidebar', async ({ authedPage: page }) => {
-    await page.getByText('Сессии').click();
+    await page.getByRole('link', { name: 'Сессии' }).click();
     await expect(page).toHaveURL(/\/sessions/);
   });
 
@@ -65,7 +66,7 @@ test.describe('Calendar', () => {
   });
 
   test('navigates to calendar via sidebar', async ({ authedPage: page }) => {
-    await page.getByText('Календарь').click();
+    await page.getByRole('link', { name: 'Календарь' }).click();
     await expect(page).toHaveURL(/\/calendar/);
   });
 });

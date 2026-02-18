@@ -85,7 +85,7 @@ async function startTranscriptionWithRetry(
 }
 
 const SessionsPage = () => {
-  const { user, profile, updateActivity } = useAuth();
+  const { user, profile, updateActivity, startProtectedActivity } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
@@ -175,6 +175,17 @@ const SessionsPage = () => {
     }
     return map;
   }, [sessions]);
+
+  const refreshPatientActivitiesForSession = async (sessionId: string) => {
+    const patientId =
+      tabSessionsMap.get(sessionId)?.patient_id || sessionsMap.get(sessionId)?.patient_id;
+
+    if (!patientId) return;
+
+    await queryClient.refetchQueries({
+      queryKey: ['patients', patientId, 'activities'],
+    });
+  };
   
   const isLoading = isLoadingSessions || isLoadingPatients;
   
@@ -267,6 +278,16 @@ const SessionsPage = () => {
       clearInterval(intervalId);
     };
   }, [isRecording, updateActivity]);
+
+  // Prevent timeout while recording is active or while recording is being finalized.
+  useEffect(() => {
+    if (!isRecording && !isSavingRecording) {
+      return;
+    }
+
+    const release = startProtectedActivity();
+    return () => release();
+  }, [isRecording, isSavingRecording, startProtectedActivity]);
 
   // Transcription recovery hook - tracks processing transcriptions for ALL user's sessions
   // This replaces the local polling logic and survives page navigation
@@ -1574,9 +1595,29 @@ const SessionsPage = () => {
 
       // If patient is selected, link session to patient (creates consents)
       if (patientId) {
-        await linkSessionMutation.mutateAsync({ 
+        const linkedSession = await linkSessionMutation.mutateAsync({ 
           sessionId: newSession.id, 
           patientId 
+        });
+
+        // Defensive check: ensure session is really linked to the selected patient.
+        // If not, retry once and surface explicit error.
+        if (linkedSession?.patient_id !== patientId) {
+          const relinkedSession = await linkSessionMutation.mutateAsync({
+            sessionId: newSession.id,
+            patientId,
+          });
+
+          if (relinkedSession?.patient_id !== patientId) {
+            throw new Error(
+              `Сессия ${newSession.id} не привязалась к выбранному пациенту. Повторите попытку.`
+            );
+          }
+        }
+
+        // Refresh patient activities immediately so new session appears in patient card.
+        await queryClient.refetchQueries({
+          queryKey: ['patients', patientId, 'activities'],
         });
       }
 
@@ -2697,6 +2738,7 @@ const SessionsPage = () => {
 
                         // Обновляем список заметок
                         await loadClinicalNotes(activeSession);
+                        await refreshPatientActivitiesForSession(activeSession);
                       } catch (error) {
                         console.error('Error generating clinical note:', error);
                         toast({
@@ -2768,6 +2810,7 @@ const SessionsPage = () => {
                     onComplete={() => {
                       if (activeSession) {
                         loadClinicalNotes(activeSession);
+                        void refreshPatientActivitiesForSession(activeSession);
                       }
                     }}
                   />
@@ -2777,6 +2820,7 @@ const SessionsPage = () => {
                   onUpdate={() => {
                     if (activeSession) {
                       loadClinicalNotes(activeSession);
+                      void refreshPatientActivitiesForSession(activeSession);
                     }
                   }}
                 />

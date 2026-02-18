@@ -18,6 +18,10 @@ const ADMIN_USER = {
   password: process.env.PLAYWRIGHT_ADMIN_PASSWORD || 'AdminPassword123!',
 };
 
+const HAS_ADMIN_CREDENTIALS = Boolean(
+  process.env.PLAYWRIGHT_ADMIN_EMAIL && process.env.PLAYWRIGHT_ADMIN_PASSWORD
+);
+
 /** Helper: log in through the UI */
 async function loginViaUI(page: Page, email: string, password: string) {
   await page.goto('/login');
@@ -65,3 +69,4 @@ export const test = base.extend<Fixtures>({
 
 export { expect };
 export { TEST_USER, ADMIN_USER };
+export { HAS_ADMIN_CREDENTIALS };

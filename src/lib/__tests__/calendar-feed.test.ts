@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { generateCalendarFeedToken, revokeCalendarFeedToken } from '../calendar-feed';
+import {
+  generateCalendarFeedToken,
+  revokeCalendarFeedToken,
+  toGoogleCalendarUrl,
+  toWebcalUrl,
+} from '../calendar-feed';
 import { supabase } from '../supabase';
 
 // Mock supabase
@@ -249,6 +254,28 @@ describe('calendar-feed', () => {
             Authorization: 'Bearer custom-token-abc',
           }),
         })
+      );
+    });
+  });
+
+  describe('calendar URL helpers', () => {
+    it('should convert http feed URL to webcal', () => {
+      const result = toWebcalUrl('http://localhost:3001/api/calendar/feed/token-1');
+      expect(result).toBe('webcal://localhost:3001/api/calendar/feed/token-1');
+    });
+
+    it('should convert https feed URL to webcal', () => {
+      const result = toWebcalUrl('https://example.com/api/calendar/feed/token-2');
+      expect(result).toBe('webcal://example.com/api/calendar/feed/token-2');
+    });
+
+    it('should build Google Calendar subscribe URL', () => {
+      const feedUrl = 'https://example.com/api/calendar/feed/token-3';
+      const result = toGoogleCalendarUrl(feedUrl);
+
+      expect(result).toContain('https://calendar.google.com/calendar/render?cid=');
+      expect(result).toContain(
+        encodeURIComponent('webcal://example.com/api/calendar/feed/token-3')
       );
     });
   });

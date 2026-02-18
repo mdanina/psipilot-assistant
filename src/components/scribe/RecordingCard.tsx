@@ -11,6 +11,7 @@ import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { useTabAudioCapture } from "@/hooks/useTabAudioCapture";
 import { useToast } from "@/hooks/use-toast";
 import { useBackgroundUpload } from "@/contexts/BackgroundUploadContext";
+import { useAuth } from "@/contexts/AuthContext";
 
 type RecordingSource = 'microphone' | 'tab';
 
@@ -59,6 +60,7 @@ export const RecordingCard = ({
 
   const { toast } = useToast();
   const { queueUpload } = useBackgroundUpload();
+  const { startProtectedActivity } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [recordingSource, setRecordingSource] = useState<RecordingSource | null>(null);
 
@@ -86,6 +88,16 @@ export const RecordingCard = ({
   useEffect(() => {
     onRecordingStateChange?.(isActiveRecording);
   }, [isActiveRecording, onRecordingStateChange]);
+
+  // Prevent session timeout while recording/capture is active.
+  useEffect(() => {
+    if (!isActiveRecording && !isStopping) {
+      return;
+    }
+
+    const release = startProtectedActivity();
+    return () => release();
+  }, [isActiveRecording, isStopping, startProtectedActivity]);
 
   // Show errors via toast
   useEffect(() => {

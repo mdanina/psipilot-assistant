@@ -411,7 +411,7 @@ describe('ProtectedRoute', () => {
   });
 
   describe('profile loading', () => {
-    it('should redirect to login when authenticated but profile is null and not skipping onboarding', () => {
+    it('should keep loading state when authenticated but profile is null and not skipping onboarding', () => {
       mockUseAuth.mockReturnValue({
         isAuthenticated: true,
         isLoading: false,
@@ -440,8 +440,8 @@ describe('ProtectedRoute', () => {
         </ProtectedRoute>
       );
 
-      // Should redirect to login, not render protected content
-      expect(screen.getByText('Login Page')).toBeInTheDocument();
+      // Should keep loading state, not redirect to login and not render protected content
+      expect(screen.queryByText('Login Page')).not.toBeInTheDocument();
       expect(screen.queryByText('Protected Content')).not.toBeInTheDocument();
     });
   });

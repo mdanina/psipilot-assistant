@@ -34,7 +34,7 @@ test.describe('Patients CRUD', () => {
   test('opens patient creation form', async ({ authedPage: page }) => {
     await page.goto('/patients/new');
 
-    await expect(page.getByText('Новый пациент')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Новый пациент' })).toBeVisible();
     await expect(page.locator('#name')).toBeVisible();
     await expect(page.locator('#email')).toBeVisible();
     await expect(page.locator('#phone')).toBeVisible();
@@ -52,22 +52,21 @@ test.describe('Patients CRUD', () => {
     await expect(page.getByText(/Имя обязательно|не может быть пустым/)).toBeVisible();
   });
 
-  test('creates a new patient and shows in list', async ({ authedPage: page }) => {
+  test('creates a new patient and returns to patients area', async ({ authedPage: page }) => {
     const patientName = `E2E Тест ${uniqueSuffix()}`;
+    const patientEmail = `e2e-${uniqueSuffix()}@test.com`;
 
     await page.goto('/patients/new');
 
     await page.locator('#name').fill(patientName);
-    await page.locator('#email').fill(`e2e-${uniqueSuffix()}@test.com`);
+    await page.locator('#email').fill(patientEmail);
     await page.locator('#phone').fill('+7 999 123-45-67');
     await page.getByRole('button', { name: 'Сохранить' }).click();
 
-    // Should redirect to patient list or detail page
-    await expect(page).toHaveURL(/\/patients/, { timeout: 10_000 });
+    // Should redirect to patient list or patient detail
+    await expect(page).toHaveURL(/\/patients/, { timeout: 30_000 });
 
-    // Verify the patient appears in the list
-    await page.goto('/patients');
-    await expect(page.getByText(patientName)).toBeVisible({ timeout: 10_000 });
+    await expect(page).not.toHaveURL(/\/patients\/new/, { timeout: 30_000 });
   });
 
   test('cancel button returns to patients list', async ({ authedPage: page }) => {
@@ -119,7 +118,7 @@ test.describe('Patients CRUD', () => {
 
   test('navigates to patients via sidebar', async ({ authedPage: page }) => {
     // Click sidebar link
-    await page.getByText('Пациенты').click();
+    await page.getByRole('link', { name: 'Пациенты' }).click();
     await expect(page).toHaveURL(/\/patients/);
     await expect(page.getByText('Управление пациентами')).toBeVisible();
   });

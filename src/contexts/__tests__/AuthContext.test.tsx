@@ -500,6 +500,79 @@ describe('AuthContext', () => {
     });
   });
 
+  describe('protected activity session keep-alive', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('should not sign out while protected activity is active', async () => {
+      vi.useFakeTimers();
+      vi.mocked(supabase.auth.getSession).mockResolvedValue({
+        data: { session: mockSession },
+        error: null,
+      });
+
+      const { result } = renderHook(() => useAuth(), { wrapper });
+
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(result.current.isAuthenticated).toBe(true);
+
+      let releaseProtectedActivity: (() => void) | null = null;
+      act(() => {
+        releaseProtectedActivity = result.current.startProtectedActivity();
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20 * 60 * 1000);
+      });
+
+      expect(supabase.auth.signOut).not.toHaveBeenCalled();
+      expect(result.current.isAuthenticated).toBe(true);
+
+      act(() => {
+        releaseProtectedActivity?.();
+      });
+    });
+
+    it('should sign out after protected activity ends and timeout is reached', async () => {
+      vi.useFakeTimers();
+      vi.mocked(supabase.auth.getSession).mockResolvedValue({
+        data: { session: mockSession },
+        error: null,
+      });
+
+      const { result } = renderHook(() => useAuth(), { wrapper });
+
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(result.current.isAuthenticated).toBe(true);
+
+      let releaseProtectedActivity: (() => void) | null = null;
+      act(() => {
+        releaseProtectedActivity = result.current.startProtectedActivity();
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+      });
+
+      act(() => {
+        releaseProtectedActivity?.();
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(16 * 60 * 1000);
+      });
+
+      expect(supabase.auth.signOut).toHaveBeenCalled();
+    });
+  });
+
   describe('profile loading', () => {
     it('should load profile after authentication', async () => {
       vi.mocked(supabase.auth.getSession).mockResolvedValue({

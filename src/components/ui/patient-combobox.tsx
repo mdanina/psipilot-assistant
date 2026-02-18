@@ -38,6 +38,12 @@ export function PatientCombobox({
 
   const selectedPatient = patients.find((patient) => patient.id === value);
 
+  const getPatientSearchValue = (patient: Patient) =>
+    [patient.name, patient.email ?? '', patient.phone ?? '', patient.id].join(' ');
+
+  const getPatientSubtitle = (patient: Patient) =>
+    patient.email || patient.phone || `ID: ${patient.id.slice(0, 8)}`;
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -51,7 +57,12 @@ export function PatientCombobox({
           {selectedPatient ? (
             <div className="flex items-center gap-2">
               <User className="w-4 h-4 text-muted-foreground" />
-              <span>{selectedPatient.name}</span>
+              <div className="flex min-w-0 flex-col items-start">
+                <span className="truncate">{selectedPatient.name}</span>
+                <span className="text-xs text-muted-foreground truncate">
+                  {getPatientSubtitle(selectedPatient)}
+                </span>
+              </div>
             </div>
           ) : (
             <span className="text-muted-foreground">{placeholder}</span>
@@ -68,7 +79,7 @@ export function PatientCombobox({
               {patients.map((patient) => (
                 <CommandItem
                   key={patient.id}
-                  value={patient.name}
+                  value={getPatientSearchValue(patient)}
                   onSelect={() => {
                     onValueChange(patient.id);
                     setOpen(false);
@@ -82,7 +93,10 @@ export function PatientCombobox({
                   />
                   <div className="flex items-center gap-2">
                     <User className="w-4 h-4 text-muted-foreground" />
-                    <span>{patient.name}</span>
+                    <div className="flex flex-col">
+                      <span>{patient.name}</span>
+                      <span className="text-xs text-muted-foreground">{getPatientSubtitle(patient)}</span>
+                    </div>
                   </div>
                 </CommandItem>
               ))}

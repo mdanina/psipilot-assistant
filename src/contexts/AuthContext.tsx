@@ -30,6 +30,7 @@ interface AuthState {
   mfaVerified: boolean;
   lastActivity: number;
   sessionExpiresAt: number | null;
+  protectedActivityCount: number;
 }
 
 interface AuthContextType extends AuthState {
@@ -45,6 +46,7 @@ interface AuthContextType extends AuthState {
   verifyMFA: (code: string) => Promise<{ error: Error | null }>;
   disableMFA: () => Promise<{ error: Error | null }>;
   updateActivity: () => void;
+  startProtectedActivity: () => () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -155,10 +157,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
     mfaVerified: false,
     lastActivity: Date.now(),
     sessionExpiresAt: null,
+    protectedActivityCount: 0,
   });
 
   // Ref to track last activity update time for debouncing
   const lastActivityUpdateRef = useRef<number>(0);
+  const protectedActivityCountRef = useRef<number>(0);
 
   // Fetch user profile with clinic data (simple version - load separately)
   // ✅ OPTIMIZED: Uses cache and request deduplication to prevent duplicate requests
@@ -279,7 +283,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       mfaVerified: false,
       lastActivity: Date.now(),
       sessionExpiresAt: null,
+      protectedActivityCount: 0,
     });
+    protectedActivityCountRef.current = 0;
   }, []);
 
   // Update last activity timestamp - defined early for use in useEffect
@@ -291,6 +297,30 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }));
   }, []);
 
+  const startProtectedActivity = useCallback(() => {
+    let released = false;
+    const now = Date.now();
+    protectedActivityCountRef.current += 1;
+
+    setState(prev => ({
+      ...prev,
+      protectedActivityCount: prev.protectedActivityCount + 1,
+      lastActivity: now,
+      sessionExpiresAt: now + SESSION_TIMEOUT,
+    }));
+
+    return () => {
+      if (released) return;
+      released = true;
+      protectedActivityCountRef.current = Math.max(0, protectedActivityCountRef.current - 1);
+
+      setState(prev => ({
+        ...prev,
+        protectedActivityCount: Math.max(0, prev.protectedActivityCount - 1),
+      }));
+    };
+  }, []);
+
   // Session timeout monitoring
   useEffect(() => {
     if (!state.isAuthenticated || !state.session) {
@@ -299,6 +329,22 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     const checkTimeout = () => {
       const now = Date.now();
+
+      if (protectedActivityCountRef.current > 0) {
+        // Keep session alive during protected background activity.
+        setState(prev => {
+          if (now - prev.lastActivity < ACTIVITY_DEBOUNCE) {
+            return prev;
+          }
+          return {
+            ...prev,
+            lastActivity: now,
+            sessionExpiresAt: now + SESSION_TIMEOUT,
+          };
+        });
+        return;
+      }
+
       const timeSinceActivity = now - state.lastActivity;
 
       if (timeSinceActivity >= SESSION_TIMEOUT) {
@@ -382,6 +428,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
             mfaVerified: false,
             lastActivity: now,
             sessionExpiresAt: now + SESSION_TIMEOUT,
+            protectedActivityCount: 0,
           });
           console.log('✅ Auth initialized successfully');
           
@@ -478,6 +525,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
               mfaVerified: false,
               lastActivity: now,
               sessionExpiresAt: now + SESSION_TIMEOUT,
+              protectedActivityCount: 0,
             });
             console.log('✅ User authenticated (profile loading in background)');
           }
@@ -532,7 +580,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
             mfaVerified: false,
             lastActivity: Date.now(),
             sessionExpiresAt: null,
+            protectedActivityCount: 0,
           });
+          protectedActivityCountRef.current = 0;
         } else if (event === 'TOKEN_REFRESHED' && session) {
           setState(prev => ({ ...prev, session }));
         }
@@ -614,6 +664,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           mfaVerified: false,
           lastActivity: now,
           sessionExpiresAt: now + SESSION_TIMEOUT,
+          protectedActivityCount: 0,
         });
         console.log('✅ User authenticated (profile loading in background)');
         
@@ -904,6 +955,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     verifyMFA,
     disableMFA,
     updateActivity,
+    startProtectedActivity,
   };
 
   return (

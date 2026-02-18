@@ -27,11 +27,14 @@ export function ProtectedRoute({ children, requiredRole, skipOnboardingCheck }: 
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // If profile couldn't be loaded, do not block indefinitely on spinner.
-  // Redirect to login so the user can re-authenticate and retry profile loading.
-  // This keeps protected content closed when authorization context is incomplete.
+  // During sign-in profile is loaded in background. Avoid redirect loop to /login
+  // while authenticated user is waiting for profile data.
   if (!skipOnboardingCheck && profile === null) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
+    return (
+      <div className="flex h-screen w-full items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
   }
 
   // Check if user needs onboarding (no clinic assigned)

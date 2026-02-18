@@ -15,13 +15,13 @@ const SESSION_TIMEOUT = 15 * 60 * 1000; // 15 minutes
 const WARNING_TIME = 2 * 60 * 1000; // 2 minutes before timeout
 
 export function SessionTimeoutWarning() {
-  const { isAuthenticated, lastActivity, updateActivity, signOut } = useAuth();
+  const { isAuthenticated, lastActivity, protectedActivityCount, updateActivity, signOut } = useAuth();
   const [showWarning, setShowWarning] = useState(false);
   const [timeRemaining, setTimeRemaining] = useState(0);
 
   useEffect(() => {
     // Early return if not authenticated - no need to set up any intervals
-    if (!isAuthenticated) {
+    if (!isAuthenticated || protectedActivityCount > 0) {
       if (showWarning) setShowWarning(false);
       return;
     }
@@ -49,7 +49,7 @@ export function SessionTimeoutWarning() {
     const interval = setInterval(checkTimeout, showWarning ? 1000 : 10000);
 
     return () => clearInterval(interval);
-  }, [isAuthenticated, lastActivity, showWarning]);
+  }, [isAuthenticated, lastActivity, protectedActivityCount, showWarning]);
 
   const handleContinue = () => {
     updateActivity();

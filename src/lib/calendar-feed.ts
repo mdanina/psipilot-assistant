@@ -14,6 +14,21 @@ export interface CalendarFeedToken {
 }
 
 /**
+ * Convert regular feed URL to webcal:// protocol for calendar apps.
+ */
+export function toWebcalUrl(feedUrl: string): string {
+  return feedUrl.replace(/^https?:\/\//, 'webcal://');
+}
+
+/**
+ * Build direct Google Calendar subscribe URL from feed URL.
+ */
+export function toGoogleCalendarUrl(feedUrl: string): string {
+  const webcalUrl = toWebcalUrl(feedUrl);
+  return `https://calendar.google.com/calendar/render?cid=${encodeURIComponent(webcalUrl)}`;
+}
+
+/**
  * Get authentication headers for API requests
  */
 async function getAuthHeaders(): Promise<HeadersInit> {

@@ -291,13 +291,13 @@ describe('Authentication Flow Integration', () => {
 
       render(<TestApp initialEntries={['/']} />);
 
-      // Should still be loading or show some state - the exact behavior depends on implementation
+      // Should either render app shell, login redirect, or guarded loading state
       await waitFor(
         () => {
-          // Either shows loading or redirects - both are acceptable error handling
           const dashboardVisible = screen.queryByText('Dashboard - Welcome!');
           const loginVisible = screen.queryByText('Login Page');
-          expect(dashboardVisible !== null || loginVisible !== null).toBe(true);
+          const spinnerVisible = document.querySelector('svg.animate-spin') !== null;
+          expect(dashboardVisible !== null || loginVisible !== null || spinnerVisible).toBe(true);
         },
         { timeout: 3000 }
       );

@@ -80,12 +80,13 @@ export function usePatientActivities(patientId: string | undefined) {
     },
     // Only run query if patientId is provided
     enabled: !!patientId,
-    // Cache configuration - data is always fresh (never refetch automatically)
-    staleTime: Infinity,
+    // Activities are frequently updated from Sessions page,
+    // keep cache short-lived and refresh when tab opens.
+    staleTime: 30 * 1000,
     gcTime: 30 * 60 * 1000, // 30 minutes
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
     retry: 1,
     retryDelay: 1000,
   });
