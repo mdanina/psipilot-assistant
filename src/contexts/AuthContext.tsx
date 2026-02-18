@@ -163,6 +163,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Ref to track last activity update time for debouncing
   const lastActivityUpdateRef = useRef<number>(0);
   const protectedActivityCountRef = useRef<number>(0);
+  const timeoutCheckRef = useRef<(() => void) | null>(null);
+  const debugProtectedReleaseRef = useRef<(() => void) | null>(null);
 
   // Fetch user profile with clinic data (simple version - load separately)
   // ✅ OPTIMIZED: Uses cache and request deduplication to prevent duplicate requests
@@ -352,11 +354,61 @@ export function AuthProvider({ children }: AuthProviderProps) {
         signOut();
       }
     };
+    timeoutCheckRef.current = checkTimeout;
 
     const interval = setInterval(checkTimeout, 60000); // Check every minute
 
-    return () => clearInterval(interval);
+    return () => {
+      timeoutCheckRef.current = null;
+      clearInterval(interval);
+    };
   }, [state.isAuthenticated, state.session, state.lastActivity, signOut]);
+
+  // Debug API for browser smoke tests (dev/test only).
+  useEffect(() => {
+    if (typeof window === 'undefined' || import.meta.env.PROD) {
+      return;
+    }
+
+    const debugApi = {
+      startProtectedActivity: () => {
+        debugProtectedReleaseRef.current?.();
+        debugProtectedReleaseRef.current = startProtectedActivity();
+      },
+      stopProtectedActivity: () => {
+        debugProtectedReleaseRef.current?.();
+        debugProtectedReleaseRef.current = null;
+      },
+      setLastActivityAgoMs: (ms: number) => {
+        const now = Date.now();
+        setState(prev => ({
+          ...prev,
+          lastActivity: now - ms,
+          sessionExpiresAt: now + SESSION_TIMEOUT - ms,
+        }));
+      },
+      forceTimeoutCheck: () => {
+        timeoutCheckRef.current?.();
+      },
+      getState: () => ({
+        isAuthenticated: state.isAuthenticated,
+        lastActivity: state.lastActivity,
+        protectedActivityCount: protectedActivityCountRef.current,
+      }),
+    };
+
+    (window as typeof window & { __psipilotSessionDebug?: typeof debugApi }).__psipilotSessionDebug =
+      debugApi;
+
+    return () => {
+      const debugWindow = window as typeof window & { __psipilotSessionDebug?: typeof debugApi };
+      if (debugWindow.__psipilotSessionDebug === debugApi) {
+        delete debugWindow.__psipilotSessionDebug;
+      }
+      debugProtectedReleaseRef.current?.();
+      debugProtectedReleaseRef.current = null;
+    };
+  }, [startProtectedActivity, state.isAuthenticated, state.lastActivity]);
 
   // Track user activity with debouncing to prevent excessive state updates
   useEffect(() => {
