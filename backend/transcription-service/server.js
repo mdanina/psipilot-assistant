@@ -16,6 +16,8 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const DEFAULT_JSON_LIMIT = process.env.JSON_LIMIT || '1mb';
+const CRYPTO_JSON_LIMIT = process.env.CRYPTO_JSON_LIMIT || '20mb';
 
 // ============================================
 // CORS Configuration - Security
@@ -123,7 +125,10 @@ app.use(helmet({
   contentSecurityPolicy: false, // CSP managed by nginx reverse proxy
 }));
 app.use(cors(corsOptions));
-app.use(express.json());
+// Use a higher JSON body limit for crypto endpoints (large encrypted payloads),
+// while keeping a stricter default limit for all other API routes.
+app.use('/api/crypto', express.json({ limit: CRYPTO_JSON_LIMIT }));
+app.use(express.json({ limit: DEFAULT_JSON_LIMIT }));
 
 // Устанавливаем правильную кодировку для JSON ответов
 // Перехватываем res.json() чтобы добавить charset=utf-8 только к JSON ответам,
