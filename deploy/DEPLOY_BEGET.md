@@ -187,6 +187,30 @@ docker compose ps
 docker compose logs backend
 ```
 
+### Проблема: `503 {"message":"name resolution failed"}` на `/api/*` (Kong)
+
+Симптомы:
+- В браузере/`curl` API отвечает `503`.
+- В логах `supabase-kong` есть `dns resolution failed` и `psipilot-backend`.
+
+Это означает, что в DB-less конфиге Kong (`kong.yml`) `/api` route указывает на невалидный upstream.
+
+Быстрый фикс из репозитория:
+
+```bash
+cd /opt/psipilot
+chmod +x deploy/fix-kong-api-upstream.sh
+./deploy/fix-kong-api-upstream.sh
+```
+
+Скрипт:
+- делает backup `kong.yml`,
+- обновляет все services с route `- /api...` на upstream `http://172.18.0.1:3000/`,
+- перезапускает `supabase-kong`,
+- проверяет `/api/crypto/status` и `/api/ai/block-templates`.
+
+Нормальный результат без токена: `401/403` (главное, что не `503`).
+
 ### Проблема: SSL не работает
 
 1. Проверьте, что домен направлен на ваш IP
