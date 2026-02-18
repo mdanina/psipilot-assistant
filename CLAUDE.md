@@ -109,8 +109,10 @@ supabase/
 └── migrations/              # 58 SQL migration files (see Database section below)
 
 deploy/
-├── nginx.conf               # Nginx config for Docker
-└── .env.production.example  # Production env template
+├── nginx.conf                    # Nginx config for Docker
+├── .env.production.example       # Production env template
+├── DEPLOY_BEGET.md               # Beget deployment guide + troubleshooting
+└── fix-kong-api-upstream.sh      # Auto-fix for Kong /api upstream DNS issues
 ```
 
 ---
@@ -555,6 +557,8 @@ Express.js application on port 3001 with the following routes:
 | `VITE_SUPABASE_URL` | Yes | Supabase API URL |
 | `VITE_SUPABASE_ANON_KEY` | Yes | Supabase anonymous key |
 | `VITE_API_URL` | No | Backend API URL (default: relative `/api`) |
+| `VITE_TRANSCRIPTION_API_URL` | No | Optional dedicated transcription API base URL (default: empty, uses `VITE_API_URL`) |
+| `VITE_AI_API_URL` | No | Optional dedicated AI API base URL (default: empty, uses `VITE_API_URL`) |
 | `VITE_TELEGRAM_SUPPORT_BOT` | No | Telegram support bot username |
 
 ### Backend (Transcription Service)
@@ -591,6 +595,15 @@ Express.js application on port 3001 with the following routes:
 ### Docker Compose
 - `docker-compose.yml` — Development (frontend + backend)
 - `docker-compose.prod.yml` — Production (frontend + backend + telegram-bot, restart: unless-stopped)
+
+### Production Gateway Notes (Kong + Nginx)
+- Frontend Nginx proxies `/api/` to backend with Docker DNS resolver (`127.0.0.11`) to avoid stale upstream IP after backend recreation.
+- In Supabase DB-less Kong, API routes can still point to an outdated/unresolvable upstream and return `503 {"message":"name resolution failed"}`.
+- Recovery script: `deploy/fix-kong-api-upstream.sh` patches all Kong services with `/api` routes to `http://172.18.0.1:3000/`, restarts `supabase-kong`, and runs smoke checks.
+- On Beget server usage:
+  - `cd /opt/psipilot`
+  - `chmod +x deploy/fix-kong-api-upstream.sh`
+  - `./deploy/fix-kong-api-upstream.sh`
 
 ### Build Optimization (vite.config.ts)
 Manual chunk splitting for optimal loading:
