@@ -573,6 +573,8 @@ Express.js application on port 3001 with the following routes:
 | `PORT` | No | Server port (default: 3001) |
 | `NODE_ENV` | No | development / production |
 | `CORS_ORIGINS` | No | Comma-separated allowed origins |
+| `JSON_LIMIT` | No | Default JSON body parser limit for non-crypto routes (recommended: `1mb`) |
+| `CRYPTO_JSON_LIMIT` | No | JSON body parser limit for `/api/crypto/*` decrypt/encrypt payloads (recommended: `20mb` for long transcripts) |
 
 ### Telegram Bot
 | Variable | Required | Purpose |
@@ -595,15 +597,21 @@ Express.js application on port 3001 with the following routes:
 ### Docker Compose
 - `docker-compose.yml` — Development (frontend + backend)
 - `docker-compose.prod.yml` — Production (frontend + backend + telegram-bot, restart: unless-stopped)
+- In this repository's compose files, service names are typically `frontend` and `backend` (not `transcription-service`).
 
 ### Production Gateway Notes (Kong + Nginx)
 - Frontend Nginx proxies `/api/` to backend with Docker DNS resolver (`127.0.0.11`) to avoid stale upstream IP after backend recreation.
 - In Supabase DB-less Kong, API routes can still point to an outdated/unresolvable upstream and return `503 {"message":"name resolution failed"}`.
+- `504` on `POST /api/transcribe` with no corresponding backend logs usually indicates gateway/upstream routing issue before request reaches backend.
+- `401 {"message":"Unauthorized"}` with headers like `www-authenticate: Basic realm="kong"` indicates request was handled by Kong auth layer, not by transcription backend route.
 - Recovery script: `deploy/fix-kong-api-upstream.sh` patches all Kong services with `/api` routes to `http://172.18.0.1:3000/`, restarts `supabase-kong`, and runs smoke checks.
 - On Beget server usage:
   - `cd /opt/psipilot`
   - `chmod +x deploy/fix-kong-api-upstream.sh`
   - `./deploy/fix-kong-api-upstream.sh`
+- Quick diagnostics:
+  - Backend direct health: `curl -i http://localhost:3001/health` (must be `200`)
+  - Gateway health path: `curl -i https://<domain>/api/health` (response source helps identify Kong vs backend path issues)
 
 ### Build Optimization (vite.config.ts)
 Manual chunk splitting for optimal loading:
