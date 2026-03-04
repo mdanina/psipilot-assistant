@@ -9,7 +9,6 @@ import { useToast } from '@/hooks/use-toast';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
   sendMessageToSupervisor,
-  checkSupervisorAvailability,
   type SupervisorRequest,
 } from '@/lib/supervisor-api';
 import {
@@ -63,44 +62,9 @@ export function PatientSupervisorTab({
     return conversationsData?.data || [];
   }, [searchQuery, searchResults, conversationsData]);
 
-  // Проверка доступности при монтировании
+  // Супервизор всегда доступен (backend co-located)
   useEffect(() => {
-    const checkAvailability = async () => {
-      const webhookUrl = import.meta.env.VITE_N8N_SUPERVISOR_WEBHOOK_URL;
-      
-      // Дополнительная проверка для диагностики
-      console.log('[PatientSupervisorTab] Проверка доступности:', {
-        hasWebhookUrl: !!webhookUrl,
-        webhookUrlType: typeof webhookUrl,
-        webhookUrlPreview: webhookUrl ? `${webhookUrl.substring(0, 50)}...` : 'undefined',
-      });
-      
-      const available = await checkSupervisorAvailability();
-      console.log('[PatientSupervisorTab] Результат проверки:', available);
-      setIsAvailable(available);
-      
-      if (!available) {
-        // Check for unconfigured or invalid webhook URL
-        if (!webhookUrl || webhookUrl.trim() === '' || webhookUrl === 'your-n8n-webhook-url-here') {
-          setError(
-            'Супервизор недоступен. Переменная VITE_N8N_SUPERVISOR_WEBHOOK_URL не настроена. ' +
-            (import.meta.env.DEV 
-              ? 'Установите переменную в .env.local и перезапустите dev-сервер.'
-              : 'Для production: переменная должна быть указана при сборке приложения (build time), не только в .env на сервере. Пересоберите приложение с установленной переменной окружения.')
-          );
-        } else {
-          // URL exists but might be invalid format
-          const trimmedUrl = webhookUrl.trim();
-          setError(
-            `Супервизор недоступен. Проверьте правильность URL. Текущее значение: ${trimmedUrl.substring(0, 30)}...`
-          );
-        }
-      } else {
-        // Очищаем ошибку если супервизор доступен
-        setError(null);
-      }
-    };
-    checkAvailability();
+    setIsAvailable(true);
   }, []);
 
   // Автопрокрутка к последнему сообщению
@@ -237,7 +201,7 @@ export function PatientSupervisorTab({
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
-              {error || 'Супервизор недоступен. Проверьте настройку VITE_N8N_SUPERVISOR_WEBHOOK_URL'}
+              {error || 'Супервизор недоступен. Проверьте настройки backend сервиса.'}
             </AlertDescription>
           </Alert>
         </CardContent>

@@ -17,7 +17,7 @@ const RETRY_CONFIG = {
 // Инициализация OpenAI клиента
 let openaiClient = null;
 
-function getOpenAIClient() {
+export function getOpenAIClient() {
   if (!openaiClient) {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
@@ -80,7 +80,7 @@ function isRetryableError(error) {
  * @param {string} operationName - Название операции для логирования
  * @returns {Promise<any>}
  */
-async function executeWithRetry(requestFn, operationName) {
+export async function executeWithRetry(requestFn, operationName) {
   let lastError = null;
 
   for (let attempt = 0; attempt <= RETRY_CONFIG.maxRetries; attempt++) {
@@ -421,6 +421,26 @@ HTML должен быть валидным и готовым для отобр�
 
     throw new Error(`OpenAI API error: ${error.message}`);
   }
+}
+
+/**
+ * Генерация эмбеддинга для текста (для Pinecone RAG)
+ *
+ * @param {string} text - Текст для генерации эмбеддинга
+ * @param {string} [model='text-embedding-ada-002'] - Модель эмбеддингов
+ * @returns {Promise<number[]>} Вектор эмбеддинга
+ */
+export async function generateEmbedding(text, model = 'text-embedding-ada-002') {
+  const makeRequest = async () => {
+    const openai = getOpenAIClient();
+    const response = await openai.embeddings.create({
+      model,
+      input: text,
+    });
+    return response.data[0].embedding;
+  };
+
+  return executeWithRetry(makeRequest, 'generateEmbedding');
 }
 
 /**

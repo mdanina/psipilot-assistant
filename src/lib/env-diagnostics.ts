@@ -10,7 +10,6 @@ const REQUIRED_ENV_VARS = [
 ] as const;
 
 const OPTIONAL_ENV_VARS = [
-  'VITE_N8N_SUPERVISOR_WEBHOOK_URL',
   'VITE_AI_API_URL',
   'VITE_TRANSCRIPTION_API_URL',
   'VITE_ENCRYPTION_KEY',
@@ -71,9 +70,8 @@ export function getEnvDiagnostics(): EnvDiagnostics {
     const value = envObj[varName] as string | undefined;
     // Улучшенная проверка: исключаем undefined, пустые строки, только пробелы, и placeholder значения
     const trimmedValue = value?.trim();
-    const isPlaceholder = trimmedValue === '' || 
-                         trimmedValue === `your-${varName.toLowerCase().replace('vite_', '').replace(/_/g, '-')}-here` ||
-                         trimmedValue === 'your-n8n-webhook-url-here';
+    const isPlaceholder = trimmedValue === '' ||
+                         trimmedValue === `your-${varName.toLowerCase().replace('vite_', '').replace(/_/g, '-')}-here`;
     const isSet = !!(trimmedValue && !isPlaceholder);
     
     optional[varName] = {
@@ -82,10 +80,6 @@ export function getEnvDiagnostics(): EnvDiagnostics {
       preview: value ? (value.length > 50 ? `${value.substring(0, 50)}...` : value) : undefined,
     };
     
-    // Специальные проверки для важных опциональных переменных (только если действительно НЕ установлена)
-    if (varName === 'VITE_N8N_SUPERVISOR_WEBHOOK_URL' && !isSet && mode === 'production') {
-      warnings.push('VITE_N8N_SUPERVISOR_WEBHOOK_URL не настроен - функция супервизора будет недоступна');
-    }
   });
   
   return {

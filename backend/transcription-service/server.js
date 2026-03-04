@@ -9,6 +9,7 @@ import { aiRoute } from './routes/ai.js';
 import { cryptoRoute } from './routes/crypto.js';
 import researchRoute from './routes/research.js';
 import { calendarRoute } from './routes/calendar.js';
+import { supervisorRoute } from './routes/supervisor.js';
 import { verifyAuthToken } from './middleware/auth.js';
 import { authenticateResearcher } from './middleware/research-auth.js';
 
@@ -120,6 +121,16 @@ const cryptoLimiter = rateLimit({
   keyGenerator: (req) => req.user?.id || req.ip, // Rate limit by user ID if authenticated
 });
 
+// Supervisor rate limiter (AI chat, expensive operations)
+const supervisorLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 100, // 100 requests per hour
+  message: { success: false, error: 'Supervisor rate limit exceeded. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.id || req.ip,
+});
+
 // Middleware
 app.use(helmet({
   contentSecurityPolicy: false, // CSP managed by nginx reverse proxy
@@ -165,7 +176,8 @@ app.use('/api', (req, res, next) => {
     path.startsWith('/ai/note-templates') ||
     (path.startsWith('/ai/generate/') && method === 'GET') ||
     (path.startsWith('/transcribe/') && path.endsWith('/status') && method === 'GET') ||
-    path.startsWith('/calendar/feed/');
+    path.startsWith('/calendar/feed/') ||
+    path.startsWith('/supervisor');
   
   if (hasOwnLimiter) {
     return next();
@@ -204,6 +216,9 @@ app.get('/', (req, res) => {
         health: 'GET /api/research/health',
         stats: 'GET /api/research/stats',
         anonymizedTranscripts: 'GET /api/research/anonymized-transcripts'
+      },
+      supervisor: {
+        chat: 'POST /api/supervisor/chat'
       },
       calendar: {
         generateToken: 'POST /api/calendar/generate-token',
@@ -251,6 +266,10 @@ app.use('/api/crypto', verifyAuthToken, cryptoLimiter, cryptoRoute);
 // Research routes с аутентификацией исследователей
 // Rate limiting уже включен в authenticateResearcher middleware
 app.use('/api/research', authenticateResearcher, researchRoute);
+
+// Supervisor routes с аутентификацией и rate limiting
+app.post('/api/supervisor/chat', verifyAuthToken, supervisorLimiter);
+app.use('/api/supervisor', verifyAuthToken, supervisorRoute);
 
 // Calendar routes
 // Public endpoint for iCal feed (token-based auth, no JWT required)
