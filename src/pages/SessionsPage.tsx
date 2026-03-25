@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { Plus, FileText, Circle, User, Link2, Loader2, Mic, Pause, Play, Square, Sparkles, ChevronDown, RefreshCw, Trash2, X, File, Upload, Search, AlertTriangle } from "lucide-react";
+import { Plus, FileText, FileUp, Circle, User, Link2, Loader2, Mic, Pause, Play, Square, Sparkles, ChevronDown, RefreshCw, Trash2, X, File, Upload, Search, AlertTriangle } from "lucide-react";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { useNavigationBlocker } from "@/hooks/useNavigationBlocker";
 import { Button } from "@/components/ui/button";
@@ -22,13 +22,14 @@ import { Input } from "@/components/ui/input";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { getSession, checkSessionClinicalNotes, createSession } from "@/lib/supabase-sessions";
-import { getSessionRecordings, getRecordingStatus, createRecording, uploadAudioFile, updateRecording, startTranscription, syncTranscriptionStatus, deleteRecording } from "@/lib/supabase-recordings";
+import { getSessionRecordings, getRecordingStatus, createRecording, createTextTranscript, uploadAudioFile, updateRecording, startTranscription, syncTranscriptionStatus, deleteRecording } from "@/lib/supabase-recordings";
 import { usePatients } from "@/hooks/usePatients";
 import { useSessions, useSessionsByIds, useCreateSession, useDeleteSession as useDeleteSessionMutation, useCompleteSession, useLinkSessionToPatient, useInvalidateSessions } from "@/hooks/useSessions";
 import { useQueryClient } from "@tanstack/react-query";
 import { getSessionNotes, createSessionNote, deleteSessionNote, getCombinedTranscriptWithNotes } from "@/lib/supabase-session-notes";
 import { getClinicalNotesForSession, generateClinicalNote } from "@/lib/supabase-ai";
 import { SessionNotesDialog } from "@/components/sessions/SessionNotesDialog";
+import { UploadTranscriptDialog } from "@/components/sessions/UploadTranscriptDialog";
 import { CreateSessionDialog } from "@/components/sessions/CreateSessionDialog";
 import { TemplatesLibrary } from "@/components/analysis/TemplatesLibrary";
 import { ClinicalNotesOutput } from "@/components/analysis/output-panel/ClinicalNotesOutput";
@@ -224,6 +225,7 @@ const SessionsPage = () => {
   // Session notes state
   const [sessionNotes, setSessionNotes] = useState<SessionNote[]>([]);
   const [notesDialogOpen, setNotesDialogOpen] = useState(false);
+  const [transcriptDialogOpen, setTranscriptDialogOpen] = useState(false);
 
   // AI Analysis state
   const [clinicalNotes, setClinicalNotes] = useState<GeneratedClinicalNote[]>([]);
@@ -1186,6 +1188,22 @@ const SessionsPage = () => {
         variant: "destructive",
       });
     }
+  };
+
+  const handleUploadTranscript = async (content: string, source: 'manual' | 'file', filename?: string) => {
+    if (!activeSession || !user) {
+      throw new Error('Необходимо выбрать сессию');
+    }
+
+    await createTextTranscript({
+      sessionId: activeSession,
+      text: content,
+      fileName: filename,
+    });
+
+    // Refresh recordings list
+    await loadRecordings(activeSession);
+    queryClient.invalidateQueries({ queryKey: ['sessions'] });
   };
 
   // Polling function with cleanup and max attempts
@@ -2678,6 +2696,16 @@ const SessionsPage = () => {
                 />
                     <Button
                       size="sm"
+                      variant="outline"
+                      className="gap-1"
+                      onClick={() => setTranscriptDialogOpen(true)}
+                      disabled={!activeSession}
+                      title="Загрузить готовый транскрипт"
+                    >
+                      <FileUp className="w-4 h-4" />
+                </Button>
+                    <Button
+                      size="sm"
                       variant="ghost"
                       className="gap-1"
                       onClick={() => setNotesDialogOpen(true)}
@@ -2836,6 +2864,13 @@ const SessionsPage = () => {
         open={notesDialogOpen}
         onOpenChange={setNotesDialogOpen}
         onSave={handleCreateNote}
+      />
+
+      {/* Upload Transcript Dialog */}
+      <UploadTranscriptDialog
+        open={transcriptDialogOpen}
+        onOpenChange={setTranscriptDialogOpen}
+        onSave={handleUploadTranscript}
       />
 
       {/* Create Session Dialog */}

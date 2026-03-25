@@ -94,6 +94,50 @@ export async function createRecording(params: CreateRecordingParams): Promise<Re
 }
 
 /**
+ * Create a text-only transcript recording (no audio file).
+ * The recording is immediately marked as completed with the provided text.
+ */
+export async function createTextTranscript(params: {
+  sessionId: string;
+  text: string;
+  fileName?: string;
+}): Promise<Recording> {
+  const { sessionId, text, fileName } = params;
+
+  const { data: { session } } = await supabase.auth.getSession();
+  const authUid = session?.user?.id;
+  if (!authUid) {
+    throw new Error('No authenticated session. Please re-login.');
+  }
+
+  const recordingData: RecordingInsert = {
+    session_id: sessionId,
+    user_id: authUid,
+    file_path: `text-transcript/${Date.now()}`,
+    file_name: fileName || 'Загруженный транскрипт',
+    mime_type: 'text/plain',
+    file_size_bytes: new Blob([text]).size,
+    transcription_status: 'completed',
+    transcription_text: text,
+  };
+
+  const { data, error } = await supabase
+    .from('recordings')
+    .insert(recordingData)
+    .select()
+    .single();
+
+  if (error) {
+    throw new Error(`Failed to create text transcript: ${error.message}`);
+  }
+  if (!data) {
+    throw new Error('Failed to create text transcript: No data returned');
+  }
+
+  return data;
+}
+
+/**
  * Check if an error is retryable (network errors, timeouts, 5xx errors)
  */
 function isRetryableError(error: unknown): boolean {
