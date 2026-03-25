@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { Send, Loader2, AlertCircle, FileText, MessageSquare, ChevronDown, ChevronUp, Search } from 'lucide-react';
+import { Send, Loader2, AlertCircle, FileText, MessageSquare, ChevronDown, ChevronUp, Search, Play, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,11 +10,17 @@ import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
   sendMessageToSupervisor,
   type SupervisorRequest,
+  type SupervisorPatientContext,
 } from '@/lib/supervisor-api';
+import { usePatient } from '@/hooks/usePatients';
+import { usePatientActivities } from '@/hooks/usePatientActivities';
+import { usePatientCaseSummary } from '@/hooks/usePatientCaseSummary';
+import { getSessionRecordings } from '@/lib/supabase-recordings';
 import {
   getSupervisorConversations,
   searchSupervisorConversations,
   saveSupervisorConversation,
+  updateSupervisorConversation,
   type SupervisorMessage,
   type SupervisorConversationWithMessages,
 } from '@/lib/supabase-supervisor-conversations';
@@ -37,6 +43,7 @@ export function PatientSupervisorTab({
   const [isAvailable, setIsAvailable] = useState<boolean | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedConversations, setExpandedConversations] = useState<Set<string>>(new Set());
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -62,6 +69,87 @@ export function PatientSupervisorTab({
     return conversationsData?.data || [];
   }, [searchQuery, searchResults, conversationsData]);
 
+  // Загружаем данные пациента для контекста супервизора
+  const { data: patient } = usePatient(patientId);
+  const { data: activitiesData } = usePatientActivities(patientId);
+  const { data: caseSummaryData } = usePatientCaseSummary(patientId);
+
+  // Загружаем транскрипты для всех сессий пациента
+  const sessionIds = useMemo(
+    () => (activitiesData?.sessions || []).map((s) => s.id),
+    [activitiesData?.sessions]
+  );
+
+  const { data: transcriptsMap } = useQuery({
+    queryKey: ['supervisor-transcripts', patientId, sessionIds],
+    queryFn: async () => {
+      const map = new Map<string, string[]>();
+      const results = await Promise.allSettled(
+        sessionIds.map((sid) => getSessionRecordings(sid))
+      );
+      results.forEach((result, i) => {
+        if (result.status === 'fulfilled' && result.value.length > 0) {
+          const texts = result.value
+            .filter((r) => r.transcription_status === 'completed' && r.transcription_text)
+            .map((r) => r.transcription_text as string);
+          if (texts.length > 0) {
+            map.set(sessionIds[i], texts);
+          }
+        }
+      });
+      return map;
+    },
+    enabled: sessionIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
+  });
+
+  const supervisorContext = useMemo<SupervisorPatientContext>(() => {
+    const ctx: SupervisorPatientContext = {};
+
+    if (patient) {
+      ctx.patient = {
+        fullName: patient.full_name_decrypted || patientName,
+        dateOfBirth: patient.date_of_birth || undefined,
+        gender: patient.gender || undefined,
+        notes: patient.notes_decrypted || undefined,
+      };
+    }
+
+    if (caseSummaryData?.caseSummary) {
+      ctx.caseSummary = caseSummaryData.caseSummary;
+    }
+
+    if (activitiesData?.sessions?.length) {
+      ctx.sessions = activitiesData.sessions
+        .sort((a, b) => new Date(b.session_date).getTime() - new Date(a.session_date).getTime())
+        .slice(0, 20)
+        .map((s) => ({
+          date: s.session_date,
+          status: s.status,
+          durationMinutes: s.duration_minutes || undefined,
+          summary: s.summary || undefined,
+          notes: s.notes || undefined,
+          transcripts: transcriptsMap?.get(s.id) || undefined,
+        }));
+    }
+
+    if (activitiesData?.clinicalNotes?.length) {
+      ctx.clinicalNotes = activitiesData.clinicalNotes
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, 10)
+        .map((n) => ({
+          title: n.title,
+          status: n.status,
+          createdAt: n.created_at,
+          summary: n.ai_summary || undefined,
+        }));
+    }
+
+    return ctx;
+  }, [patient, patientName, activitiesData, caseSummaryData, transcriptsMap]);
+
   // Супервизор всегда доступен (backend co-located)
   useEffect(() => {
     setIsAvailable(true);
@@ -79,15 +167,23 @@ export function PatientSupervisorTab({
 
   // Мутация для сохранения беседы
   const saveMutation = useMutation({
-    mutationFn: (messagesToSave: SupervisorMessage[]) => 
-      saveSupervisorConversation(patientId, messagesToSave),
+    mutationFn: async (messagesToSave: SupervisorMessage[]) => {
+      if (activeConversationId) {
+        return updateSupervisorConversation(activeConversationId, {
+          messages: messagesToSave as any,
+        });
+      }
+      return saveSupervisorConversation(patientId, messagesToSave);
+    },
     onSuccess: () => {
+      const wasUpdate = !!activeConversationId;
       queryClient.invalidateQueries({ queryKey: ['supervisor-conversations', patientId] });
       queryClient.invalidateQueries({ queryKey: ['patients', patientId, 'activities'] });
       setMessages([]);
+      setActiveConversationId(null);
       toast({
         title: 'Успешно',
-        description: 'Беседа сохранена в активностях пациента',
+        description: wasUpdate ? 'Беседа обновлена' : 'Беседа сохранена в активностях пациента',
       });
     },
     onError: (err: Error) => {
@@ -122,6 +218,7 @@ export function PatientSupervisorTab({
           role: m.role,
           content: m.content,
         })),
+        context: supervisorContext,
       };
 
       const response = await sendMessageToSupervisor(request);
@@ -189,6 +286,20 @@ export function PatientSupervisorTab({
       }
       return next;
     });
+  };
+
+  const handleContinueConversation = (conversation: SupervisorConversationWithMessages) => {
+    setMessages(conversation.messages || []);
+    setActiveConversationId(conversation.id);
+    setError(null);
+    // Scroll to chat after state update
+    setTimeout(() => {
+      scrollAreaRef.current?.scrollTo({ top: scrollAreaRef.current.scrollHeight, behavior: 'smooth' });
+    }, 100);
+  };
+
+  const handleDetachConversation = () => {
+    setActiveConversationId(null);
   };
 
   if (isAvailable === false) {
@@ -282,6 +393,21 @@ export function PatientSupervisorTab({
           )}
 
           <div className="border-t p-4">
+            {activeConversationId && (
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 rounded-md text-sm mb-2">
+                <MessageSquare className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                <span className="text-muted-foreground truncate">Продолжение беседы</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-5 w-5 p-0 ml-auto flex-shrink-0"
+                  onClick={handleDetachConversation}
+                  title="Начать новую беседу"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            )}
             <div className="flex gap-2">
               <Input
                 value={input}
@@ -376,6 +502,15 @@ export function PatientSupervisorTab({
                         )}
                       </div>
                       <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleContinueConversation(conversation)}
+                          className="h-7 px-2"
+                          title="Продолжить беседу"
+                        >
+                          <Play className="w-4 h-4" />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"

@@ -4,12 +4,36 @@
 
 import { supabase } from './supabase';
 
+export interface SupervisorPatientContext {
+  patient?: {
+    fullName?: string;
+    dateOfBirth?: string;
+    gender?: string;
+    notes?: string;
+  };
+  caseSummary?: string;
+  sessions?: Array<{
+    date: string;
+    status: string;
+    durationMinutes?: number;
+    summary?: string;
+    notes?: string;
+    transcripts?: string[];
+  }>;
+  clinicalNotes?: Array<{
+    title: string;
+    status: string;
+    createdAt: string;
+    summary?: string;
+  }>;
+}
+
 export interface SupervisorRequest {
   message: string;
   patientId?: string;
   patientName?: string;
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
-  context?: Record<string, unknown>;
+  context?: SupervisorPatientContext;
 }
 
 export interface SupervisorResponse {
