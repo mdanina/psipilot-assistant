@@ -145,10 +145,26 @@ router.post('/webhook/assemblyai', webhookAuth, async (req, res) => {
     }
 
     console.log('Recording updated successfully:', recording.id, 'Status:', status);
-    res.json({ 
-      success: true, 
+
+    // Delete file from Storage after transcription is finished (completed or error)
+    // to avoid accumulating audio/video files that are no longer needed
+    if ((status === 'completed' || status === 'error') && recording.file_path) {
+      const { error: storageError } = await supabase
+        .storage
+        .from('recordings')
+        .remove([recording.file_path]);
+
+      if (storageError) {
+        console.warn('[webhook] Could not delete file from storage:', recording.file_path, storageError.message);
+      } else {
+        console.log('[webhook] Deleted file from storage:', recording.file_path);
+      }
+    }
+
+    res.json({
+      success: true,
       recordingId: recording.id,
-      status 
+      status
     });
   } catch (error) {
     console.error('Webhook error:', error.message || error);
