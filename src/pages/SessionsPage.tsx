@@ -1852,23 +1852,23 @@ const SessionsPage = () => {
     return `${mins.toString().padStart(2, "0")} : ${secs.toString().padStart(2, "0")}`;
   };
 
-  // Get audio duration from file
+  // Get media duration from file (audio or video)
   const getAudioDuration = (file: File): Promise<number> => {
     return new Promise((resolve, reject) => {
-      const audio = new Audio();
+      const media = document.createElement('video');
       const url = URL.createObjectURL(file);
-      
-      audio.addEventListener('loadedmetadata', () => {
+
+      media.addEventListener('loadedmetadata', () => {
         URL.revokeObjectURL(url);
-        resolve(Math.floor(audio.duration));
+        resolve(Math.floor(media.duration));
       });
-      
-      audio.addEventListener('error', (e) => {
+
+      media.addEventListener('error', (e) => {
         URL.revokeObjectURL(url);
-        reject(new Error('Не удалось определить длительность аудио'));
+        reject(new Error('Не удалось определить длительность файла'));
       });
-      
-      audio.src = url;
+
+      media.src = url;
     });
   };
 
@@ -1892,17 +1892,20 @@ const SessionsPage = () => {
       return;
     }
 
-    // Validate file type
+    // Validate file type (audio and video — AssemblyAI extracts audio track from video)
     // Note: m4a files (Windows Voice Recorder) may report as audio/x-m4a, audio/mp4, or audio/aac
-    const allowedTypes = ['audio/webm', 'audio/mp3', 'audio/wav', 'audio/ogg', 'audio/mpeg', 'audio/mp4', 'audio/x-m4a', 'audio/aac', 'audio/m4a'];
-    // Also check file extension for m4a files that may have empty or incorrect MIME type
+    const allowedTypes = [
+      'audio/webm', 'audio/mp3', 'audio/wav', 'audio/ogg', 'audio/mpeg', 'audio/mp4', 'audio/x-m4a', 'audio/aac', 'audio/m4a',
+      'video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska', 'video/mpeg', 'video/3gpp',
+    ];
+    // Also check file extension for files that may have empty or incorrect MIME type
     const fileExtension = file.name.toLowerCase().split('.').pop();
-    const allowedExtensions = ['webm', 'mp3', 'wav', 'ogg', 'mpeg', 'mp4', 'm4a', 'aac'];
+    const allowedExtensions = ['webm', 'mp3', 'wav', 'ogg', 'mpeg', 'mp4', 'm4a', 'aac', 'mov', 'avi', 'mkv', 'mp4', '3gp'];
 
     if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(fileExtension || '')) {
       toast({
         title: "Ошибка",
-        description: "Неподдерживаемый формат файла. Поддерживаемые форматы: mp3, wav, m4a, ogg, webm, mp4",
+        description: "Неподдерживаемый формат файла. Поддерживаемые форматы: mp3, wav, m4a, ogg, webm, mp4, mov, avi, mkv",
         variant: "destructive",
       });
       return;
@@ -2665,14 +2668,14 @@ const SessionsPage = () => {
                   onClick={() => audioFileInputRef.current?.click()}
                   disabled={!activeSession}
                   className="gap-1"
-                  title="Загрузить аудио файл"
+                  title="Загрузить аудио или видео файл"
                 >
                   <Upload className="w-4 h-4" />
                 </Button>
                 <input
                   ref={audioFileInputRef}
                   type="file"
-                  accept="audio/webm,audio/mp3,audio/wav,audio/ogg,audio/mpeg,audio/mp4,audio/x-m4a,audio/aac,audio/m4a,.m4a,.aac"
+                  accept="audio/webm,audio/mp3,audio/wav,audio/ogg,audio/mpeg,audio/mp4,audio/x-m4a,audio/aac,audio/m4a,.m4a,.aac,video/mp4,video/webm,video/ogg,video/quicktime,video/x-msvideo,video/x-matroska,video/mpeg,video/3gpp,.mov,.avi,.mkv,.3gp"
                   onChange={handleFileInputChange}
                   className="hidden"
                 />
